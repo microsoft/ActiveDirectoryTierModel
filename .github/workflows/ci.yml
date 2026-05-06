@@ -183,7 +183,7 @@ jobs:
     - name: Validate Module Structure
       shell: pwsh
       run: |
-        $modulePath = "modules/TierModel"
+        $modulePath = Join-Path $PWD "modules/TierModel"
         
         # Check module manifest
         if (Test-Path "$modulePath/TierModel.psd1") {
