@@ -12,23 +12,25 @@ Declarative PowerShell framework to deploy and audit an Active Directory Tier Mo
 
 ## 📚 Documentation
 
+> 📖 **Full documentation**: [GitHub Pages - Active Directory Tier Model](https://microsoft.github.io/ActiveDirectoryTierModel)
+
 To get started with TierModel, please refer to our comprehensive documentation:
 
 ### 🚀 Getting Started
-- **[Quick Deployment Guide](docs/quick-deployment-guide.md)** - Fast-track deployment for experienced administrators
-- **[Detailed Deployment Guide](docs/detailed-deployment-guide.md)** - Step-by-step deployment with explanations
-- **[FAQ](docs/faq.md)** - Frequently asked questions covering upgrades, migration from previous versions, troubleshooting, and Sentinel integration
+- **[Quick Deployment Guide](https://microsoft.github.io/ActiveDirectoryTierModel/quick-deployment-guide/)** - Fast-track deployment for experienced administrators
+- **[Detailed Deployment Guide](https://microsoft.github.io/ActiveDirectoryTierModel/detailed-deployment-guide/)** - Step-by-step deployment with explanations
+- **[FAQ](https://microsoft.github.io/ActiveDirectoryTierModel/faq/)** - Frequently asked questions covering upgrades, migration from previous versions, troubleshooting, and Sentinel integration
 
 ### 📖 Core Documentation
-- **[Deployment Methodology](docs/deployment-methodology.md)** - Understanding the deployment approach
-- **[Drift Detection Details](docs/drift-detection-details.md)** - Comprehensive drift auditing and remediation
-- **[Tier Model Logging](docs/tiermodel-logging.md)** - Structured logging and diagnostics
-- **[GPO Management Strategy](docs/gpo-management-strategy.md)** - Group Policy Object management
-- **[ADMX Management](docs/admx-management.md)** - Administrative template handling
-- **[Conditional Principals](docs/conditional-principals.md)** - Domain-specific principal resolution
-- **[CI/CD Integration](docs/ci-cd.md)** - Pipeline integration and automation
-- **[Test Tag Matrix](docs/test-tag-matrix.md)** - Pester test organization
-- **[Test Coverage](docs/test-coverage.md)** - Comprehensive test coverage analysis and roadmap
+- **[Deployment Methodology](https://microsoft.github.io/ActiveDirectoryTierModel/deployment-methodology/)** - Understanding the deployment approach
+- **[Drift Detection Details](https://microsoft.github.io/ActiveDirectoryTierModel/drift-detection-details/)** - Comprehensive drift auditing and remediation
+- **[Tier Model Logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/)** - Structured logging and diagnostics
+- **[GPO Management Strategy](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-strategy/)** - Group Policy Object management
+- **[ADMX Management](https://microsoft.github.io/ActiveDirectoryTierModel/admx-management/)** - Administrative template handling
+- **[Conditional Principals](https://microsoft.github.io/ActiveDirectoryTierModel/conditional-principals/)** - Domain-specific principal resolution
+- **[CI/CD Integration](https://microsoft.github.io/ActiveDirectoryTierModel/ci-cd/)** - Pipeline integration and automation
+- **[Test Tag Matrix](https://microsoft.github.io/ActiveDirectoryTierModel/test-tag-matrix/)** - Pester test organization
+- **[Test Coverage](https://microsoft.github.io/ActiveDirectoryTierModel/test-coverage/)** - Comprehensive test coverage analysis and roadmap
 
 ### 🔧 Technical Specifications
 - **[Feature Specification](specs/001-tier-model-module/spec.md)** - Complete requirements and user stories
@@ -105,8 +107,8 @@ contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additio
 ### Development Setup
 ```powershell
 # Clone repository
-git clone https://github.com/yourorg/TierModel.git
-cd TierModel
+git clone https://github.com/microsoft/ActiveDirectoryTierModel.git
+cd ActiveDirectoryTierModel
 
 # Run tests locally before submitting a PR
 .\tests\Invoke-AllTests.ps1
@@ -123,14 +125,14 @@ cd TierModel
 
 ## 🔗 Additional Resources
 
-- ❓ [Frequently Asked Questions (FAQ)](docs/faq.md)
+- ❓ [Frequently Asked Questions (FAQ)](https://microsoft.github.io/ActiveDirectoryTierModel/faq/)
 - 📦 [Dependencies Configuration](config/dependencies.json)
 - 🗂️ [Configuration Schema](config/tiermodel.schema.json)
 - 📜 [Changelog](CHANGELOG.md)
 
 ---
 
-**Version**: 2.0.0 | **License**: MIT | **Status**: ✅ Production Ready
+**Version**: 1.0.0 | **License**: MIT | **Status**: ✅ Production Ready
 
 ## 🚀 Releasing
 
@@ -138,24 +140,24 @@ This project uses **semantic versioning** (`MAJOR.MINOR.PATCH`) and tag-based re
 
 | Bump | When | Example |
 |------|------|---------|
-| `PATCH` (2.0.**1**) | Bug fix, typo, doc correction | Fix broken ACL rule |
-| `MINOR` (2.**1**.0) | New feature, backward-compatible | Add WinLAPS parameter |
-| `MAJOR` (**3**.0.0) | Breaking change | Restructure config schema |
+| `PATCH` (1.0.**1**) | Bug fix, typo, doc correction | Fix broken ACL rule |
+| `MINOR` (1.**1**.0) | New feature, backward-compatible | Add WinLAPS parameter |
+| `MAJOR` (**2**.0.0) | Breaking change | Restructure config schema |
 
 ### Creating a release
 
 1. Ensure all changes are merged to `main` and CI is green
 2. Tag the release:
    ```bash
-   git tag v2.1.0
-   git push origin v2.1.0
+   git tag v1.1.0
+   git push origin v1.1.0
    ```
 3. The CI pipeline will automatically:
    - Run all tests and enforce code coverage (80% minimum)
-   - Create a `TierModel-2.1.0.zip` release asset
+   - Create a `TierModel-1.1.0.zip` release asset
    - Publish a GitHub Release with auto-generated release notes
 
-You can also create a release from the GitHub UI: **Releases → Create a new release → enter the tag name** (e.g. `v2.1.0`).
+You can also create a release from the GitHub UI: **Releases → Create a new release → enter the tag name** (e.g. `v1.1.0`).
 
 ## Trademarks
 

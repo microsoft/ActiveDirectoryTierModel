@@ -225,7 +225,6 @@ jobs:
         # Copy deployment files
         Copy-Item -Path "Deploy-TierModel.ps1" -Destination $packagePath -Force
         Copy-Item -Path "Audit-TierModel.ps1" -Destination $packagePath -Force
-        Copy-Item -Path "README.md" -Destination $packagePath -Force
         Copy-Item -Path "LICENSE" -Destination $packagePath -Force
         Copy-Item -Path "CHANGELOG.md" -Destination $packagePath -Force
         
@@ -496,7 +495,6 @@ jobs:
         # Copy release files into TierModel folder
         Copy-Item -Path "Deploy-TierModel.ps1" -Destination $stagingPath -Force
         Copy-Item -Path "Audit-TierModel.ps1" -Destination $stagingPath -Force
-        Copy-Item -Path "README.md" -Destination $stagingPath -Force
         Copy-Item -Path "LICENSE" -Destination $stagingPath -Force
         Copy-Item -Path "CHANGELOG.md" -Destination $stagingPath -Force
         Copy-Item -Path "modules" -Destination "$stagingPath/modules" -Recurse -Force
