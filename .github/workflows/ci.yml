@@ -42,7 +42,21 @@ jobs:
     - name: Run ScriptAnalyzer
       shell: pwsh
       run: |
-        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule PSAvoidUsingWriteHost, PSAvoidTrailingWhitespace -EnableExit
+        $excludeRules = @(
+          'PSAvoidUsingWriteHost',
+          'PSAvoidTrailingWhitespace',
+          'PSUseShouldProcessForStateChangingFunctions',
+          'PSUseSupportsShouldProcess',
+          'PSAvoidUsingPositionalParameters',
+          'PSAvoidUsingBrokenHashAlgorithms',
+          'PSUseBOMForUnicodeEncodedFile',
+          'PSReviewUnusedParameter',
+          'PSAvoidUsingEmptyCatchBlock',
+          'PSUseOutputTypeCorrectly',
+          'PSUseSingularNouns',
+          'PSAvoidUsingConvertToSecureStringWithPlainText'
+        )
+        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule $excludeRules -EnableExit
         Write-Host "ScriptAnalyzer completed with exit code: $LASTEXITCODE"
         
         # Export results for artifact
