@@ -120,6 +120,7 @@ jobs:
           $config.CodeCoverage.OutputFormat = 'JaCoCo'
           $config.CodeCoverage.OutputPath = "coverage.xml"
           $config.Output.Verbosity = 'Detailed'
+          $config.Run.PassThru = $true
           
           # Run tests
           $result = Invoke-Pester -Configuration $config
