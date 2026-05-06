@@ -93,9 +93,19 @@ jobs:
         Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
         Write-Host "Pester version: $((Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1).Version)"
         
+    - name: Load AD/GPO Stubs
+      shell: pwsh
+      run: |
+        # Load stub functions for AD/GPO cmdlets (not available without RSAT)
+        . "tests/helpers/ADStubs.ps1"
+        Write-Host "AD/GPO stubs loaded for CI environment"
+
     - name: Run Pester Tests
       shell: pwsh
       run: |
+        # Load stubs into this session as well
+        . "tests/helpers/ADStubs.ps1"
+        
         $testPath = "tests"
         
         if (Test-Path $testPath) {
