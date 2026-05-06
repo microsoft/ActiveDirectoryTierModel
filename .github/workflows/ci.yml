@@ -29,7 +29,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Install PowerShell Modules
       shell: pwsh
@@ -83,7 +83,7 @@ jobs:
         
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Install Dependencies
       shell: pwsh
@@ -178,7 +178,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Validate Module Structure
       shell: pwsh
@@ -261,7 +261,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Install Security Tools
       shell: pwsh
@@ -311,7 +311,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Setup PowerShell Environment
       shell: pwsh
@@ -406,7 +406,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Generate Documentation
       shell: pwsh
@@ -450,7 +450,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Setup Python
       uses: actions/setup-python@v6
@@ -481,7 +481,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       
     - name: Create Release ZIP
       shell: pwsh
