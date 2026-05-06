@@ -1,0 +1,4788 @@
+{
+  "version": "1.0.0",
+  "comment": "Group Policy Objects (GPOs) for complete Tier Model deployment. Changes yearly with security baseline updates from Microsoft SCT, STIG, CIS, and organizational requirements.",
+  "gpos": {
+    "{{DOMAIN_DN}}": {
+      "displayName": "Domain Root",
+      "ImportOnlyGpo": [],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier Model Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "denyApplyGroupPolicy": ["Domain Controllers","Read-only Domain Controllers"],
+          "gpoComment": "The focus of the GPO is to deny members of AD groups that are Tier 0 1 and 2 level of access such as Domain Admins, Enterprise Admins, etc. Outside of endpoints that are Tier 0 such as Domain Controllers and other agents or supporting endpoints within Tier 0. The GPO ACL has an explicit deny to the Domain Controllers group to ensure this policy even if accidently enforced will never apply to Domain Controllers. This GPO does not apply security controls for the local builtin\\Administrators group on endpoints. Windows LAPS is recommended security control to randomize passwords.",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "PawDomainJoin",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - only exist if AD-Integrated DNS was configured during forest/domain setup"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "PawDomainJoin",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - only exist if AD-Integrated DNS was configured during forest/domain setup"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "PawDomainJoin",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - only exist if AD-Integrated DNS was configured during forest/domain setup"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "PawDomainJoin",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - only exist if AD-Integrated DNS was configured during forest/domain setup"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "PawDomainJoin",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - only exist if AD-Integrated DNS was configured during forest/domain setup"
+                  }
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": [],
+          "comment": "Critical GPO to deny logon rights to high-privilege groups and users on non-Tier 0, 1, and 2 endpoints outside the Tier Model OU structure"
+        }
+      ]
+    },
+    "OU=Domain Controllers,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 0 DCs Authentication Silo - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Authentication Silo\\{18998048-29DE-4CB8-8D44-F324CFDCD7A0}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "GPO is required when enabling Authentication Silos for Tier 0 Users and Tier 0 endpoints"
+        },
+        {
+          "name": "*- Tier 0 DCs SOE - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 0 Domain Controllers settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 0 DCs SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 0 DCs SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 0 DCs Firewall Restrictions - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Firewall Restrictions settings export the wfw file from a reference Tier 0 Domain Controller and import here to enforce firewall rules, ensure no local merge is configured."
+        },
+        {
+          "name": "*- Tier 0 DCs MSFT Windows Server 2025 - Domain Controller",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Controller\\{748739AB-9D16-46F7-807C-5602AFED15FF}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 DCs MSFT Windows Server 2025 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Defender Antivirus\\{AA5E941F-A7C5-4D42-AB6C-6873614DBF72}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 DCs BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Server BitLocker\\{1EE4B023-9B78-483B-8AAC-F0DC8AAA6193}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 0 Member Servers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 DCs MSFT Windows Server 2025 - Domain Controller Virtualization Based Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Controller Virtualization Based Security\\{01F7B950-C905-49CA-AA63-9A4F21BDFB73}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 DCs Advanced Audit Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Advanced Audit Policy\\{B448DD5E-706C-4CAC-BC21-AFC798416E5A}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Advanced Audit Policy settings for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 DCs PowerShell Audit Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 DCs MSFT Edge Version v139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 DCs MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 DCs Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Windows Laps\\{C148307B-5601-47EF-AC16-C989444E2E24}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 13,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 DCs MDE Tier 0 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 0 Tag\\{23D50559-0B15-48DC-B12B-698EC071D3E4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 14,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 0 Tag for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        }
+      ],
+      "PostConfigureGpo": []
+    },
+    "OU=Tier 0 Member Servers,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 0 Servers SOE - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 0 Member Server settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 0 Servers SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 0 Servers SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 0 Servers MSFT Windows Server 2025 - Member Server",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Member Server\\{0B76F74A-3730-4D21-81F8-1C27C2B3B278}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 Servers MSFT Windows Server 2025 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Defender Antivirus\\{AA5E941F-A7C5-4D42-AB6C-6873614DBF72}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 Servers BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Server BitLocker\\{1EE4B023-9B78-483B-8AAC-F0DC8AAA6193}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 0 Member Servers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 Servers PowerShell Auditing Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 0 Member Servers, override with SCT, SHF, or SOE."
+        },        {
+          "name": "*- Tier 0 Servers MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 Servers MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 Servers Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Windows LAPS\\{E9069F50-BBDD-492F-9F72-CA89E4593B18}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 Servers MDE Tier 0 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 0 Tag\\{23D50559-0B15-48DC-B12B-698EC071D3E4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 0 Tag for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 Servers MSFT Windows Server 2025 v2506 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Security\\{DC8E5D63-628F-43E4-B51F-249AA9DBF71D}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 0 Servers Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "NT AUTHORITY\\Local account",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                  ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Guests",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+              ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Guests",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": ["CLIUSR"]
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "NT AUTHORITY\\Local account",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": ["CLIUSR"]
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": ["NT SERVICE\\himds"]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-574__Memberof",
+              "*S-1-5-32-574__Members",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "*S-1-5-32-550__Memberof",
+              "*S-1-5-32-550__Members",
+              "*S-1-5-32-576__Memberof",
+              "*S-1-5-32-576__Members",
+              "*S-1-5-32-577__Memberof",
+              "*S-1-5-32-577__Members",
+              "*S-1-5-32-575__Memberof",
+              "*S-1-5-32-575__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-582__Memberof",
+              "*S-1-5-32-582__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": [
+                  "Domain Admins",
+                  "Tier0ServerOperators"
+                ]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": [
+                  "Guest"
+                ]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-555__Members",
+                "memberGroups": [
+                  "Domain Admins",
+                  "Tier0ServerOperators"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 0 Servers Staging Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [],
+          "restrictedGroups": {
+            "emptyGroups": ["*S-1-5-32-544__Memberof"],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": [
+                  "Domain Admins",
+                  "Tier0ServerOperators"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 1 Member Servers,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 1 Servers SOE - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 1 Member Server settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 1 Servers SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 1 Servers SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 1 Servers MSFT Windows Server 2025 - Member Server",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Member Server\\{0B76F74A-3730-4D21-81F8-1C27C2B3B278}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 Servers MSFT Windows Server 2025 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Defender Antivirus\\{AA5E941F-A7C5-4D42-AB6C-6873614DBF72}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 Servers BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Server BitLocker\\{1EE4B023-9B78-483B-8AAC-F0DC8AAA6193}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 1 Member Servers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 Servers PowerShell Auditing Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 0 Member Servers, override with SCT, SHF, or SOE."
+        },        
+        {
+          "name": "*- Tier 1 Servers MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 Servers MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 Servers Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Windows LAPS\\{E9069F50-BBDD-492F-9F72-CA89E4593B18}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 0 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 Servers MDE Tier 1 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 1 Tag\\{4412FAAB-0314-4D0D-9A49-2731346E7792}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 1 Tag for Tier 1 Domain Controllers, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 Servers MSFT Windows Server 2025 v2506 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Security\\{DC8E5D63-628F-43E4-B51F-249AA9DBF71D}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 1 Servers Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Guests",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins", 
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Allowed RODC Password Replication Group",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins", 
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": ["CLIUSR"]
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Domain Admins",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": ["CLIUSR"]
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": ["NT SERVICE\\himds"]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-574__Memberof",
+              "*S-1-5-32-574__Members",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-550__Memberof",
+              "*S-1-5-32-550__Members",
+              "*S-1-5-32-576__Memberof",
+              "*S-1-5-32-576__Members",
+              "*S-1-5-32-577__Memberof",
+              "*S-1-5-32-577__Members",
+              "*S-1-5-32-575__Memberof",
+              "*S-1-5-32-575__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-582__Memberof",
+              "*S-1-5-32-582__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier1ServerOperators"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-555__Members",
+                "memberGroups": ["Tier1ServerOperators"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 1 Servers Staging Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [],
+          "restrictedGroups": {
+            "emptyGroups": ["*S-1-5-32-544__Memberof"],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier1ServerOperators"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 2 EUA SOE - User",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 2 End-User Accounts settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 2 EUA SHF [Provider] [Version] - User",
+          "rename": "*- Tier 2 EUA SHF",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Windows 11 25H2 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - User\\{D233D0A9-D74E-4AEE-9B89-2398C7AD1DDE}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Internet Explorer 11 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - User\\{56977988-BEEC-4E61-B649-731EC7AB997B}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Microsoft 365 Apps v2412 - DDE Block - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - DDE Block - User\\{39543EEF-CD1A-4112-B175-2F60DC64694B}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Microsoft 365 Apps v2412 - Require Macro Signing - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - Require Macro Signing - User\\{EC4D0F20-D691-401B-9BC3-A68B3D218482}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Microsoft 365 Apps v2412 - Legacy File Block - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - Legacy File Block - User\\{B3B3D62C-D67A-446E-936D-305185ECD4FC}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUA MSFT Microsoft 365 Apps v2412 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - User\\{D7B7C990-5BC8-4532-806F-C5AC2C27FB3F}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": []
+    },
+    "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 2 EUD SOE - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 2 End-User Devices settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 2 EUD SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 2 EUD SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Windows 11 25H2 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Computer\\{02DB0E53-0925-4E5A-B775-E7A1A9370AB8}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Windows 11 25H2 - BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - BitLocker\\{E2D5B48E-8BB0-4ACC-AEB6-8DD82FDD825F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Windows 11 25H2 - Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Credential Guard\\{FC357767-040F-49C3-965E-B071D17C29A0}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Windows 11 25H2 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Defender Antivirus\\{D42CD0A5-F321-4CB1-ADA9-03A0F0A6E3B2}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Windows LAPS\\{E9069F50-BBDD-492F-9F72-CA89E4593B18}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 2 End-User Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Microsoft 365 Apps v2412 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - Computer\\{F53050BE-A53F-48DC-8C67-50CA2C0D2110}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Microsoft 365 Apps v2412 - Legacy JScript Block - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Microsoft 365 Apps v2412 - Legacy JScript Block - Computer\\{319FE804-0C4D-4DAD-9945-E5D9AC472F2B}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 EUD MSFT Windows 11 25H2 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Domain Security\\{666ED8AB-DF4A-45CE-9666-61F802515051}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 13,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 2 EUD Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins", 
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2Admins",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-555__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-568__Memberof",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier2LocalDeviceOperators"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-568__Members",
+                "memberGroups": ["IUSR"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+          {
+          "name": "*- Tier Model PAW Staging BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - BitLocker\\{E2D5B48E-8BB0-4ACC-AEB6-8DD82FDD825F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier Model PAW Staging Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+                        {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": [
+                  "Tier0Admins",
+                  "Tier1Admins",
+                  "Tier2Admins"
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": ["*S-1-5-32-544__Memberof"],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": [
+                  "Tier0Admins",
+                  "Tier1Admins",
+                  "Tier2Admins"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 0 Accounts,OU=Tier 0,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 0 PAWs SOE - User",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 0 User Account settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 0 PAWs SHF [Provider] [Version] - User",
+          "rename": "*- Tier 0 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 0 PAWs Internet Access Configuration - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Internet Access\\{51F01138-68A0-469C-B02A-FDAEC97B15FF}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to block all Internet Access for Tier 0 PAW User Accounts. Overwrite policy in the User SOE."
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows 11 25H2 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - User\\{D233D0A9-D74E-4AEE-9B89-2398C7AD1DDE}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Internet Explorer 11 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - User\\{56977988-BEEC-4E61-B649-731EC7AB997B}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": []
+    },
+    "OU=Tier 0 PAW Devices,OU=Tier 0,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 0 PAWs SOE - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Computer SOE\\{94D9A5C3-0E9E-4AEB-8597-04DD739A2BFF}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 0 PAW Devices settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 0 PAWs SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 0 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 0 PAWs Firewall Restrictions - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Firewall Restrictions settings export the wfw file from a reference Tier 0 PAW Devices and import here to enforce firewall rules, ensure no local merge is configured."
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows 11 25H2 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Computer\\{02DB0E53-0925-4E5A-B775-E7A1A9370AB8}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows 11 25H2 - BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - BitLocker\\{E2D5B48E-8BB0-4ACC-AEB6-8DD82FDD825F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows 11 25H2 - Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Credential Guard\\{FC357767-040F-49C3-965E-B071D17C29A0}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows 11 25H2 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Defender Antivirus\\{D42CD0A5-F321-4CB1-ADA9-03A0F0A6E3B2}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW BitLocker\\{BB7323D0-49C6-4E0C-9FBE-13225A3B8C2F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 0 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 PAWs PowerShell Auditing Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 0 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs Devices Base AppLocker - Enforcement",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Enforce\\{68EDE965-4321-4910-AEE0-7BE3D1378DB4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 13,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs Devices Base AppLocker - Audit",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Audit\\{02F4B284-7505-489F-8FDF-9EB817530ABB}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 14,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 0 PAWs Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Windows Laps\\{C148307B-5601-47EF-AC16-C989444E2E24}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 15,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 0 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 PAWs MDE Tier 0 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 0 Tag\\{23D50559-0B15-48DC-B12B-698EC071D3E4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 16,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 0 Tag for Tier 0 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 0 PAWs MSFT Windows Server 2025 v2506 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Security\\{DC8E5D63-628F-43E4-B51F-249AA9DBF71D}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 17,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 0 PAWs Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\PAW Account Restrictions\\{84CF8070-6120-4826-ADE0-E0EF54C4EA02}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier0Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier0Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "NT AUTHORITY\\Local account",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Guests",
+                  "NT AUTHORITY\\Local account",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Guests",
+                  "NT AUTHORITY\\Local account",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-568__Memberof",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier0Admins","Domain Admins"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-568__Members",
+                "memberGroups": ["IUSR"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-555__Members",
+                "memberGroups": ["Tier0Operators"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 1 PAWs SOE - User",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 1 User Account settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 1 PAWs SHF [Provider] [Version] - User",
+          "rename": "*- Tier 1 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 1 PAWs Internet Access Configuration - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Internet Access\\{51F01138-68A0-469C-B02A-FDAEC97B15FF}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to block all Internet Access for Tier 1 PAW User Accounts. Overwrite policy in the User SOE."
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows 11 25H2 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - User\\{D233D0A9-D74E-4AEE-9B89-2398C7AD1DDE}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Internet Explorer 11 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - User\\{56977988-BEEC-4E61-B649-731EC7AB997B}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": []
+    },
+    "OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 1 PAWs SOE - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Computer SOE\\{94D9A5C3-0E9E-4AEB-8597-04DD739A2BFF}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 1 PAW Devices settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 1 PAWs SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 1 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 1 PAWs Firewall Restrictions - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Firewall Restrictions settings export the wfw file from a reference Tier 1 PAW Devices and import here to enforce firewall rules, ensure no local merge is configured."
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows 11 25H2 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Computer\\{02DB0E53-0925-4E5A-B775-E7A1A9370AB8}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows 11 25H2 - BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - BitLocker\\{E2D5B48E-8BB0-4ACC-AEB6-8DD82FDD825F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows 11 25H2 - Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Credential Guard\\{FC357767-040F-49C3-965E-B071D17C29A0}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows 11 25H2 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Defender Antivirus\\{D42CD0A5-F321-4CB1-ADA9-03A0F0A6E3B2}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW BitLocker\\{BB7323D0-49C6-4E0C-9FBE-13225A3B8C2F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 1 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 PAWs PowerShell Auditing Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 1 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs Devices Base AppLocker - Enforcement",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Enforce\\{68EDE965-4321-4910-AEE0-7BE3D1378DB4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 13,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs Devices Base AppLocker - Audit",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Audit\\{02F4B284-7505-489F-8FDF-9EB817530ABB}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 14,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 1 PAWs Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Windows Laps\\{C148307B-5601-47EF-AC16-C989444E2E24}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 15,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 1 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 PAWs MDE Tier 1 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 1 Tag\\{4412FAAB-0314-4D0D-9A49-2731346E7792}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 16,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 1 Tag for Tier 1 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 1 PAWs MSFT Windows Server 2025 v2506 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Security\\{DC8E5D63-628F-43E4-B51F-249AA9DBF71D}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 17,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 1 PAWs Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\PAW Account Restrictions\\{84CF8070-6120-4826-ADE0-E0EF54C4EA02}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier1Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier1Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-568__Memberof",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier1Admins"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-568__Members",
+                "memberGroups": ["IUSR"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-555__Members",
+                "memberGroups": ["Tier1Operators"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 2 PAWs SOE - User",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 2 User Account settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 2 PAWs SHF [Provider] [Version] - User",
+          "rename": "*- Tier 2 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 2 PAWs Internet Access Configuration - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Internet Access\\{51F01138-68A0-469C-B02A-FDAEC97B15FF}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to block all Internet Access for Tier 2 PAW User Accounts. Overwrite policy in the User SOE."
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows 11 25H2 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - User\\{D233D0A9-D74E-4AEE-9B89-2398C7AD1DDE}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Internet Explorer 11 - User",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - User\\{56977988-BEEC-4E61-B649-731EC7AB997B}",
+          "gpoStatus": "ComputerSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        }
+      ],
+      "PostConfigureGpo": []
+    },
+    "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 2 PAWs SOE - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Computer SOE\\{94D9A5C3-0E9E-4AEB-8597-04DD739A2BFF}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 2,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Place holder for Standard Operating Environment (SOE) settings for Tier 2 PAW Devices settings to be configured post-deployment"
+        },
+        {
+          "name": "*- Tier 2 PAWs SHF [Provider] [Version] - Computer",
+          "rename": "*- Tier 2 PAWs SHF",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 3,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Secure Harden Framework (SHF) settings from Industry baselines such as STIG, NIST, CIS, etc. Update [Provider] [Version] example CIS v1.1.0, or [Version] could be date such as MMYY format"
+        },
+        {
+          "name": "*- Tier 2 PAWs Firewall Restrictions - Computer",
+          "mode": "create",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 4,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Place holder for Firewall Restrictions settings export the wfw file from a reference Tier 2 PAW Devices and import here to enforce firewall rules, ensure no local merge is configured."
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows 11 25H2 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Computer\\{02DB0E53-0925-4E5A-B775-E7A1A9370AB8}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 5,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows 11 25H2 - BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - BitLocker\\{E2D5B48E-8BB0-4ACC-AEB6-8DD82FDD825F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 6,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows 11 25H2 - Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Credential Guard\\{FC357767-040F-49C3-965E-B071D17C29A0}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 7,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows 11 25H2 - Defender Antivirus",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows 11 25H2 - Defender Antivirus\\{D42CD0A5-F321-4CB1-ADA9-03A0F0A6E3B2}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 8,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs BitLocker",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW BitLocker\\{BB7323D0-49C6-4E0C-9FBE-13225A3B8C2F}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 9,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended BitLocker settings for Tier 2 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 2 PAWs PowerShell Auditing Policy - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\Powershell Auditing\\{082A9762-9145-4AE5-A36D-508EB5149752}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 10,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended PowerShell Auditing settings for Tier 2 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Edge Version 139 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\Microsoft Edge v139 Security Baseline\\{16DA0BE5-5405-481B-B004-BC965D5DB242}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 11,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Internet Explorer 11 - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Internet Explorer 11 - Computer\\{1879C2DC-00C6-4692-B167-15B9366DF5D4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 12,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs Devices Base AppLocker - Enforcement",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Enforce\\{68EDE965-4321-4910-AEE0-7BE3D1378DB4}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 13,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs Devices Base AppLocker - Audit",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\PAW Applocker Audit\\{02F4B284-7505-489F-8FDF-9EB817530ABB}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 14,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline"
+        },
+        {
+          "name": "*- Tier 2 PAWs Windows LAPS - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\domain_controller\\Windows Laps\\{C148307B-5601-47EF-AC16-C989444E2E24}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 15,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable recommended Windows LAPS settings for Tier 2 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 2 PAWs MDE Tier 2 Group Tag - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\common\\MDE Tier 2 Tag\\{55C102D0-5DED-4538-BC2F-4AF7FCAABDCC}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 16,
+          "linkEnabled" : false,
+          "gpoComment": "",
+          "comment": "Custom Tier Model policy to enable Microsoft Defender for Endpoint (MDE) Tier 2 Tag for Tier 2 PAW Devices, override with SCT, SHF, or SOE."
+        },
+        {
+          "name": "*- Tier 2 PAWs MSFT Windows Server 2025 v2506 - Domain Security",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Domain Security\\{DC8E5D63-628F-43E4-B51F-249AA9DBF71D}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 17,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier 2 PAWs Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\PAW Account Restrictions\\{84CF8070-6120-4826-ADE0-E0EF54C4EA02}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier2Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier2Operators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "NT AUTHORITY\\Local account",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-568__Memberof",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier2Admins"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-568__Members",
+                "memberGroups": ["IUSR"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-555__Members",
+                "memberGroups": ["Tier2Operators"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}": {
+      "ImportOnlyGpo": [],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier Model Computer Quarantine Account Restrictions",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Quarantine Restrictions\\{22F75F61-A4D5-42DE-8277-95492BBB497E}",
+          "gpoStatus": "UserSettingsDisabled",
+          "linkOrder": 1,
+          "linkEnabled" : true,
+          "gpoComment": "",
+          "userRightsAssignments": [
+           {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier2ComputerQuarantineOperators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Tier2ComputerQuarantineOperators"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Authenticated Users",
+                  "Guests"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Authenticated Users",
+                  "Guests"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Authenticated Users",
+                  "Guests"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins", 
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Authenticated Users",
+                  "Guests"
+                ],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight",
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [
+              "*S-1-5-32-544__Memberof",
+              "*S-1-5-32-551__Memberof",
+              "*S-1-5-32-551__Members",
+              "*S-1-5-32-569__Memberof",
+              "*S-1-5-32-569__Members",
+              "*S-1-5-32-578__Memberof",
+              "*S-1-5-32-578__Members",
+              "*S-1-5-32-556__Memberof",
+              "*S-1-5-32-556__Members",
+              "*S-1-5-32-555__Memberof",
+              "*S-1-5-32-555__Members",
+              "*S-1-5-32-552__Memberof",
+              "*S-1-5-32-552__Members",
+              "*S-1-5-32-579__Memberof",
+              "*S-1-5-32-579__Members",
+              "*S-1-5-32-583__Memberof",
+              "*S-1-5-32-583__Members",
+              "*S-1-5-32-562__Memberof",
+              "*S-1-5-32-562__Members",
+              "*S-1-5-32-573__Memberof",
+              "*S-1-5-32-573__Members",
+              "*S-1-5-32-546__Memberof",
+              "*S-1-5-32-568__Memberof",
+              "*S-1-5-32-585__Memberof",
+              "*S-1-5-32-585__Members",
+              "*S-1-5-32-559__Memberof",
+              "*S-1-5-32-559__Members",
+              "*S-1-5-32-558__Memberof",
+              "*S-1-5-32-558__Members",
+              "*S-1-5-32-580__Memberof",
+              "*S-1-5-32-580__Members",
+              "Power Users__Memberof",
+              "Power Users__Members",
+              "User Mode Hardware Operators__Memberof",
+              "User Mode Hardware Operators__Members"
+            ],
+            "membershipGroups": [
+              {
+                "groupSidOrName": "*S-1-5-32-544__Members",
+                "memberGroups": ["Tier2ComputerQuarantineOperators"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-546__Members",
+                "memberGroups": ["Guest"]
+              },
+              {
+                "groupSidOrName": "*S-1-5-32-568__Members",
+                "memberGroups": ["IUSR"]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "TemplateGpos": {
+      "displayName": "Template GPOs - Not Linked to OUs",
+      "ImportOnlyGpo": [
+        {
+          "name": "*- Tier 0 Servers MSFT Windows Server 2025 - Member Server Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Member Server Credential Guard\\{29A19A94-6076-470F-AC18-5A22C4283B2B}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline, should be linked at Tier 0 Application OU level that support Credential Guard, not all Application support Credential Guard"
+        },
+        {
+          "name": "*- Tier 1 Servers MSFT Windows Server 2025 - Member Server Credential Guard",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\microsoft_sct\\MSFT Windows Server 2025 v2506 - Member Server Credential Guard\\{29A19A94-6076-470F-AC18-5A22C4283B2B}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "comment": "Imported from Microsoft SCT Baseline, should be linked at Tier 1 Application OU level that support Credential Guard, not all Application support Credential Guard"
+        },
+        {
+          "name": "*- Tier Model Template Firewall Audit - Computer",
+          "mode": "createAndImport",
+          "importPath": "config\\gpo\\templates\\Windows Firewall Audit Mode\\{7B7B0F4E-4138-4A98-8B08-20B0B9CB1999}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "comment": "Template GPO to be cloned. Configures the Windows Firewall in Audit mode (Any/Any) to collect logs for analysis before enabling block mode, link to OUs temporary as required."
+        }
+      ],
+      "PostConfigureGpo": [
+        {
+          "name": "*- Tier Model Template Security Baseline - Computer",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight", 
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight", 
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": ["NT SERVICE\\himds"]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template default allow access baseline for Tier Mode application deployments, should be updated with additional User Rights Assignments and Restricted Groups based on application requirements."
+        },
+        {
+          "name": "*- Tier Model Template IIS URA - Computer",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Everyone"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight", 
+              "principals": {
+                "resolvableGroups": ["IIS_IUSRS"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight", 
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\himds",
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic"
+                ]
+              }
+            },
+            {
+              "right": "SeImpersonatePrivilege", 
+              "principals": {
+                "resolvableGroups": ["Administrators","IIS_IUSRS"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeIncreaseQuotaPrivilege", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic"
+                ]
+              }
+            },
+            {
+              "right": "SeAuditPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic"
+                ]
+              }
+            },
+            {
+              "right": "SeAssignPrimaryTokenPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic"
+                ]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template contains the default IIS User Rights Assignments with local virtual accounts for application pool identities, should be updated with additional User Rights Assignments and Restricted Groups based on application requirements."
+        },
+        {
+          "name": "*- Tier Model Template SQL URA - Computer",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Authenticated Users"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight", 
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\himds",
+                  "NT SERVICE\\SSISTELEMETRY130",
+                  "NT SERVICE\\SQLTELEMETRY",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLFDLauncher",
+                  "NT SERVICE\\MsDtsServer130",
+                  "NT SERVICE\\MsDtsServer120",
+                  "NT SERVICE\\MsDtsServer140",
+                  "NT SERVICE\\MsDtsServer150",
+                  "NT SERVICE\\MsDtsServer160",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQLServerOLAPService",
+                  "NT SERVICE\\SSASTELEMETRY",
+                  "NT SERVICE\\SSISTELEMETRY130",
+                  "NT SERVICE\\SSISTELEMETRY140",
+                  "NT SERVICE\\SSISTELEMETRY150",
+                  "NT SERVICE\\SSISTELEMETRY160",
+                  "NT SERVICE\\SSISScaleOutMaster140",
+                  "NT SERVICE\\SSISScaleOutMaster150",
+                  "NT SERVICE\\SSISScaleOutMaster160",
+                  "NT SERVICE\\SSISScaleOutWorker140",
+                  "NT SERVICE\\SSISScaleOutWorker150",
+                  "NT SERVICE\\SSISScaleOutWorker160",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK",
+                  "NT SERVICE\\MSSQL$MICROSOFT##WID"
+                ]
+              }
+            },
+            {
+              "right": "SeIncreaseQuotaPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK"
+                ]
+              }
+            },
+            {
+              "right": "SeChangeNotifyPrivilege", 
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Backup Operators",
+                  "Everyone"
+                ],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\SQLTELEMETRY$ADK",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK"
+                ]
+              }
+            },
+            {
+              "right": "SeAssignPrimaryTokenPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK"
+                ]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template contains the default SQL local virtual accounts user rights assignments, should be updated with additional User Rights Assignments and Restricted Groups based on application requirements."
+        },
+        {
+          "name": "*- Tier Model Template IIS and SQL URA - Computer",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": ["Everyone"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeRemoteInteractiveLogonRight", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeBatchLogonRight", 
+              "principals": {
+                "resolvableGroups": ["IIS_IUSRS"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeServiceLogonRight", 
+              "principals": {
+                "resolvableGroups": ["SYSTEM"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\himds",
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic",
+                  "NT SERVICE\\SSISTELEMETRY130",
+                  "NT SERVICE\\SQLTELEMETRY",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLFDLauncher",
+                  "NT SERVICE\\MsDtsServer130",
+                  "NT SERVICE\\MsDtsServer120",
+                  "NT SERVICE\\MsDtsServer140",
+                  "NT SERVICE\\MsDtsServer150",
+                  "NT SERVICE\\MsDtsServer160",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQLServerOLAPService",
+                  "NT SERVICE\\SSASTELEMETRY",
+                  "NT SERVICE\\SSISTELEMETRY130",
+                  "NT SERVICE\\SSISTELEMETRY140",
+                  "NT SERVICE\\SSISTELEMETRY150",
+                  "NT SERVICE\\SSISTELEMETRY160",
+                  "NT SERVICE\\SSISScaleOutMaster140",
+                  "NT SERVICE\\SSISScaleOutMaster150",
+                  "NT SERVICE\\SSISScaleOutMaster160",
+                  "NT SERVICE\\SSISScaleOutWorker140",
+                  "NT SERVICE\\SSISScaleOutWorker150",
+                  "NT SERVICE\\SSISScaleOutWorker160",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK",
+                  "NT SERVICE\\MSSQL$MICROSOFT##WID"
+                ]
+              }
+            },
+            {
+              "right": "SeImpersonatePrivilege", 
+              "principals": {
+                "resolvableGroups": ["Administrators","IIS_IUSRS"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            },
+            {
+              "right": "SeChangeNotifyPrivilege", 
+              "principals": {
+                "resolvableGroups": [
+                  "Administrators",
+                  "Backup Operators",
+                  "Everyone"
+                ],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "NT SERVICE\\SQLTELEMETRY$ADK",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK"
+                ]
+              }
+            },
+            {
+              "right": "SeIncreaseQuotaPrivilege", 
+              "principals": {
+                "resolvableGroups": ["Administrators"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK"
+                ]
+              }
+            },
+            {
+              "right": "SeAuditPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic"
+                ]
+              }
+            },
+            {
+              "right": "SeAssignPrimaryTokenPrivilege", 
+              "principals": {
+                "resolvableGroups": [],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": [
+                  "IIS APPPOOL\\DefaultAppPool",
+                  "IIS APPPOOL\\Classic .NET AppPool",
+                  "IIS APPPOOL\\.NET v4.5",
+                  "IIS APPPOOL\\.NET v2.0",
+                  "IIS APPPOOL\\.NET v4.5 Classic",
+                  "IIS APPPOOL\\.NET v2.0 Classic",
+                  "NT SERVICE\\SQLSERVERAGENT",
+                  "NT SERVICE\\MSSQLSERVER",
+                  "NT SERVICE\\MSSQLLaunchpad",
+                  "NT SERVICE\\MSSQL$ADK",
+                  "NT SERVICE\\SQLTELEMETRY$ADK"
+                ]
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is a combined GPO containing all the IIS and SQL virtual account URAs, typically found on test or QA system where IIS and SQL are co-located, should be updated with additional User Rights Assignments and Restricted Groups based on application requirements."
+        },
+        {
+          "name": "*- Tier Model Template Tier 0 Servers Account Restrictions - Override - Deny Batch",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [                  
+                  "Administrator",
+                  "Guests",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+              ],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Batch URA for Tier 0 Member servers, by default members of Administrators group cannot run schedule task, but some application may require the account to be local admin, this GPO removes the Administrators group from the Deny."
+        },
+        {
+          "name": "*- Tier Model Template Tier 0 Servers Account Restrictions - Override - Deny Network",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Network URA for Tier 0 Member servers, by default members of local accounts cannot access the network, but when dealing with Failover Clustering and the CLIUSR account requires network access."
+        },
+        {
+          "name": "*- Tier Model Template Tier 0 Servers Account Restrictions - Override - Deny Remote Desktop",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Guests",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Network URA for Tier 0 Member servers, by default members of local accounts cannot RDP into servers; however, some vaulting solutions only use local accounts to provide RDP."
+        },
+        {
+          "name": "*- Tier Model Template Tier 0 Servers Account Restrictions - Override - Deny Service",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Guests",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [],
+                "conditionalGroups": [],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Batch URA for Tier 0 Member servers, by default members of Administrators group cannot run services, but some application may require the account to be local admin, this GPO removes the Administrators group from the Deny."
+        },
+        {
+          "name": "*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Batch",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyBatchLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+              ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Batch URA for Tier 1 Member servers, by default members of Administrators group cannot run schedule task, but some application may require the account to be local admin, this GPO removes the Administrators group from the Deny."
+        },
+        {
+          "name": "*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Network",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyNetworkLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Guests",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Network URA for Tier 1 Member servers, by default members of local accounts cannot access the network, but when dealing with Failover Clustering and the CLIUSR account requires network access."
+        },
+        {
+          "name": "*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Remote Desktop",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyRemoteInteractiveLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Domain Admins",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1ServiceAccounts",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Network URA for Tier 1 Member servers, by default members of local accounts cannot RDP into servers; however, some vaulting solutions only use local accounts to provide RDP."
+        },
+        {
+          "name": "*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Service",
+          "mode": "createImportAndConfigure",
+          "importPath": "config\\gpo\\common\\Tier Model Account Restrictions\\{1A4F087D-B26D-45B3-95B5-3BD3ABB76C95}",
+          "gpoStatus": "UserSettingsDisabled",
+          "gpoComment": "",
+          "userRightsAssignments": [
+            {
+              "right": "SeDenyServiceLogonRight",
+              "principals": {
+                "resolvableGroups": [
+                  "Administrator",
+                  "Allowed RODC Password Replication Group",
+                  "Cert Publishers",
+                  "Cloneable Domain Controllers",
+                  "Cryptographic Operators",
+                  "Domain Admins",
+                  "Domain Controllers",
+                  "Group Policy Creator Owners",
+                  "Guests",
+                  "Key Admins",
+                  "Read-only Domain Controllers",
+                  "Tier0Admins",
+                  "Tier0Operators",
+                  "Tier0ServerOperators",
+                  "Tier0ServiceAccounts",
+                  "Tier0VpnAccounts",
+                  "Tier1Admins",
+                  "Tier1Operators",
+                  "Tier1ServerDomainJoin",
+                  "Tier1ServerOperators",
+                  "Tier1VpnAccounts",
+                  "Tier2AccountOperators",
+                  "Tier2Admins",
+                  "Tier2ComputerQuarantineOperators",
+                  "Tier2DeviceOperators",
+                  "Tier2GroupOperators",
+                  "Tier2HelpdeskOperators",
+                  "Tier2LocalDeviceOperators",
+                  "Tier2Operators",
+                  "Tier2ServiceAccounts",
+                  "Tier2VpnAccounts"
+                ],
+                "forestRootOnly": [
+                  "Enterprise Admins",
+                  "Enterprise Key Admins",
+                  "Enterprise Read-only Domain Controllers",
+                  "Schema Admins"
+                ],
+                "conditionalGroups": [
+                  {
+                    "names": ["DnsAdmins", "DnsUpdateProxy"],
+                    "conditions": [
+                      {
+                        "type": "groupExists",
+                        "operator": "exists"
+                      }
+                    ],
+                    "comment": "AD-Integrated DNS groups - deny if they exist"
+                  }
+                ],
+                "literalStrings": []
+              }
+            }
+          ],
+          "restrictedGroups": {
+            "emptyGroups": [],
+            "membershipGroups": []
+          },
+          "comment": "Template GPO to be cloned. This template is the Deny Batch URA for Tier 1 Member servers, by default members of Administrators group cannot run services, but some application may require the account to be local admin, this GPO removes the Administrators group from the Deny."
+        }
+      ]
+    }
+  }
+}

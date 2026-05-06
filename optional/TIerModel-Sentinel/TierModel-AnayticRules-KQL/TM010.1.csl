@@ -1,0 +1,36 @@
+//Analytic Rule = PROD (TM010.1) - BITLOCKER - Add Bitlocker Recovery Key to Tier Level Computer Object
+//Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
+//Automation Rule = PROD (TM010) - BITLOCKER - Add Bitlocker Recovery Key to Tier Level Computer Object
+SecurityEvent
+| where EventID == 5137
+    and (EventData matches regex @"(?i)OU=Domain Controllers"
+        or EventData matches regex @"(?i)OU=Tier 0 PAW"
+        or EventData matches regex @"(?i)OU=Tier 1 PAW"
+        or EventData matches regex @"(?i)OU=Tier 2 PAW"
+        or EventData matches regex @"(?i)OU=Tier 0 Member Servers"
+        or EventData matches regex @"(?i)OU=Tier 1 Member Servers")
+| extend ObjectClass = extract("<Data Name=\"ObjectClass\">([^<]+)</Data>", 1, EventData)
+| where ObjectClass has "msFVE-RecoveryInformation"
+| extend ObjectBitName_e = extract("<Data Name=\"ObjectDN\">([^<]+)</Data>", 1, EventData)
+| extend ObjectFullName = extract("(?i)(CN=[^,]+,(?i)OU=[^,]+)", 1, ObjectBitName_e)
+| extend ObjectName = extract("(?i)CN=([^,]+)", 1, ObjectFullName)
+| extend ObjectTier = case(
+    ObjectFullName has "Tier 0", "Tier 0",
+    ObjectFullName has "Tier 1", "Tier 1",
+    ObjectFullName has "Tier Model Administration", "Tier 0",
+    ObjectFullName has "Tier Model Computer Quarantine", "Tier 0",
+    ObjectFullName has "Domain Controllers", "Tier 0",
+    "Unknown")
+| extend ActivityType = extract("([a-zA-Z]+)\\.$", 1, Activity)
+| extend Domain = extract("([^.]+\\.[^.]+)$", 1, Computer)
+| project TimeGenerated
+   , ObjectName
+   , ObjectTier
+   , ObjectClass
+   , ActivityType
+   , Account
+   , Domain
+   , Computer
+   , Channel
+   , EventID
+   , EventData

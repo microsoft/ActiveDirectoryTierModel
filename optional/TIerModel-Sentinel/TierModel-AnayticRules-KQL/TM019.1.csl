@@ -1,0 +1,16 @@
+//Analytic Rule = PROD (TM019.1) - TRUST - A new AD Trust has been established
+//Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
+SecurityEvent 
+| where EventID == 5137 and EventData has '"ObjectClass">trustedDomain' and EventData has 'CN=System'
+| extend ObjectName = extract("(?i)CN=([^,]+),(?i)CN=System", 1, EventData)
+| extend ActivityType = extract("([a-zA-Z]+)\\.$", 1, Activity)
+| extend Domain = extract("([^.]+\\.[^.]+)$", 1, Computer)
+| project TimeGenerated
+        , ObjectName
+        , ActivityType
+        , Account
+        , Domain
+        , Computer
+        , Channel
+        , EventID
+        , EventData

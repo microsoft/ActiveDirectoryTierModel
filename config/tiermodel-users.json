@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "comment": "Service user accounts for Tier Model. Rarely changes after initial deployment.",
+  "users": [
+    {
+      "samAccountName": "svc-pawdomainjoin",
+      "displayName": "svc-pawdomainjoin",
+      "ouPath": "OU=Tier 0 Service Accounts,OU=Tier 0,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "description": "This account has the rights to domain join to the PAW Staging OU",
+      "enabled": false,
+      "memberOf": [
+        "PAWDomainJoin"
+      ],
+      "comment": "Used for automated provision of PAW devices into the Tier Model staging OU for domain join, else leave disabled"
+    },
+    {
+      "samAccountName": "svc-t1srvdomainjoin",
+      "displayName": "svc-t1srvdomainjoin",
+      "ouPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "description": "This account has the rights to domain join to the Tier Model Tier 1 Servers Staging OU.",
+      "enabled": false,
+      "memberOf": [
+        "Tier1ServerDomainJoin"
+      ],
+      "comment": "Used for automated provision of Tier 1 Member Servers computers into the Tier 1 Server Staging OU for domain join, else leave disabled"
+    }
+  ]
+}

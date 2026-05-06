@@ -1,0 +1,1281 @@
+{
+  "version": "1.0.0",
+  "comment": "OU ACL delegations for Tier Model. Changes infrequently, usually only when new delegation requirements are identified.",
+  "aclDelegations": [
+    {
+      "targetOUPath": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "GenericAll",
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0Admins full control over Computer objects in OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "GenericAll",
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier0Admins full control over Computer objects in OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0ServerOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "WriteProperty",
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0ServerOperators create over Computer objects in OU=Tier 0 Server Staging,OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0ServerOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0ServerOperators extended rights over password reset operations in OU=Tier 0 Server Staging,OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0ServerOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0ServerOperators extended rights over DNS hostname attributes in OU=Tier 0 Server Staging,OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0ServerOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0ServerOperators extended rights over SPN write operations in OU=Tier 0 Server Staging,OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0Admins read properties over BitLocker key package operations in OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier0Admins read properties over BitLocker recovery password operations in OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier0Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 0 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over Organizational Unit objects in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins full control over Organizational Unit objects in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins full control over Computer objects in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1ServerDomainJoin",
+      "activedirectoryrights": [
+        "CreateChild",
+        "WriteProperty",
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1ServerDomainJoin create over Computer objects in OU=Tier 1 Server Staging,OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1ServerDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1ServerDomainJoin extended rights over password reset operations in OU=Tier 1 Server Staging,OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1ServerDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1ServerDomainJoin extended rights over DNS hostname attributes in OU=Tier 1 Server Staging,OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1ServerDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1ServerDomainJoin extended rights over SPN write operations in OU=Tier 1 Server Staging,OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins read properties over BitLocker key package operations in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins read properties over BitLocker recovery password operations in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier1Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 1 Member Servers"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2AccountOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2AccountOperators extended rights over password reset operations in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2AccountOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2AccountOperators create and delete User objects in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2AccountOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2AccountOperators full control over User objects in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2AccountOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2AccountOperators create and delete OU objects in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2AccountOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2AccountOperators full control over OU objects in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators extended rights over password reset operations in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "LockoutTime",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators read and write properties over lockout time operations in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "UserAccountOption",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators read and write properties over user account control operations in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Accounts,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators write properties over User objects for password change requirements in OU=Tier 2 End-User Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "CreateChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators create over Organizational Unit objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators create and delete over Computer objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators full control over Computer objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators extended rights over password reset operations for Computer objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "Delete",
+        "DeleteTree"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "",
+      "activeDirectorysecurityinheritance": "Children",
+      "resolveguid": false,
+      "comment": "Deny Tier2DeviceOperators delete and delete tree operations on child OU objects in OU=Tier 2 End-User Devices (enables protect from deletion)"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators read properties over BitLocker key package operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators read properties over BitLocker recovery password operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier2DeviceOperators full control over all object types but limited to BitLocker recovery information objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators read properties over BitLocker key package operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators read properties over BitLocker recovery password operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier2HelpdeskOperators full control over all object types but limited to BitLocker recovery information objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2HelpdeskOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "UserAccountOption",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2HelpdeskOperators read properties over user account control operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier2Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Contacts,OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Contact",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators create and delete over Contact objects in OU=Contacts,OU=Tier 2 End-User Groups (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Contacts,OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "Contact",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators GenericAll over all object types but limited to Contact objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Contacts,OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Contact",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators full control over Contact objects in OU=Contacts,OU=Tier 2 End-User Groups"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators create and delete Group objects in OU=Tier 2 End-User Groups"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators full control over Group objects in OU=Tier 2 End-User Groups"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators create and delete OU objects in OU=Tier 2 End-User Groups"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
+      "identityreference": "Tier2GroupOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "OrganizationalUnit",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2GroupOperators full control over OU objects in OU=Tier 2 End-User Groups"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier0Admins",
+      "activedirectoryrights": [
+        "GenericAll",
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier0Admins full control over all object types in OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "PAWDomainJoin",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant PAWDomainJoin full control over Computer objects in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "PAWDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant PAWDomainJoin extended rights over password reset operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "PAWDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant PAWDomainJoin extended rights over DNS hostname attributes in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "PAWDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant PAWDomainJoin extended rights over SPN write operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins full control over Computer objects in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins extended rights over password reset operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins extended rights over DNS hostname attributes in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins extended rights over SPN write operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins full control over Computer objects in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins extended rights over password reset operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins extended rights over DNS hostname attributes in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW Staging,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins extended rights over SPN write operations in OU=PAW Staging,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=PAW VPN Accounts,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over User objects in OU=PAW VPN Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=PAW VPN Accounts,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=PAW VPN Accounts,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins create and delete over User objects in OU=PAW VPN Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=PAW VPN Accounts,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over User objects in OU=Tier 1 Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins extended rights over password reset operations in OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "LogonScript",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Deny Tier1Admins read and write properties over logon script operations in OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Groups,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over Group objects in OU=Tier 1 Groups,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Groups,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins full control over Group objects in OU=Tier 1 Groups,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over Computer objects in OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins full control over Computer objects in OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier1Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins create and delete over User objects in OU=Tier 1 Service Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier1Admins extended rights over password reset operations in OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "LogonScript",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Deny Tier1Admins read and write properties over logon script operations in OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins create and delete over User objects in OU=Tier 2 Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins extended rights over password reset operations in OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "LogonScript",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Deny Tier2Admins read and write properties over logon script operations in OU=Tier 2 Accounts,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins create and delete over Group objects in OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Group",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins full control over Group objects in OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins create and delete over Computer objects in OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins full control over Computer objects in OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier2Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins read properties over BitLocker key package operations in OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins read properties over BitLocker recovery password operations in OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "User",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins create and delete over User objects in OU=Tier 2 Service Accounts (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "User",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins GenericAll over all object types but limited to User objects only (delegation wizard pattern)"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2Admins extended rights over password reset operations in OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "ReadProperty",
+        "WriteProperty"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "LogonScript",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Deny Tier2Admins read and write properties over logon script operations in OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2ComputerQuarantineOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2ComputerQuarantineOperators full control over Computer objects in OU=Tier Model Computer Quarantine"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "SelfAndChildren",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators create and delete over Computer objects in OU=Tier Model Computer Quarantine to enable moving computers to Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators full control over Computer objects in OU=Tier Model Computer Quarantine"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators extended rights over password reset operations for Computer objects in OU=Tier Model Computer Quarantine"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "Delete",
+        "DeleteTree"
+      ],
+      "accesscontroltype": "Deny",
+      "objecttype": "",
+      "activeDirectorysecurityinheritance": "Children",
+      "resolveguid": false,
+      "comment": "Deny Tier2DeviceOperators delete and delete tree operations on child OU objects in OU=Tier Model Computer Quarantine (enables protect from deletion)"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerKeyPackage",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators read properties over BitLocker key package operations in OU=Tier Model Computer Quarantine"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "BitLockerRecoveryPassword",
+      "inheritanceType": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2DeviceOperators read properties over BitLocker recovery password operations in OU=Tier Model Computer Quarantine"
+    },
+    {
+      "targetOUPath": "OU=Tier Model Computer Quarantine,{{DOMAIN_DN}}",
+      "identityreference": "Tier2DeviceOperators",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "BitLockerRecoveryObject",
+      "resolveguid": true,
+      "comment": "Grant Tier2DeviceOperators full control over all object types but limited to BitLocker recovery information objects in OU=Tier Model Computer Quarantine"
+    }
+  ]
+}

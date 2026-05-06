@@ -1,0 +1,254 @@
+{
+  "version": "1.0.0",
+  "comment": "Organizational Unit structure for Tier Model. Rarely changes after initial deployment.",
+  "organizationUnits": [
+    {
+      "name": "Tier 0 Member Servers",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier 0: Member server objects"
+    },
+    {
+      "name": "Tier 0 Server Staging",
+      "path": "OU=Tier 0 Member Servers",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": true,
+      "comment": "Tier 0: Staging server objects"
+    },
+    {
+      "name": "Tier 1 Member Servers",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier 1: Member server objects"
+    },
+    {
+      "name": "Tier 1 Server Staging",
+      "path": "OU=Tier 1 Member Servers",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": true,
+      "comment": "Tier 1: Staging server objects"
+    },
+    {
+      "name": "Tier 2 End-User Accounts",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier 2: End-User Accounts"
+    },
+        {
+      "name": "Disabled End-Users Accounts",
+      "path": "OU=Tier 2 End-User Accounts",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Disabled End-User Accounts"
+    },
+        {
+      "name": "Tier 2 End-User Devices",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier 2: End-User Devices"
+    },
+    {
+      "name": "Disabled End-User Devices",
+      "path": "OU=Tier 2 End-User Devices",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Disabled End-User Devices"
+    },
+    {
+      "name": "Tier 2 End-User Groups",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier 2: End-User Groups"
+    },
+    {
+      "name": "Contacts",
+      "path": "OU=Tier 2 End-User Groups",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: End-User Contacts"
+    },
+    {
+      "name": "Distribution Groups",
+      "path": "OU=Tier 2 End-User Groups",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: End-User Distribution Groups"
+    },
+    {
+      "name": "Security Groups",
+      "path": "OU=Tier 2 End-User Groups",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: End-User Security Groups"
+    },
+    {
+      "name": "Tier Model Administration",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier Model Objects"
+    },
+    {
+      "name": "PAW Staging",
+      "path": "OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": true,
+      "comment": "PAW Staging Objects"
+    },
+    {
+      "name": "PAW VPN Accounts",
+      "path": "OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "PAW VPN Accounts, OU can be synced to Cloud for MFA"
+    },
+    {
+      "name": "Tier 0",
+      "path": "OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 0: Accounts, Groups, Devices, and Service Accounts"
+    },
+    {
+      "name": "Tier 0 Accounts",
+      "path": "OU=Tier 0,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 0: Accounts"
+    },
+    {
+      "name": "Tier 0 Groups",
+      "path": "OU=Tier 0,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 0: Groups"
+    },
+    {
+      "name": "Tier 0 PAW Devices",
+      "path": "OU=Tier 0,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 0: PAW Devices"
+    },
+    {
+      "name": "Tier 0 Service Accounts",
+      "path": "OU=Tier 0,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 0: Service Accounts"
+    },
+    {
+      "name": "Tier 1",
+      "path": "OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 1: Accounts, Groups, Devices, and Service Accounts"
+    },
+    {
+      "name": "Tier 1 Accounts",
+      "path": "OU=Tier 1,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 1: Accounts"
+    },
+    {
+      "name": "Tier 1 Groups",
+      "path": "OU=Tier 1,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 1: Groups"
+    },
+    {
+      "name": "Tier 1 PAW Devices",
+      "path": "OU=Tier 1,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 1: PAW Devices"
+    },
+    {
+      "name": "Tier 1 Service Accounts",
+      "path": "OU=Tier 1,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 1: Service Accounts"
+    },
+    {
+      "name": "Tier 2",
+      "path": "OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Accounts, Groups, Devices, and Service Accounts"
+    },
+    {
+      "name": "Tier 2 Accounts",
+      "path": "OU=Tier 2,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Accounts"
+    },
+    {
+      "name": "Tier 2 Groups",
+      "path": "OU=Tier 2,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Groups"
+    },
+    {
+      "name": "Tier 2 PAW Devices",
+      "path": "OU=Tier 2,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: PAW Devices"
+    },
+    {
+      "name": "Tier 2 Service Accounts",
+      "path": "OU=Tier 2,OU=Tier Model Administration",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": false,
+      "blockGpoInheritance": false,
+      "comment": "Tier 2: Service Accounts"
+    },
+    {
+      "name": "Tier Model Computer Quarantine",
+      "path": "{{DOMAIN_DN}}",
+      "protectFromAccidentalDeletion": true,
+      "disableInheritance": true,
+      "blockGpoInheritance": true,
+      "comment": "Tier Model Computer Quarantine (Redirected ComputerOU)"
+    }
+  ]
+}

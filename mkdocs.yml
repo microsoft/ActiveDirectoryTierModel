@@ -1,0 +1,22 @@
+site_name: Active Directory Tier Model
+
+docs_dir: docs
+
+theme:
+  name: readthedocs
+
+nav:
+  - Home: index.md
+  - Quick Deployment Guide: quick-deployment-guide.md
+  - Detailed Deployment Guide: detailed-deployment-guide.md
+  - FAQ: faq.md
+  - Conditional Principals: conditional-principals.md
+  - Deployment Methodology: deployment-methodology.md
+  - Drift Detection: drift-detection-details.md
+  - Cmdlet Architecture: cmdlet-architecture.md
+  - CI/CD: ci-cd.md
+  - GPO Management Strategy: gpo-management-strategy.md
+  - ADMX Management: admx-management.md
+  - Test Tag Matrix: test-tag-matrix.md
+  - Tier Model Logging: tiermodel-logging.md
+  - Test Coverage: test-coverage.md

@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "created": "2025-11-10T15:53:00Z",
+    "description": "Main Tier Model Configuration"
+  },
+  "organizationUnits": [
+    {
+      "name": "TestOU",
+      "path": "OU=TestOU,DC=test,DC=local",
+      "description": "Test Organizational Unit"
+    }
+  ],
+  "groups": [
+    {
+      "name": "TestGroup",
+      "samAccountName": "TestGroup",
+      "path": "OU=TestOU,DC=test,DC=local",
+      "description": "Test Security Group",
+      "scope": "Global",
+      "category": "Security"
+    }
+  ],
+  "users": [
+    {
+      "name": "TestUser",
+      "samAccountName": "testuser",
+      "path": "OU=TestOU,DC=test,DC=local",
+      "givenName": "Test",
+      "surname": "User",
+      "description": "Test User Account",
+      "enabled": true
+    }
+  ],
+  "gpos": [
+    {
+      "name": "TestGPO",
+      "mode": "createAndImport",
+      "linkTargets": ["OU=TestOU,DC=test,DC=local"]
+    }
+  ],
+  "aclDelegations": [
+    {
+      "targetPath": "OU=TestOU,DC=test,DC=local",
+      "principal": "TestGroup",
+      "rights": ["GenericRead"],
+      "accessControlType": "Allow",
+      "inheritanceType": "ContainerInherit"
+    }
+  ],
+  "admx": []
+}

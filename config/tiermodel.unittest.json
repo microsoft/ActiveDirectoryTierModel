@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "created": "2025-11-10T15:53:00Z",
+    "description": "Sample Tier Model Configuration for Testing"
+  },
+  "organizationUnits": [
+    {
+      "name": "TestOU",
+      "path": "OU=TestOU,DC=test,DC=local",
+      "description": "Test Organizational Unit"
+    }
+  ],
+  "groups": [
+    {
+      "name": "TestGroup",
+      "samAccountName": "TestGroup",
+      "path": "OU=TestOU,DC=test,DC=local",
+      "description": "Test Security Group",
+      "scope": "Global",
+      "category": "Security"
+    }
+  ],
+  "users": [
+    {
+      "samAccountName": "testuser",
+      "displayName": "Test User",
+      "ouPath": "OU=TestOU,DC=test,DC=local",
+      "email": "testuser@test.local",
+      "enabled": true,
+      "comment": "Test User Account"
+    }
+  ],
+  "gpos": [
+    {
+      "name": "TestGPO",
+      "mode": "createAndImport",
+      "linkTargets": ["OU=TestOU,DC=test,DC=local"]
+    }
+  ],
+  "aclDelegations": [
+    {
+      "targetPath": "OU=TestOU,DC=test,DC=local",
+      "principal": "TestGroup",
+      "rights": ["GenericRead"],
+      "accessControlType": "Allow",
+      "inheritanceType": "ContainerInherit"
+    }
+  ],
+  "admx": []
+}

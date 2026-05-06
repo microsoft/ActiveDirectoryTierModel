@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}"><Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Group" status="Group" image="7" changed="2025-02-06 05:59:06" uid="{188DF446-CD79-4E65-A3A3-614756767282}"><Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection\DeviceTagging" name="Group" type="REG_SZ" value="Tier2"/></Registry>
+</RegistrySettings>

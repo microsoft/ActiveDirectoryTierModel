@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="fullarmor" namespace="FullArmor.3cda5ee4-61d3-4244-9d7d-9ca7009a751d" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <supersededAdm fileName="C:\Windows\PolicyDefinitions\UserProxySettings.adm" />
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_NotSpecified" displayName="$(string.ADMXMigrator_NoSupportedOn)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="InternetProxySettings" displayName="$(string.unknown_0)" />
+  </categories>
+  <policies>
+    <policy name="Automaticconfiguration" class="User" displayName="$(string.unknown_1)" explainText="$(string.unknown_2)" presentation="$(presentation.Automaticconfiguration)" key="Software\Microsoft\Windows\CurrentVersion\Internet Settings">
+      <parentCategory ref="InternetProxySettings" />
+      <supportedOn ref="SUPPORTED_NotSpecified" />
+      <elements>
+        <enum id="Automaticallydetectsettings" valueName="AutoDetect">
+          <item displayName="$(string.unknown_4)">
+            <value>
+              <decimal value="0" />
+            </value>
+          </item>
+          <item displayName="$(string.unknown_5)">
+            <value>
+              <decimal value="1" />
+            </value>
+          </item>
+        </enum>
+        <text id="Useautomaticconfigurationscript" valueName="AutoConfigUrl" />
+      </elements>
+    </policy>
+    <policy name="Proxyserver" class="User" displayName="$(string.unknown_7)" explainText="$(string.unknown_8)" presentation="$(presentation.Proxyserver)" key="Software\Microsoft\Windows\CurrentVersion\Internet Settings">
+      <parentCategory ref="InternetProxySettings" />
+      <supportedOn ref="SUPPORTED_NotSpecified" />
+      <elements>
+        <enum id="Useaproxyserver" valueName="ProxyEnable">
+          <item displayName="$(string.unknown_10)">
+            <value>
+              <decimal value="1" />
+            </value>
+          </item>
+          <item displayName="$(string.unknown_11)">
+            <value>
+              <decimal value="0" />
+            </value>
+          </item>
+        </enum>
+        <text id="Proxyaddressandportnumber" valueName="ProxyServer" />
+        <text id="Exceptions-Donotuseproxyserverforaddressesbeginningwith" valueName="ProxyOverride" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

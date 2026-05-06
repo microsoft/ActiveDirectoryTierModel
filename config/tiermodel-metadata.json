@@ -1,0 +1,58 @@
+{
+  "version": "1.0.0",
+  "metadata": {
+    "created": "2025-10-28T00:00:00Z",
+    "description": "Official Tier Model Active Directory configuration",
+    "lastModified": "2025-11-03T00:00:00Z",
+    "author": "TierModel Team"
+  },
+  "comment": "Metadata and configuration logic for Tier Model deployment. Contains versioning, conditional logic rules, and deployment framework configuration.",
+  "conditionalLogic": {
+    "domainTypeDetection": {
+      "method": "compareForestRoot",
+      "comment": "Detect if current domain is forest root by comparing domain DNS name with forest root domain DNS name"
+    },
+    "groupExistenceCheck": {
+      "method": "getAdGroup",
+      "ignoreErrors": true,
+      "comment": "Use Get-ADGroup with error suppression to check if groups exist"
+    },
+    "featureDetection": {
+      "adIntegratedDns": {
+        "method": "checkDnsAdminsGroup", 
+        "comment": "DnsAdmins and DnsUpdateProxy groups only exist if AD-Integrated DNS was configured during forest/domain setup"
+      }
+    },
+    "principalTypes": {
+      "group": {
+        "resolutionMethod": "getAdGroup",
+        "sidProperty": "SID"
+      },
+      "user": {
+        "resolutionMethod": "getAdUser", 
+        "sidProperty": "SID"
+      },
+      "ntService": {
+        "resolutionMethod": "none",
+        "sidProperty": "none",
+        "comment": "NT SERVICE accounts are used as literal strings"
+      },
+      "wellKnownSid": {
+        "resolutionMethod": "translateName",
+        "sidProperty": "direct"
+      }
+    },
+    "gpoLinkTargets": {
+      "domainRoot": {
+        "token": "{{DOMAIN_DN}}",
+        "resolutionMethod": "getAdDomain",
+        "property": "DistinguishedName",
+        "comment": "Resolves to current domain DN for domain-level GPO links"
+      },
+      "ouPaths": {
+        "resolutionMethod": "constructPath",
+        "comment": "OU paths are constructed by combining relative path with domain DN"
+      }
+    }
+  }
+}

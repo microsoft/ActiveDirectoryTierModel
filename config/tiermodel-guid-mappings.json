@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "comment": "GUID to human-readable mappings for AD schema objects and attributes. Used to resolve objecttype values in tiermodel-acls.json",
+  "staticMappings": {
+    "comment": "Universal GUIDs - same across all AD forests worldwide",
+    "objectClasses": {
+      "Computer": "bf967a86-0de6-11d0-a285-00aa003049e2",
+      "User": "bf967aba-0de6-11d0-a285-00aa003049e2",
+      "Group": "bf967a9c-0de6-11d0-a285-00aa003049e2",
+      "OrganizationalUnit": "bf967aa5-0de6-11d0-a285-00aa003049e2",
+      "Contact": "5cb41ed0-0e4c-11d0-a286-00aa003049e2",
+      "msFVE-RecoveryInformation": "ea715d30-8f53-40d0-bd1e-6109186d782c"
+    },
+    "extendedRights": {
+      "UserForceChangePassword": "00299570-246d-11d0-a768-00aa006e0529",
+      "DnsHostNameAttributes": "72e39547-7b18-11d1-adef-00c04fd8d5cd",
+      "ValidatedSPN": "f3a64788-5306-11d1-a9c5-0000f80367c1",
+      "GPLink": "f30e3bc2-9ff0-11d1-b603-0000f80367c1",
+      "GPOptions": "f30e3bc3-9ff0-11d1-b603-0000f80367c1"
+    },
+    "attributes": {
+      "UserAccountControl": "bf967a68-0de6-11d0-a285-00aa003049e2",
+      "ScriptPath": "bf9679a8-0de6-11d0-a285-00aa003049e2",
+      "msFVE-RecoveryInformation": "ea715d30-8f53-40d0-bd13-0a8c0d2b3d12",
+      "msFVE-RecoveryPassword": "5b47d60f-6090-40b2-9f37-2a4de88f3063"
+    }
+  },
+  "dynamicMappings": {
+    "comment": "Domain-specific GUIDs - must be resolved at runtime by querying the domain schema",
+    "attributes": {
+      "LockoutTime": "{{resolve_guid:lockoutTime}}"
+    }
+  },
+  "specialValues": {
+    "comment": "Special objecttype values with specific meanings",
+    "AllObjectClasses": ""
+  },
+  "friendlyNameMappings": {
+    "comment": "Human-friendly aliases for common combinations - these map to the technical names above",
+    "PasswordReset": "UserForceChangePassword",
+    "DnsHostname": "DnsHostNameAttributes", 
+    "WriteSPN": "ValidatedSPN",
+    "UserAccountOption": "UserAccountControl",
+    "LogonScript": "ScriptPath",
+    "BitLockerKeyPackage": "msFVE-RecoveryInformation",
+    "BitLockerRecoveryPassword": "msFVE-RecoveryPassword",
+    "BitLockerRecoveryObject": "msFVE-RecoveryInformation"
+  }
+}

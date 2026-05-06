@@ -1,0 +1,379 @@
+function Test-TierModelPrerequisites {
+    <#
+    .SYNOPSIS
+    Validates all prerequisites required for TierModel deployment and audit operations.
+
+    .DESCRIPTION
+    Performs comprehensive validation of system prerequisites including:
+    - PowerShell version and elevation status
+    - Required modules (ActiveDirectory, GroupPolicy, Pester)
+    - Domain connectivity and admin permissions
+    - Configuration file accessibility
+    - Environment type detection (child domain, enterprise admin availability)
+
+    .PARAMETER PreferredDc
+    The preferred domain controller to use for validation and testing.
+
+    .PARAMETER DependenciesPath
+    Path to the dependencies.json configuration file. Defaults to 'config/dependencies.json'.
+
+    .OUTPUTS
+    [PSCustomObject] Returns a prerequisites validation result with:
+    - Valid: Boolean indicating if all prerequisites are met
+    - Errors: Array of validation errors found
+    - Remediation: Array of recommended remediation steps
+    - EnvironmentSnapshot: Detailed environment information
+    - CorrelationId: Unique identifier for this validation session
+
+    .EXAMPLE
+    $prereqs = Test-TierModelPrerequisites -PreferredDc "DC01.contoso.com"
+    if (-not $prereqs.Valid) {
+        Write-Warning "Prerequisites failed: $($prereqs.Errors -join '; ')"
+        Write-Host "Remediation steps: $($prereqs.Remediation -join '; ')"
+    }
+
+    .EXAMPLE
+    # Test with custom dependencies file
+    $result = Test-TierModelPrerequisites -PreferredDc "DC01.contoso.com" -DependenciesPath "custom/deps.json"
+    $result.EnvironmentSnapshot | Format-List
+
+    .NOTES
+    This function requires elevated privileges for full validation but will continue
+    testing in non-elevated scenarios for development and testing purposes.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PreferredDc,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$DependenciesPath = 'config/dependencies.json'
+    )
+    
+    $ErrorActionPreference = 'Stop'
+    Set-StrictMode -Version 3.0
+    
+    # Use provided CorrelationId or fallback to script-level or generate new one
+    $CorrelationId = try { 
+        if (Get-Variable -Name 'script:CorrelationId' -ErrorAction SilentlyContinue) { 
+            $script:CorrelationId 
+        } else { 
+            [System.Guid]::NewGuid().ToString() 
+        }
+    } catch { 
+        [System.Guid]::NewGuid().ToString() 
+    }
+    
+    $result = [PSCustomObject]@{
+        Valid = [bool]$true
+        Errors = [System.Collections.ArrayList]@()
+        Remediation = [System.Collections.ArrayList]@()
+        EnvironmentSnapshot = @{}
+        CorrelationId = $CorrelationId
+    }
+    
+    try {
+        Write-TierModelLog -Level Info -Message "Starting prerequisites validation" -Data @{ 
+            PreferredDc = $PreferredDc; 
+            DependenciesPath = $DependenciesPath
+            CorrelationId = $CorrelationId 
+        } | Out-Null
+    }
+    catch {
+        # If logging fails, continue anyway - logging is not critical for prerequisites
+        Write-Verbose "Logging not available, continuing with prerequisites check"
+    }
+    
+    # Test dependencies file parsing first - critical for configuration validation
+    if (Test-Path $DependenciesPath) {
+        try {
+            $dependencies = Get-Content $DependenciesPath -Raw | ConvertFrom-Json
+            $result.EnvironmentSnapshot.RequiredDependencies = $dependencies
+        }
+        catch {
+            $result.Valid = $false
+            $null = $result.Errors.Add("Error reading dependencies file: Invalid JSON format")
+            $null = $result.Remediation.Add("Verify dependencies.json file format and syntax")
+            $result.Errors = @($result.Errors)
+            $result.Remediation = @($result.Remediation)
+            Write-Output $result
+            return
+        }
+    } else {
+        $result.Valid = $false
+        $null = $result.Errors.Add("Dependencies file not found at: $DependenciesPath")
+        $null = $result.Remediation.Add("Ensure dependencies.json exists at the specified path")
+        $result.Errors = @($result.Errors)
+        $result.Remediation = @($result.Remediation)
+        Write-Output $result
+        return
+    }
+    
+    try {
+        # Test PowerShell version (≥7.0)
+        $psVersion = $PSVersionTable.PSVersion
+        $result.EnvironmentSnapshot.PowerShellVersion = $psVersion.ToString()
+        
+        if ($psVersion.Major -lt 7) {
+            $result.Valid = $false
+            $null = $result.Errors.Add("PowerShell version $psVersion is not supported. Requires PowerShell 7.0 or later.")
+            $null = $result.Remediation.Add("Install PowerShell 7+ from https://github.com/PowerShell/PowerShell/releases")
+        }
+        
+        # Test elevation (Administrator privileges)
+        $isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        $result.EnvironmentSnapshot.IsElevated = $isElevated
+        
+        # Note elevation status but don't fail prerequisites for testing scenarios
+        if (-not $isElevated) {
+            $null = $result.Errors.Add("PowerShell session is not running as Administrator.")
+            $null = $result.Remediation.Add("Start PowerShell as Administrator (Run as administrator)")
+        }
+        
+        # Test required modules and versions (dependencies already parsed at start)
+        # Check Pester version
+        $pesterModule = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
+        if (-not $pesterModule) {
+            $result.Valid = $false
+            $null = $result.Errors.Add("Pester module is not installed.")
+            $null = $result.Remediation.Add("Install Pester: Install-Module -Name Pester -RequiredVersion $($dependencies.pester) -Force")
+            $null = $result.Remediation.Add("For installation help, see Pester documentation: https://github.com/pester/Pester")
+        }
+        elseif ($pesterModule.Version -ne [version]$dependencies.pester) {
+            $result.Valid = $false
+            $null = $result.Errors.Add("Pester version mismatch. Required: $($dependencies.pester), Found: $($pesterModule.Version)")
+            $null = $result.Remediation.Add("Install correct Pester version: Install-Module -Name Pester -RequiredVersion $($dependencies.pester) -Force")
+            $null = $result.Remediation.Add("For installation help, see Pester documentation: https://github.com/pester/Pester")
+        }
+        $result.EnvironmentSnapshot.PesterVersion = if ($pesterModule) { $pesterModule.Version.ToString() } else { 'Not installed' }
+        
+        # Check other required modules
+        try {
+            Write-TierModelLog -Level Debug -Message "Checking required modules" -Data @{ RequiredModules = ($dependencies.modules.PSObject.Properties.Name -join ', ') } | Out-Null
+        } catch { 
+            # Continue if logging fails
+        }
+        
+        foreach ($moduleName in $dependencies.modules.PSObject.Properties.Name) {
+            try {
+                $requiredVersion = $dependencies.modules.$moduleName
+                
+                # Special handling for GroupPolicy module - must import first to detect
+                if ($moduleName -eq 'GroupPolicy') {
+                    $loadedModule = Get-Module -Name $moduleName -ErrorAction SilentlyContinue
+                    
+                    # If not already loaded, try to import it first
+                    if (-not $loadedModule) {
+                        try {
+                            Import-Module GroupPolicy -ErrorAction Stop -Verbose:$false -SkipEditionCheck | Out-Null
+                            $loadedModule = Get-Module -Name GroupPolicy -ErrorAction SilentlyContinue
+                        } catch {
+                            # Import failed, module not available
+                        }
+                    }
+                    
+                    $installedModule = $null  # GroupPolicy doesn't show in -ListAvailable
+                    $moduleToCheck = $loadedModule
+                } else {
+                    # Standard module detection for other modules
+                    $loadedModule = Get-Module -Name $moduleName -ErrorAction SilentlyContinue
+                    $installedModule = Get-Module -ListAvailable -Name $moduleName -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+                    
+                    # Use whichever module we found (prefer loaded module if both exist)
+                    $moduleToCheck = if ($loadedModule) { $loadedModule } else { $installedModule }
+                }
+                
+                try {
+                    Write-TierModelLog -Level Debug -Message "Module check details" -Data @{
+                        ModuleName = $moduleName
+                        LoadedModule = if ($loadedModule) { "$($loadedModule.Name) v$($loadedModule.Version)" } else { 'Not loaded' }
+                        InstalledModule = if ($installedModule) { "$($installedModule.Name) v$($installedModule.Version)" } else { 'Not available' }
+                    } | Out-Null
+                } catch { 
+                    # Continue if logging fails
+                }
+            }
+            catch {
+                try {
+                    Write-TierModelLog -Level Warning -Message "Error checking module $moduleName" -Data @{ Exception = $_.Exception.Message } | Out-Null
+                } catch { 
+                    # Continue if logging fails
+                }
+                $moduleToCheck = $null
+            }
+            
+            if (-not $moduleToCheck) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("$moduleName module is not installed.")
+                if ($moduleName -eq 'ActiveDirectory') {
+                    $null = $result.Remediation.Add("Install RSAT Active Directory module: Add-WindowsCapability -Online -Name Rsat.ActiveDirectory.DS-LDS.Tools")
+                }
+                elseif ($moduleName -eq 'GroupPolicy') {
+                    $null = $result.Remediation.Add("Install RSAT Group Policy module: Add-WindowsCapability -Online -Name Rsat.GroupPolicy.Management.Tools")
+                }
+                else {
+                    $null = $result.Remediation.Add("Install $moduleName module: Install-Module -Name $moduleName -RequiredVersion $requiredVersion -Force")
+                }
+            }
+            else {
+                # For system modules, version checking can be flexible
+                $result.EnvironmentSnapshot."$($moduleName)Version" = $moduleToCheck.Version.ToString()
+                
+                # If module was found but not loaded, try to import it to verify it works
+                if (-not $loadedModule -and $installedModule) {
+                    try {
+                        Import-Module $moduleName -ErrorAction Stop -Verbose:$false | Out-Null
+                        try {
+                            Write-TierModelLog -Level Debug -Message "Successfully imported $moduleName module for validation" | Out-Null
+                        } catch { 
+                            # Continue if logging fails
+                        }
+                    }
+                    catch {
+                        $result.Valid = $false
+                        $null = $result.Errors.Add("$moduleName module exists but cannot be imported: $($_.Exception.Message)")
+                        $null = $result.Remediation.Add("Reinstall $moduleName module or check for corruption")
+                    }
+                }
+            }
+        }
+        
+        # Test Domain Admin membership (if modules available)
+        # Always initialize IsDomainAdmin to false first
+        $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+        
+        # Check domain admin membership regardless of elevation for testing scenarios
+            try {
+                Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false | Out-Null
+                if (Get-Module ActiveDirectory) {
+                    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                    
+                    if ($domainAdmins) {
+                        $isDomainAdmin = Get-ADGroupMember -Identity $domainAdmins -Server $PreferredDc -Recursive -ErrorAction SilentlyContinue | 
+                            Where-Object { $_.SID -eq $currentUser.User }
+                        
+                        $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$isDomainAdmin
+                        
+                        if (-not $isDomainAdmin) {
+                            $result.Valid = $false
+                            $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
+                            $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+                        }
+                    } else {
+                        # Domain Admins group not found - keep IsDomainAdmin as false
+
+                        $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+                        $result.Valid = $false
+                        $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
+                        $null = $result.Remediation.Add("Ensure Domain Admins group exists and user is member of Domain Admins group")
+                    }
+                } else {
+                    # ActiveDirectory module not available - keep IsDomainAdmin as false
+                    $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+                    $result.Valid = $false
+                    $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
+                    $null = $result.Remediation.Add("Install ActiveDirectory module and ensure user is member of Domain Admins group")
+                }
+            }
+            catch {
+
+                $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
+                $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+                # Don't fail the entire prerequisite check for domain admin verification issues
+                # This allows for testing scenarios and non-domain environments
+                # Add domain admin error for testing scenarios
+                $result.Valid = $false
+                $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
+                $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+            }
+        
+        # Test PreferredDc reachability
+        try {
+            $dcTestResult = Test-NetConnection -ComputerName $PreferredDc -Port 389 -InformationLevel Quiet -WarningAction SilentlyContinue
+            $dcTest = [bool]$dcTestResult  # Ensure single boolean value
+            $result.EnvironmentSnapshot.PreferredDcReachable = $dcTest
+            
+            if (-not $dcTest) {
+                $result.Valid = [bool]$false
+                $null = $result.Errors.Add("Cannot reach PreferredDc '$PreferredDc' on LDAP port 389.")
+                $null = $result.Remediation.Add("Verify network connectivity and DNS resolution for $PreferredDc")
+            }
+        }
+        catch {
+            $result.Valid = [bool]$false
+            $null = $result.Errors.Add("Error testing PreferredDc connectivity: $($_.Exception.Message)")
+            $null = $result.Remediation.Add("Check network configuration and firewall settings")
+        }
+        
+        # Test DNS groups presence & domain type detection
+        if (Get-Module ActiveDirectory -ErrorAction SilentlyContinue) {
+            try {
+                $domain = Get-ADDomain -Server $PreferredDc -ErrorAction SilentlyContinue
+                if ($domain) {
+                    $result.EnvironmentSnapshot.DomainName = $domain.DNSRoot
+                    $result.EnvironmentSnapshot.DomainNetBIOSName = $domain.NetBIOSName
+                    
+                    # Check if this is a child domain
+                    $forest = Get-ADForest -Server $PreferredDc -ErrorAction SilentlyContinue
+                    if ($forest) {
+                        $isChildDomain = $domain.DNSRoot -ne $forest.RootDomain
+                        $result.EnvironmentSnapshot.IsChildDomain = $isChildDomain
+                        $result.EnvironmentSnapshot.ForestRootDomain = $forest.RootDomain
+                        
+                        # Check for Enterprise Admins group (may not exist in child domains)
+                        try {
+                            $enterpriseAdmins = Get-ADGroup -Identity "Enterprise Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                            $result.EnvironmentSnapshot.HasEnterpriseAdmins = [bool]$enterpriseAdmins
+                        }
+                        catch {
+                            $result.EnvironmentSnapshot.HasEnterpriseAdmins = $false
+                            if ($isChildDomain) {
+                                # This is expected in child domains
+                                $result.EnvironmentSnapshot.EnterpriseAdminsNote = "Enterprise Admins group not available in child domain (expected)"
+                            }
+                        }
+                        
+                        # Check for DnsAdmins group (can be present in both parent and child domains or not present in either)
+                        try {
+                            $dnsAdmins = Get-ADGroup -Identity "DnsAdmins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                            $result.EnvironmentSnapshot.HasDnsAdmins = [bool]$dnsAdmins
+                            if ($dnsAdmins) {
+                                $result.EnvironmentSnapshot.DnsAdminsNote = "DnsAdmins group available for GPO URA/RG operations"
+                            }
+                            else {
+                                $result.EnvironmentSnapshot.DnsAdminsNote = "DnsAdmins group not found - may need to be created if required for GPO operations"
+                            }
+                        }
+                        catch {
+                            $result.EnvironmentSnapshot.HasDnsAdmins = $false
+                            $result.EnvironmentSnapshot.DnsAdminsNote = "Error checking DnsAdmins group existence: $($_.Exception.Message)"
+                        }
+                    }
+                }
+            }
+            catch {
+                $result.EnvironmentSnapshot.DomainDetectionError = $_.Exception.Message
+            }
+        }
+        
+        # Convert ArrayLists to regular arrays for consistent output
+        $result.Errors = @($result.Errors)
+        $result.Remediation = @($result.Remediation)
+        
+        # Ensure we return exactly one object
+        Write-Output $result
+    }
+    catch {
+        $result.Valid = $false
+        $null = $result.Errors.Add("Unexpected error during prerequisites check: $($_.Exception.Message)")
+        $null = $result.Remediation.Add("Review the error details and ensure all dependencies are properly configured")
+        
+        # Convert ArrayLists to regular arrays for consistent output
+        $result.Errors = @($result.Errors)
+        $result.Remediation = @($result.Remediation)
+        
+        # Ensure we return exactly one object
+        Write-Output $result
+    }
+}

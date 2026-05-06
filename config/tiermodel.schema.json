@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/tiermodel.schema.json",
+  "title": "Tier Model Configuration",
+  "type": "object",
+  "required": ["version", "organizationUnits", "groups", "users", "gpos"],
+  "properties": {
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "preferredDc": {"type": "string"},
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "generated": {"type": "string"},
+        "description": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "organizationUnits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path"],
+        "properties": {
+          "name": {"type": "string"},
+          "path": {"type": "string"},
+          "protectFromAccidentalDeletion": {"type": "boolean"},
+          "disableInheritance": {"type": "boolean"},
+          "blockGpoInheritance": {"type": "boolean"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "scope"],
+        "properties": {
+          "name": {"type": "string"},
+          "scope": {"type": "string", "enum": ["DomainLocal", "Global", "Universal"]},
+          "members": {"type": "array", "items": {"type": "string"}},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "users": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["samAccountName", "ouPath"],
+        "properties": {
+          "samAccountName": {"type": "string"},
+          "displayName": {"type": "string"},
+          "ouPath": {"type": "string"},
+          "email": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "gpos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {"type": "string"},
+          "mode": {"type": "string", "enum": ["Import", "Create"]},
+          "guid": {"type": "string"},
+          "importPath": {"type": "string"},
+          "links": {"type": "array", "items": {"type": "string"}},
+          "linkEnabled": {"type": "boolean"},
+          "scope": {"type": "array", "items": {"type": "string"}},
+          "denyApplyGroups": {"type": "array", "items": {"type": "string"}},
+          "userRightsAssignments": {"type": "array", "items": {"type": "object", "required": ["right", "principals"], "properties": {"right": {"type": "string"}, "principals": {"type": "array", "items": {"type": "string"}}, "resolveSid": {"type": "boolean"}, "comment": {"type": "string"}}, "additionalProperties": false}},
+          "restrictedGroups": {"type": "array", "items": {"type": "object", "required": ["groupName"], "properties": {"groupName": {"type": "string"}, "members": {"type": "array", "items": {"type": "string"}}, "resolveSid": {"type": "boolean"}, "comment": {"type": "string"}}, "additionalProperties": false}},
+          "enabled": {"type": "boolean"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "aclDelegations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetPath", "principal", "rights"],
+        "properties": {
+          "targetPath": {"type": "string"},
+          "principal": {"type": "string"},
+          "rights": {"type": "array", "items": {"type": "string"}},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

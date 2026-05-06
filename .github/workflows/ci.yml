@@ -1,0 +1,502 @@
+# TierModel CI Pipeline
+# Comprehensive PowerShell module CI with testing, linting, and artifact publishing
+
+name: 'TierModel CI'
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 2 AM UTC for drift detection
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  POWERSHELL_TELEMETRY_OPTOUT: 1
+
+jobs:
+  # Job 1: PowerShell Linting and Analysis
+  lint:
+    name: 'PowerShell Linting'
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Install PowerShell Modules
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+        Install-Module -Name Pester -Force -Scope CurrentUser
+        Write-Host "Installed PowerShell modules successfully"
+        
+    - name: Run ScriptAnalyzer
+      shell: pwsh
+      run: |
+        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -EnableExit
+        Write-Host "ScriptAnalyzer completed with exit code: $LASTEXITCODE"
+        
+        # Export results for artifact
+        $results | Export-Csv "scriptanalyzer-results.csv" -NoTypeInformation
+        
+        if ($results) {
+          Write-Host "ScriptAnalyzer found $($results.Count) issues:"
+          $results | Format-Table Severity, RuleName, ScriptName, Line, Message -AutoSize
+        }
+        
+    - name: Upload ScriptAnalyzer Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: scriptanalyzer-results
+        path: scriptanalyzer-results.csv
+        retention-days: 30
+
+  # Job 2: PowerShell Testing
+  test:
+    name: 'PowerShell Testing'
+    runs-on: windows-latest
+    needs: lint
+        
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Install Dependencies
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0.0
+        Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
+        Write-Host "Pester version: $((Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1).Version)"
+        
+    - name: Run Pester Tests
+      shell: pwsh
+      run: |
+        $testPath = "tests"
+        
+        if (Test-Path $testPath) {
+          # Configure Pester
+          $config = New-PesterConfiguration
+          $config.Run.Path = $testPath
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'JUnitXml'
+          $config.TestResult.OutputPath = "test-results.xml"
+          $config.CodeCoverage.Enabled = $true
+          $config.CodeCoverage.Path = "modules/TierModel/*.psm1", "modules/TierModel/internal/*.ps1"
+          $config.CodeCoverage.OutputFormat = 'JaCoCo'
+          $config.CodeCoverage.OutputPath = "coverage.xml"
+          $config.Output.Verbosity = 'Detailed'
+          
+          # Run tests
+          $result = Invoke-Pester -Configuration $config
+          
+          Write-Host "Test Results:"
+          Write-Host "  Total: $($result.TotalCount)"
+          Write-Host "  Passed: $($result.PassedCount)"  
+          Write-Host "  Failed: $($result.FailedCount)"
+          Write-Host "  Skipped: $($result.SkippedCount)"
+          
+          # Fail the build if tests failed
+          if ($result.FailedCount -gt 0) {
+            Write-Error "Tests failed! $($result.FailedCount) test(s) did not pass."
+            exit 1
+          }
+          
+          # Enforce minimum code coverage threshold (80%)
+          $coverageThreshold = 80
+          $coveredCommands = $result.CodeCoverage.CommandsExecutedCount
+          $totalCommands = $result.CodeCoverage.CommandsAnalyzedCount
+          
+          if ($totalCommands -gt 0) {
+            $coveragePercent = [math]::Round(($coveredCommands / $totalCommands) * 100, 2)
+            Write-Host "Code Coverage: $coveragePercent% ($coveredCommands / $totalCommands commands)"
+            
+            if ($coveragePercent -lt $coverageThreshold) {
+              Write-Error "Code coverage ($coveragePercent%) is below the minimum threshold ($coverageThreshold%). Add tests to increase coverage."
+              exit 1
+            } else {
+              Write-Host "✅ Code coverage ($coveragePercent%) meets minimum threshold ($coverageThreshold%)"
+            }
+          } else {
+            Write-Error "No commands were analyzed for code coverage. Verify coverage paths are correct."
+            exit 1
+          }
+        } else {
+          Write-Warning "Test directory not found: $testPath"
+        }
+        
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          test-results.xml
+          coverage.xml
+        retention-days: 30
+
+  # Job 3: Module Validation and Packaging
+  package:
+    name: 'Module Packaging'
+    runs-on: windows-latest
+    needs: [lint, test]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Validate Module Structure
+      shell: pwsh
+      run: |
+        $modulePath = "modules/TierModel"
+        
+        # Check module manifest
+        if (Test-Path "$modulePath/TierModel.psd1") {
+          $manifest = Test-ModuleManifest -Path "$modulePath/TierModel.psd1" -Verbose
+          Write-Host "Module manifest validation passed"
+          Write-Host "  Module Name: $($manifest.Name)"
+          Write-Host "  Version: $($manifest.Version)"
+          Write-Host "  Author: $($manifest.Author)"
+          Write-Host "  Description: $($manifest.Description)"
+        } else {
+          Write-Error "Module manifest not found"
+          exit 1
+        }
+        
+        # Test module import
+        Import-Module "$modulePath" -Force -Verbose
+        $commands = Get-Command -Module TierModel
+        Write-Host "Module imported successfully with $($commands.Count) exported commands:"
+        $commands | ForEach-Object { Write-Host "  - $($_.Name)" }
+        
+        # Test basic functionality
+        try {
+          $hash = Get-TierModelConfigHash -Path "tests/testdata/tiermodel.json" -ErrorAction SilentlyContinue
+          if ($hash) {
+            Write-Host "Basic functionality test passed (config hash: $($hash.Substring(0,16))...)"
+          }
+        } catch {
+          Write-Warning "Basic functionality test skipped: $($_.Exception.Message)"
+        }
+        
+    - name: Create Module Package
+      shell: pwsh
+      run: |
+        $packagePath = "TierModel-Package"
+        
+        # Create package directory
+        New-Item -Path $packagePath -ItemType Directory -Force
+        
+        # Copy deployment files
+        Copy-Item -Path "Deploy-TierModel.ps1" -Destination $packagePath -Force
+        Copy-Item -Path "Audit-TierModel.ps1" -Destination $packagePath -Force
+        Copy-Item -Path "README.md" -Destination $packagePath -Force
+        Copy-Item -Path "LICENSE" -Destination $packagePath -Force
+        Copy-Item -Path "CHANGELOG.md" -Destination $packagePath -Force
+        
+        # Copy directories
+        Copy-Item -Path "modules" -Destination "$packagePath/modules" -Recurse -Force
+        Copy-Item -Path "config" -Destination "$packagePath/config" -Recurse -Force
+        Copy-Item -Path "optional" -Destination "$packagePath/optional" -Recurse -Force
+        
+        # Create package info
+        @{
+          PackageDate = (Get-Date).ToString('o')
+          GitCommit = $env:GITHUB_SHA
+          GitRef = $env:GITHUB_REF
+          Workflow = $env:GITHUB_WORKFLOW
+          RunId = $env:GITHUB_RUN_ID
+        } | ConvertTo-Json | Out-File "$packagePath/package-info.json"
+        
+        Write-Host "Module package created successfully"
+        Get-ChildItem $packagePath | Format-Table Name, Length -AutoSize
+        
+    - name: Upload Module Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: TierModel-Module
+        path: TierModel-Package/
+        retention-days: 90
+
+  # Job 4: Security Analysis
+  security:
+    name: 'Security Analysis'
+    runs-on: windows-latest
+    needs: lint
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Install Security Tools
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+        
+    - name: Run Security Analysis
+      shell: pwsh
+      run: |
+        # Run ScriptAnalyzer with security rules only
+        $securityResults = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -IncludeRule PSAvoidUsingPlainTextForPassword, PSAvoidUsingUserNameAndPasswordParams, PSAvoidUsingComputerNameHardcoded, PSUsePSCredentialType, PSAvoidGlobalVars, PSUseShouldProcessForStateChangingFunctions
+        
+        Write-Host "Security Analysis Results:"
+        if ($securityResults) {
+          Write-Host "Found $($securityResults.Count) security issues:"
+          $securityResults | Format-Table Severity, RuleName, ScriptName, Line, Message -AutoSize
+          
+          # Export security results
+          $securityResults | Export-Csv "security-analysis.csv" -NoTypeInformation
+          
+          # Count critical security issues
+          $criticalIssues = $securityResults | Where-Object { $_.Severity -eq 'Error' }
+          if ($criticalIssues.Count -gt 0) {
+            Write-Error "Found $($criticalIssues.Count) critical security issue(s). Build failed."
+            exit 1
+          }
+        } else {
+          Write-Host "No security issues found"
+          "No security issues detected" | Out-File "security-analysis.csv"
+        }
+        
+    - name: Upload Security Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-analysis
+        path: security-analysis.csv
+        retention-days: 30
+
+  # Job 5: Drift Detection and Artifacts
+  drift:
+    name: 'Drift Detection'
+    runs-on: windows-latest
+    needs: [test, package]
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Setup PowerShell Environment
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name Pester -Force -Scope CurrentUser
+        
+    - name: Run Drift Detection
+      shell: pwsh
+      run: |
+        $modulePath = "modules/TierModel"
+        Import-Module $modulePath -Force
+        
+        # Create drift reports directory
+        $driftPath = "drift-reports"
+        New-Item -Path $driftPath -ItemType Directory -Force
+        
+        # Check for sample/test configs to run drift detection against
+        $testConfigPath = "tests/testdata"
+        if (Test-Path $testConfigPath) {
+          $configs = Get-ChildItem -Path $testConfigPath -Filter "*.json" | Where-Object { $_.Name -like "*tiermodel*" }
+          
+          foreach ($config in $configs) {
+            try {
+              Write-Host "Running drift detection for: $($config.Name)"
+              
+              # Note: Using Test-TierModelDrift cmdlet. For production use Audit-TierModel.ps1 script
+              $driftReport = Test-TierModelDrift -Path $config.FullName -Raw
+              
+              # Save drift report
+              $reportFile = "$driftPath/drift-$($config.BaseName)-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+              $driftReport | Out-File $reportFile -Encoding UTF8
+              
+              Write-Host "Drift report saved: $reportFile"
+              
+              # Generate current state snapshot if possible
+              try {
+                $plan = Get-TierModelPlan -Path $config.FullName
+                if ($plan.CurrentState) {
+                  $snapshotFile = "$driftPath/snapshot-$($config.BaseName)-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+                  $plan.CurrentState | ConvertTo-Json -Depth 10 | Out-File $snapshotFile -Encoding UTF8
+                  Write-Host "State snapshot saved: $snapshotFile"
+                }
+              } catch {
+                Write-Warning "Failed to capture state snapshot: $($_.Exception.Message)"
+              }
+              
+            } catch {
+              Write-Warning "Failed to process config $($config.Name): $($_.Exception.Message)"
+              
+              # Create error report
+              @{
+                Config = $config.Name
+                Error = $_.Exception.Message
+                Timestamp = (Get-Date).ToString('o')
+              } | ConvertTo-Json | Out-File "$driftPath/error-$($config.BaseName).json" -Encoding UTF8
+            }
+          }
+        } else {
+          Write-Host "No test configs found for drift detection"
+          @{
+            Message = "No test configurations available for drift detection"
+            Timestamp = (Get-Date).ToString('o')
+          } | ConvertTo-Json | Out-File "$driftPath/no-configs.json" -Encoding UTF8
+        }
+        
+        # Create summary report
+        $summary = @{
+          RunDate = (Get-Date).ToString('o')
+          GitCommit = $env:GITHUB_SHA
+          GitRef = $env:GITHUB_REF
+          Workflow = $env:GITHUB_WORKFLOW
+          RunId = $env:GITHUB_RUN_ID
+          ReportCount = (Get-ChildItem -Path $driftPath -Filter "*.json").Count
+        }
+        $summary | ConvertTo-Json | Out-File "$driftPath/drift-summary.json" -Encoding UTF8
+        
+    - name: Upload Drift Detection Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: drift-detection-reports
+        path: drift-reports/
+        retention-days: 30
+
+  # Job 6: Documentation Generation
+  docs:
+    name: 'Documentation Generation'
+    runs-on: windows-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, package]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Generate Documentation
+      shell: pwsh
+      run: |
+        # Install documentation tools
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name PlatyPS -Force -Scope CurrentUser
+        
+        $modulePath = "modules/TierModel"
+        Import-Module $modulePath -Force
+        
+        # Create docs directory
+        $docsPath = "docs"
+        New-Item -Path $docsPath -ItemType Directory -Force
+        
+        # Generate markdown help
+        New-MarkdownHelp -Module TierModel -OutputFolder $docsPath -Force
+        
+        # Generate external help
+        New-ExternalHelp -Path $docsPath -OutputPath "$modulePath/en-US" -Force
+        
+        Write-Host "Documentation generated successfully"
+        
+    - name: Upload Documentation
+      uses: actions/upload-artifact@v4
+      with:
+        name: TierModel-Documentation
+        path: docs/
+        retention-days: 90
+
+  # Job 7: Build and Deploy GitHub Pages
+  pages:
+    name: 'Deploy GitHub Pages'
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, package]
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+        
+    - name: Install MkDocs
+      run: pip install mkdocs
+
+    - name: Build MkDocs Site
+      run: mkdocs build --strict
+      
+    - name: Upload Pages Artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: site/
+        
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+  # Job 8: Create GitHub Release
+  release:
+    name: 'Create Release'
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, package, security]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Create Release ZIP
+      shell: pwsh
+      run: |
+        $version = "${{ github.ref_name }}".TrimStart('v')
+        $zipName = "TierModel-$version.zip"
+        $stagingPath = "release-staging/TierModel"
+        
+        # Create staging directory with TierModel parent folder
+        New-Item -Path $stagingPath -ItemType Directory -Force
+        
+        # Copy release files into TierModel folder
+        Copy-Item -Path "Deploy-TierModel.ps1" -Destination $stagingPath -Force
+        Copy-Item -Path "Audit-TierModel.ps1" -Destination $stagingPath -Force
+        Copy-Item -Path "README.md" -Destination $stagingPath -Force
+        Copy-Item -Path "LICENSE" -Destination $stagingPath -Force
+        Copy-Item -Path "CHANGELOG.md" -Destination $stagingPath -Force
+        Copy-Item -Path "modules" -Destination "$stagingPath/modules" -Recurse -Force
+        Copy-Item -Path "config" -Destination "$stagingPath/config" -Recurse -Force
+        Copy-Item -Path "optional" -Destination "$stagingPath/optional" -Recurse -Force
+        
+        # Create package info
+        @{
+          PackageDate = (Get-Date).ToString('o')
+          Version = $version
+          GitCommit = $env:GITHUB_SHA
+          GitRef = $env:GITHUB_REF
+          Workflow = $env:GITHUB_WORKFLOW
+          RunId = $env:GITHUB_RUN_ID
+        } | ConvertTo-Json | Out-File "$stagingPath/package-info.json"
+        
+        # Create ZIP (includes TierModel parent folder)
+        Compress-Archive -Path "release-staging/TierModel" -DestinationPath $zipName -Force
+        
+        Write-Host "Created release: $zipName"
+        Write-Host "version=$version" >> $env:GITHUB_OUTPUT
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        name: ${{ github.ref_name }}
+        generate_release_notes: true
+        files: TierModel-*.zip

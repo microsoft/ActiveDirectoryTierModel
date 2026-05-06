@@ -1,0 +1,191 @@
+{
+  "version": "2.0.0",
+  "lastUpdated": "2026-02-23",
+  "comment": "ADML English (United States) language files with MD5 hash verification",
+  "adml": {
+    "destinationPath": "\\\\{{DOMAIN_FQDN}}\\SYSVOL\\{{DOMAIN_FQDN}}\\Policies\\PolicyDefinitions\\en-US",
+    "sourcePath": "config\\admx\\en-US",
+    "files": {
+      "access16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "898BA4BCA8162C318C16E3E81F4095DD"
+      },
+      "DeviceGuard.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "30377C9FAE7E5ABC2E55077E2AAD5417"
+      },
+      "excel16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "AD13C118434866D8B8A59DB0B5BEC594"
+      },
+      "GameDVR.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "641F7AFD2AF6F30E97B2A800F38F8EEF"
+      },
+      "KDC.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "201CFC3F0F897352206672221CAFDF9F"
+      },
+      "Kerberos.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "D255F86316A2D4F6B5AFFFEEAF92D4D1"
+      },
+      "LanmanServer.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "B006D92F1F8BE5D0FCABF951AE0C2074"
+      },
+      "LanmanWorkstation.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "E32D55D706CA09C9C3BE9540D28B45D2"
+      },
+      "LAPS.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "7FE7D0560EAA804F7670BDBABCB1EA95"
+      },
+      "LocalSecurityAuthority.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2023 Update (23H2)",
+        "hashDate": "2024-07-15",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=105667",
+        "hash": "D74C52FE161320979D5AF27FB59018A6"
+      },
+      "lync16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "3B022F9EBE7A8D4310FC7F8E5F585B16"
+      },
+      "msedge.adml": {
+        "comment": "v145.0.3800.70",
+        "hashDate": "2026-02-23",
+        "downloadLink": "https://www.microsoft.com/en-us/edge/business/download?cs=350088316&form=MA13FJ",
+        "hash": "D99F44D2C0B909B29B0707E9739B3643"
+      },
+      "msedgeupdate.adml": {
+        "comment": "v145.0.3800.70",
+        "hashDate": "2026-02-23",
+        "downloadLink": "https://www.microsoft.com/en-us/edge/business/download?cs=350088316&form=MA13FJ",
+        "hash": "2A4F90460F2B071A1D9DD8D5A13EF0A0"
+      },
+      "msedgewebview2.adml": {
+        "comment": "v145.0.3800.70",
+        "hashDate": "2026-02-23",
+        "downloadLink": "https://www.microsoft.com/en-us/edge/business/download?cs=350088316&form=MA13FJ",
+        "hash": "CD8AC0AF5AB551ADB536EE54AA32519C"
+      },
+      "MSS-legacy.adml": {
+        "comment": "Microsoft Security Compliance Toolkit 1.0",
+        "hashDate": "2026-01-20",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=55319&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "0C2B8E9E70249E9E98AB68D9AAAC7495"
+      },
+      "NetworkProvider.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "4F8AB0E284762E8B2F79EB8219C75EAF"
+      },
+      "office16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "B2754193C6C941A619660021BEDBF747"
+      },
+      "onent16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "47BD9097E17B2D512A2DCC4352963C2A"
+      },
+      "outlk16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "A78DBC023FCD638505BDC385AFB7DB42"
+      },
+      "ppt16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "414D881EA27C79D5EF605553AAF8EA5A"
+      },
+      "Printing.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "C2AC232FFF21E899BD74B847EC529FB4"
+      },
+      "proj16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "FC69F0A388E6020221676B18474F9054"
+      },
+      "pub16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "3767E763BA137D7614DB686B4FE6DDCC"
+      },
+      "SecGuide.adml": {
+        "comment": "Microsoft Security Compliance Toolkit 1.0",
+        "hashDate": "2026-01-20",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=55319&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "2C78597444F3FBB6588D1B62E03FAD57"
+      },
+      "Sudo.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "72EFFD19FB68556FC11CEC00062EE2E0"
+      },
+      "teams16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "6AAF330929C8C1EA94E0D94CACC7CB37"
+      },
+      "UserProxySettings.adml": {
+        "comment": "Had a copy of this file unable to find an online source",
+        "hashDate": "2026-02-23",
+        "downloadLink": "",
+        "hash": "FD13465326D5F188DCC732EDB8D588AC"
+      },
+      "visio16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "F663A019B4698B2299DB81D5392F5F96"
+      },
+      "WindowsDefender.adml": {
+        "comment": "Administrative Templates (.admx) for Windows 11 2025 Update (25H2) - V2.0",
+        "hashDate": "2025-10-27",
+        "downloadLink": "https://www.microsoft.com/en-my/download/details.aspx?id=108428&msockid=05ee7ac2625f669d089f6c1a6360673d",
+        "hash": "0DCE47C6237DE76B56F67DB404CDDDA4"
+      },
+      "word16.adml": {
+        "comment": "Administrative Template files (ADMX/ADML) for Microsoft Office",
+        "hashDate": "2026-02-04",
+        "downloadLink": "https://www.microsoft.com/en-us/download/details.aspx?id=49030",
+        "hash": "EEAD20EF94E4321EBA8F174E1B030EA3"
+      }
+    }
+  }
+}

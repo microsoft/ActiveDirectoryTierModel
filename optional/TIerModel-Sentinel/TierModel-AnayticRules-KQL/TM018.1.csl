@@ -1,0 +1,16 @@
+//Analytic Rule = PROD (TM018.1) - DOMAIN - Child Domain Prompted within Forest
+//Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
+SecurityEvent 
+| where EventID == 5137 and EventData has '"ObjectClass">crossRef' and EventData has 'CN=Partitions,CN=Configuration'
+| extend ObjectName = extract("(?i)CN=([^,]+),(?i)CN=Partitions,(?i)CN=Configuration", 1, EventData)
+| extend ActivityType = extract("([a-zA-Z]+)\\.$", 1, Activity)
+| extend Domain = extract("([^.]+\\.[^.]+)$", 1, Computer)
+| project TimeGenerated
+        , ObjectName
+        , ActivityType
+        , Account
+        , Domain
+        , Computer
+        , Channel
+        , EventID
+        , EventData

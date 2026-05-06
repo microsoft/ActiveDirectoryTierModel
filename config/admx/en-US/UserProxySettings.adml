@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0">
+  <displayName></displayName>
+  <description></description>
+  <resources>
+    <stringTable>
+      <string id="unknown_0">Internet Proxy Settings</string>
+      <string id="unknown_1">Automatic configuration</string>
+      <string id="unknown_7">Proxy server</string>
+      <string id="unknown_4">Disabled</string>
+      <string id="unknown_5">Enabled</string>
+      <string id="unknown_10">Enabled</string>
+      <string id="unknown_11">Disabled</string>
+      <string id="unknown_2">Configure the automatic proxy configuration settings, including:  Checkbox to automatically detect settings  Automatic configuration script URL (example: http://proxy.example:8080/proxy.pac). Leave URL blank to disable auto-config script.</string>
+      <string id="unknown_8">Configure the proxy server settings, including:  Checkbox to use a proxy server; proxy server address and port number (example: server:port)  Proxy exceptions/bypass list (example: *.microsoft.com;*.windowsazure.com;&lt;local&gt;). Note: Include &lt;local&gt; in the bypass list to bypass the proxy for local addresses.</string>
+      <string id="ADMXMigrator_UnresolvedString">ADMX Migrator encountered a string that is not present in the source ADM string table.</string>
+      <string id="ADMXMigrator_NoSupportedOn">ADMX Migrator encountered a policy that does not have a supportedOn value.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="Automaticconfiguration">
+        <dropdownList refId="Automaticallydetectsettings" noSort="true">Automatically detect settings</dropdownList>
+        <textBox refId="Useautomaticconfigurationscript">
+          <label>Use automatic configuration script:</label>
+        </textBox>
+      </presentation>
+      <presentation id="Proxyserver">
+        <dropdownList refId="Useaproxyserver" noSort="true">Use a proxy server</dropdownList>
+        <textBox refId="Proxyaddressandportnumber">
+          <label>Proxy address and port number:</label>
+        </textBox>
+        <textBox refId="Exceptions-Donotuseproxyserverforaddressesbeginningwith">
+          <label>Exceptions - Do not use proxy server for addresses beginning with:</label>
+        </textBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

@@ -1,0 +1,373 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--  (c) 2006 Microsoft Corporation  -->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="LanmanServer" namespace="Microsoft.Policies.LanmanServer" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <!--At least Windows Server 2022 or Windows 11-->
+      <definition name="SUPPORTED_Windows_Server_2022_Windows_11_0" displayName="$(string.SUPPORTED_Windows_Server_2022_Windows_11_0)">
+      </definition>
+      <!--At least Windows Server 2025 or Windows 11-->
+      <definition name="SUPPORTED_Windows_Server_2025_Windows_11_0" displayName="$(string.SUPPORTED_Windows_Server_2025_Windows_11_0)">
+      </definition>
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="Cat_LanmanServer" displayName="$(string.Cat_LanmanServer)">
+      <parentCategory ref="windows:Network" />
+    </category>
+  </categories>
+  <policies>
+    <policy name="Pol_HashPublication" 
+            class="Machine" 
+            displayName="$(string.Pol_HashPublication)" 
+            explainText="$(string.Pol_HashPublication_Help)" 
+            presentation="$(presentation.Pol_HashPublication)" 
+            key="Software\Policies\Microsoft\Windows\LanmanServer">
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <elements>
+        <enum id="Lbl_HashPublicationActionCombo" 
+              valueName="HashPublicationForPeerCaching"
+              required="true">
+          <item displayName="$(string.Lbl_FollowShare)">
+            <value>
+              <decimal value="0" />
+            </value>
+          </item>
+          <item displayName="$(string.Lbl_DisableOnAllShares)">
+            <value>
+              <decimal value="1" />
+            </value>
+          </item>
+          <item displayName="$(string.Lbl_EnableOnAllShares)">
+            <value>
+              <decimal value="2" />
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Pol_HashSupportVersion" 
+            class="Machine" 
+            displayName="$(string.Pol_HashSupportVersion)" 
+            explainText="$(string.Pol_HashSupportVersion_Help)" 
+            presentation="$(presentation.Pol_HashSupportVersion)" 
+            key="Software\Policies\Microsoft\Windows\LanmanServer">
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="windows:SUPPORTED_Windows8" />
+      <elements>
+        <enum id="Lbl_HashVersionSupportActionCombo" 
+              valueName="HashSupportVersion"
+              required="true">
+          <item displayName="$(string.Lbl_SupportV1)">
+            <value>
+              <decimal value="1" />
+            </value>
+          </item>
+          <item displayName="$(string.Lbl_SupportV2)">
+            <value>
+              <decimal value="2" />
+            </value>
+          </item>
+          <item displayName="$(string.Lbl_SupportV1andV2)">
+            <value>
+              <decimal value="3" />
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_CipherSuiteOrder_Name)"
+        explainText="$(string.Pol_CipherSuiteOrder_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_CipherSuiteOrder"
+        presentation="$(presentation.Pol_CipherSuiteOrder)"
+        >
+      <parentCategory ref="Cat_LanmanServer"/>
+      <supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <multiText
+            id="MultiText_CipherSuiteOrder"
+            valueName="CipherSuiteOrder"
+            />
+      </elements>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_HonorCipherSuiteOrder_Name)"
+        explainText="$(string.Pol_HonorCipherSuiteOrder_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_HonorCipherSuiteOrder"    
+        valueName="HonorCipherSuiteOrder"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_EnableCompressedTraffic_Name)"
+        explainText="$(string.Pol_EnableCompressedTraffic_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_EnableCompressedTraffic"
+        valueName="EnableCompressedTraffic"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2022_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_DisableCompression_Name)"
+        explainText="$(string.Pol_DisableCompression_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_DisableCompression"
+        valueName="DisableCompression"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2022_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_MaxSmb2Dialect_Name)"
+        explainText="$(string.Pol_MaxSmb2Dialect_Help)"
+        presentation="$(presentation.Pol_MaxSmb2Dialect)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_MaxSmb2Dialect"
+        >
+      <parentCategory ref="Cat_LanmanServer"/>
+      <supportedOn ref="SUPPORTED_Windows_Server_2022_Windows_11_0" />
+      <elements>
+        <enum id="MaxSmb2Dialect" valueName="MaxSmb2Dialect" required="true">
+          <item displayName="$(string.Dialect_0x311)">
+            <value>
+              <decimal value="785" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x302)">
+            <value>
+              <decimal value="770" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x300)">
+            <value>
+              <decimal value="768" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x210)">
+            <value>
+              <decimal value="528" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x202)">
+            <value>
+              <decimal value="514" />
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_MinSmb2Dialect_Name)"
+        explainText="$(string.Pol_MinSmb2Dialect_Help)"
+        presentation="$(presentation.Pol_MinSmb2Dialect)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_MinSmb2Dialect"
+        >
+      <parentCategory ref="Cat_LanmanServer"/>
+      <supportedOn ref="SUPPORTED_Windows_Server_2022_Windows_11_0" />
+      <elements>
+        <enum id="MinSmb2Dialect" valueName="MinSmb2Dialect" required="true">
+          <item displayName="$(string.Dialect_0x202)">
+            <value>
+              <decimal value="514" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x210)">
+            <value>
+              <decimal value="528" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x300)">
+            <value>
+              <decimal value="768" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x302)">
+            <value>
+              <decimal value="770" />
+            </value>
+          </item>
+          <item displayName="$(string.Dialect_0x311)">
+            <value>
+              <decimal value="785" />
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_EnableRemoteMailslots_Name)"
+        explainText="$(string.Pol_EnableRemoteMailslots_Help)"
+        key="Software\Policies\Microsoft\Windows\Bowser"
+        name="Pol_EnableMailslots"
+        valueName="EnableMailslots"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_EnableAuthRateLimiter_Name)"
+        explainText="$(string.Pol_EnableAuthRateLimiter_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_EnableAuthRateLimiter"
+        valueName="EnableAuthRateLimiter"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_AuditClientDoesNotSupportEncryption_Name)"
+        explainText="$(string.Pol_AuditClientDoesNotSupportEncryption_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_AuditClientDoesNotSupportEncryption"
+        valueName="AuditClientDoesNotSupportEncryption"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_AuditClientDoesNotSupportSigning_Name)"
+        explainText="$(string.Pol_AuditClientDoesNotSupportSigning_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_AuditClientDoesNotSupportSigning"
+        valueName="AuditClientDoesNotSupportSigning"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_AuditInsecureGuestLogon_Name)"
+        explainText="$(string.Pol_AuditInsecureGuestLogon_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_AuditInsecureGuestLogon"
+        valueName="AuditInsecureGuestLogon"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_EnableSMBQUIC_Name)"
+        explainText="$(string.Pol_EnableSMBQUIC_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_EnableSMBQUIC"
+        valueName="EnableSMBQUIC"
+        >
+      <parentCategory ref="Cat_LanmanServer"/>
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy
+        class="Machine"
+        displayName="$(string.Pol_AuthRateLimiterDelayInMs_Name)"
+        explainText="$(string.Pol_AuthRateLimiterDelayInMs_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_AuthRateLimiterDelayInMs"
+        presentation="$(presentation.Pol_AuthRateLimiterDelayInMs)"
+        >
+      <parentCategory ref="Cat_LanmanServer"/>
+      <supportedOn ref="SUPPORTED_Windows_Server_2025_Windows_11_0_24H2" />
+      <elements>
+        <decimal
+          id="DecimalTextBox_AuthRateLimiterDelayInMs"
+          valueName="InvalidAuthenticationDelayTimeInMs"
+          required="true"
+          maxValue="10000"
+          minValue="0"
+          />
+      </elements>
+    </policy>
+    <policy 
+        class="Machine"
+        displayName="$(string.Pol_AuditClientSpnSupport_Name)"
+        explainText="$(string.Pol_AuditClientSpnSupport_Help)"
+        key="Software\Policies\Microsoft\Windows\LanmanServer"
+        name="Pol_AuditClientSpnSupport"
+        valueName="AuditClientSpnSupport"
+        >
+      <parentCategory ref="Cat_LanmanServer" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

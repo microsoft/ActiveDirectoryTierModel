@@ -1,0 +1,9 @@
+schemaVersion: 0.0.1
+isProduction: false
+accountableOwners:
+  directOwners:
+  - kipg@microsoft.com
+  - jplatek@microsoft.com
+routing:
+  defaultAreaPath:
+    org: servicescode
