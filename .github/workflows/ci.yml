@@ -68,7 +68,7 @@ jobs:
         }
         
     - name: Upload ScriptAnalyzer Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: scriptanalyzer-results
@@ -161,7 +161,7 @@ jobs:
         }
         
     - name: Upload Test Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: test-results
@@ -247,7 +247,7 @@ jobs:
         Get-ChildItem $packagePath | Format-Table Name, Length -AutoSize
         
     - name: Upload Module Package
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: TierModel-Module
         path: TierModel-Package/
@@ -295,7 +295,7 @@ jobs:
         }
         
     - name: Upload Security Results
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: security-analysis
@@ -390,7 +390,7 @@ jobs:
         $summary | ConvertTo-Json | Out-File "$driftPath/drift-summary.json" -Encoding UTF8
         
     - name: Upload Drift Detection Artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: always()
       with:
         name: drift-detection-reports
@@ -431,7 +431,7 @@ jobs:
         Write-Host "Documentation generated successfully"
         
     - name: Upload Documentation
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: TierModel-Documentation
         path: docs/
