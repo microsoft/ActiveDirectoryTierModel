@@ -30,7 +30,7 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
 
     # GroupPolicy module stubs
-    function Get-GPO { param($Name, $Guid, $All, $Server, $Domain, $ErrorAction) }
+    function Get-GPO { param($Name, $Guid, [switch]$All, $Server, $Domain, $ErrorAction) }
     function Get-GPInheritance { param($Target, $Server, $Domain) }
     function New-GPLink { param($Name, $Guid, $Target, $Server, $Domain, $Order, $Enforced, $LinkEnabled, $ErrorAction) }
     function Set-GPLink { param($Name, $Guid, $Target, $Server, $Domain, $Order, $Enforced, $LinkEnabled, $ErrorAction) }
