@@ -106,7 +106,7 @@ jobs:
           $config.TestResult.OutputFormat = 'JUnitXml'
           $config.TestResult.OutputPath = "test-results.xml"
           $config.CodeCoverage.Enabled = $true
-          $config.CodeCoverage.Path = "modules/TierModel/*.psm1", "modules/TierModel/internal/*.ps1"
+          $config.CodeCoverage.Path = "modules/TierModel/*.psm1", "modules/TierModel/public/*.ps1"
           $config.CodeCoverage.OutputFormat = 'JaCoCo'
           $config.CodeCoverage.OutputPath = "coverage.xml"
           $config.Output.Verbosity = 'Detailed'
