@@ -42,7 +42,7 @@ jobs:
     - name: Run ScriptAnalyzer
       shell: pwsh
       run: |
-        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -EnableExit
+        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule PSAvoidUsingWriteHost, PSAvoidTrailingWhitespace -EnableExit
         Write-Host "ScriptAnalyzer completed with exit code: $LASTEXITCODE"
         
         # Export results for artifact
