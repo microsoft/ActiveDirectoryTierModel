@@ -1,0 +1,63 @@
+{
+  "version": "1.0.0",
+  "comment": "gMSA (Group Managed Service Account) ACL delegations for Tier Model. Optional add-on — loaded only when -IncludeGmsa is specified.",
+  "managedServiceAccountType": "gMSA",
+  "aclDelegations": [
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "msDS-GroupManagedServiceAccount",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": true,
+      "tier": 1,
+      "comment": "Grant Tier1Admins create and delete over gMSA objects in Tier 1 Service Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier1Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "msDS-GroupManagedServiceAccount",
+      "resolveguid": true,
+      "tier": 1,
+      "comment": "Grant Tier1Admins GenericAll on descendant gMSA objects in Tier 1 Service Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "CreateChild",
+        "DeleteChild"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "msDS-GroupManagedServiceAccount",
+      "activeDirectorysecurityinheritance": "All",
+      "resolveguid": true,
+      "tier": 2,
+      "comment": "Grant Tier2Admins create and delete over gMSA objects in Tier 2 Service Accounts"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "identityreference": "Tier2Admins",
+      "activedirectoryrights": [
+        "GenericAll"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "AllObjectClasses",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "inheritedObjectType": "msDS-GroupManagedServiceAccount",
+      "resolveguid": true,
+      "tier": 2,
+      "comment": "Grant Tier2Admins GenericAll on descendant gMSA objects in Tier 2 Service Accounts"
+    }
+  ]
+}

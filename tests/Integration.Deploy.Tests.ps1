@@ -196,6 +196,47 @@ BeforeAll {
         }
     }
     
+    function New-MockIncludeAclPlan {
+        param(
+            [string]$Prefix,
+            [int]$ToCreate = 4,
+            [int]$ExistingCount = 0,
+            [switch]$WithErrors
+        )
+
+        [object[]]$actions = @()
+        for ($i = 1; $i -le $ToCreate; $i++) {
+            $actions += [PSCustomObject]@{
+                Action = 'CreateAcl'
+                ResourceType = 'ACL'
+                Name = "ACL Delegation: TEST\\${Prefix}Principal${i} on OU=${Prefix}OU${i},DC=test,DC=local"
+                Path = "OU=${Prefix}OU${i},DC=test,DC=local"
+                Data = [PSCustomObject]@{
+                    identityreference = "TEST\\${Prefix}Principal${i}"
+                }
+                Dependencies = @()
+                RiskLevel = 'Low'
+            }
+        }
+
+        [object[]]$errors = if ($WithErrors) {
+            @([PSCustomObject]@{ Message = "${Prefix} planning error" })
+        } else {
+            @()
+        }
+
+        return [PSCustomObject]@{
+            Actions = $actions
+            Summary = [PSCustomObject]@{
+                TotalActions = $ToCreate
+                CreateActions = $ToCreate
+                ExistingCount = $ExistingCount
+            }
+            Errors = $errors
+            Warnings = [object[]]@()
+        }
+    }
+
     # Mock all AD and module cmdlets
     Mock Get-TierModelConfig { 
         return [PSCustomObject]@{
@@ -513,6 +554,24 @@ BeforeAll {
         
         return $result
     }
+    Mock Get-TierModelMsaAcl {
+        New-MockIncludeAclPlan -Prefix 'MSA'
+    }
+    Mock Get-TierModelGmsaAcl {
+        New-MockIncludeAclPlan -Prefix 'gMSA'
+    }
+    Mock Get-TierModelDmsaAcl {
+        New-MockIncludeAclPlan -Prefix 'dMSA'
+    }
+    Mock Get-TierModelMsaAclFd {
+        New-MockIncludeAclPlan -Prefix 'MSA'
+    }
+    Mock Get-TierModelGmsaAclFd {
+        New-MockIncludeAclPlan -Prefix 'gMSA'
+    }
+    Mock Get-TierModelDmsaAclFd {
+        New-MockIncludeAclPlan -Prefix 'dMSA'
+    }
     
     # Mock deployment execution cmdlets
     Mock New-TierModelOu { 
@@ -529,6 +588,15 @@ BeforeAll {
     }
     Mock New-TierModelGpo {
         New-MockDeploymentResult -EntityType 'GPO' -AppliedCount 1 -Converged $true
+    }
+    Mock New-TierModelMsaAcl {
+        New-MockDeploymentResult -EntityType 'MSA ACL' -AppliedCount 4 -Converged $true
+    }
+    Mock New-TierModelGmsaAcl {
+        New-MockDeploymentResult -EntityType 'gMSA ACL' -AppliedCount 4 -Converged $true
+    }
+    Mock New-TierModelDmsaAcl {
+        New-MockDeploymentResult -EntityType 'dMSA ACL' -AppliedCount 4 -Converged $true
     }
     Mock Copy-TierModelAdmx {
         [PSCustomObject]@{
@@ -2232,6 +2300,65 @@ Describe 'Deploy-TierModel - AdmxOnly Deployment Results' {
 
         $output | Should -Match 'Deployment Plan'
         $output | Should -Match 'No actions needed'
+    }
+}
+
+Describe 'Deploy-TierModel - Include ACL Display and Planning' {
+    BeforeEach {
+        Mock Read-Host { return 'N' }
+    }
+
+    It 'Should display standalone gMSA ACL actions and deployment summary' {
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -IncludeGmsa -ErrorAction Stop 6>&1 | Out-String
+
+        $output | Should -Match 'Phase: gMSA ACL Delegations'
+        ([regex]::Matches($output, 'Create ACL:')).Count | Should -Be 4
+        $output | Should -Match '=== Deployment Plan ==='
+        $output | Should -Match 'Action count: 4'
+        $output | Should -Match 'Create count: 4'
+        $output | Should -Match 'Update count: 0'
+        $output | Should -Match 'Link count: 0'
+        $output | Should -Match 'Configure count: 0'
+        $output | Should -Match 'Already exist: 0'
+    }
+
+    It 'Should aggregate standalone include plans across MSA gMSA and dMSA' {
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -IncludeMsa -IncludeGmsa -IncludeDmsa -ErrorAction Stop 6>&1 | Out-String
+
+        $output | Should -Match 'Phase: MSA ACL Delegations'
+        $output | Should -Match 'Phase: gMSA ACL Delegations'
+        $output | Should -Match 'Phase: dMSA ACL Delegations'
+        ([regex]::Matches($output, 'Create ACL:')).Count | Should -Be 12
+        $output | Should -Match 'Action count: 12'
+        $output | Should -Match 'Create count: 12'
+        $output | Should -Match 'Already exist: 0'
+    }
+
+    It 'Should add FullDeployment include actions to the deployment plan before the summary' {
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeMsa -ErrorAction Stop 6>&1 | Out-String
+
+        Should -Invoke Get-TierModelMsaAclFd -Times 1
+        Should -Invoke Get-TierModelMsaAcl -Times 0
+        $output | Should -Match 'Phase 7: MSA ACL Delegations'
+        ([regex]::Matches($output, 'Create ACL:')).Count | Should -Be 4
+        $output | Should -Match 'Action count: 8'
+        $output | Should -Match 'Create count: 8'
+    }
+
+    It 'Should reuse precomputed FullDeployment include plans during execution' {
+        Mock Read-Host { return 'Y' }
+
+        & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa -ConfirmApply -ErrorAction Stop
+
+        Should -Invoke Get-TierModelMsaAclFd -Times 1
+        Should -Invoke Get-TierModelGmsaAclFd -Times 1
+        Should -Invoke Get-TierModelDmsaAclFd -Times 1
+        Should -Invoke Get-TierModelMsaAcl -Times 0
+        Should -Invoke Get-TierModelGmsaAcl -Times 0
+        Should -Invoke Get-TierModelDmsaAcl -Times 0
+        Should -Invoke New-TierModelMsaAcl -Times 1
+        Should -Invoke New-TierModelGmsaAcl -Times 1
+        Should -Invoke New-TierModelDmsaAcl -Times 1
     }
 }
 

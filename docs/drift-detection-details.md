@@ -11,6 +11,8 @@ This document provides detailed guidance for using the `Audit-TierModel.ps1` scr
 ```powershell
 # Run comprehensive audit of all components
 .\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -FullDeployment
+
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa
 ```
 
 ### Scoped Audits
@@ -32,6 +34,15 @@ This document provides detailed guidance for using the `Audit-TierModel.ps1` scr
 
 # Audit only ADMX templates
 .\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -AdmxOnly
+
+# Audit only MSA ACL delegations (optional feature)
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -IncludeMsa
+
+# Audit only gMSA ACL delegations (optional feature)
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -IncludeGmsa
+
+# Audit only dMSA ACL delegations (optional feature)
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -IncludeDmsa
 ```
 
 ## Audit Output Structure
@@ -117,9 +128,15 @@ Each component audit displays:
 | Missing | User | User account deleted or not created | Re-run Deploy-TierModel.ps1 with -UserOnly |
 | Missing | ADMXTemplate | Template removed from PolicyDefinitions | Re-run Deploy-TierModel.ps1 with -AdmxOnly |
 | Missing | ACL | OU ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -OuAclsOnly |
+| Missing | ManagedServiceAccountACL | MSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeMsa (optional feature) |
+| Missing | GroupManagedServiceAccountACL | gMSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeGmsa (optional feature) |
+| Missing | DelegatedManagedServiceAccountACL | dMSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeDmsa (optional feature) |
 | Mismatch | Group | Membership differs from config | Manual remediation or update configuration |
 | Mismatch | User | User properties differ from config | Manual remediation or update configuration |
 | Mismatch | GPO | Link order incorrect | Manual GPO link order adjustment required |
+| Mismatch | ManagedServiceAccountACL | MSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeMsa |
+| Mismatch | GroupManagedServiceAccountACL | gMSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeGmsa |
+| Mismatch | DelegatedManagedServiceAccountACL | dMSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeDmsa |
 | HashMismatch | ADMXTemplate | Template file content differs | Re-run Deploy-TierModel.ps1 with -AdmxOnly to update |
 | ExtraProtection | OrganizationalUnit | Additional OU protection enabled | Manual review; may be intentional hardening |
 
@@ -178,10 +195,41 @@ See [CI/CD Documentation](ci-cd.md) for examples of integrating audit scripts in
 - **Cmdlet**: `Test-TierModelAdmx`
 - **Common Issues**: Missing templates, outdated files (hash mismatch)
 
+### Managed Service Account (MSA) ACLs (Optional)
+- **Checks**: Presence of delegation ACEs on msDS-ManagedServiceAccount objects
+- **Cmdlets**: `Test-TierModelMsaAcl`, `Get-TierModelMsaAcl`
+- **Enable with**: `-IncludeMsa` switch
+- **Common Issues**: Missing delegations, extra permissions on MSA objects
+- **Example**:
+  ```powershell
+  .\Audit-TierModel.ps1 -IncludeMsa -PreferredDc DC01.contoso.com
+  ```
+
+### Group Managed Service Account (gMSA) ACLs (Optional)
+- **Checks**: Presence of delegation ACEs on msDS-GroupManagedServiceAccount objects
+- **Cmdlets**: `Test-TierModelGmsaAcl`, `Get-TierModelGmsaAcl`
+- **Enable with**: `-IncludeGmsa` switch
+- **Common Issues**: Missing delegations, extra permissions on gMSA objects
+- **Example**:
+  ```powershell
+  .\Audit-TierModel.ps1 -IncludeGmsa -PreferredDc DC01.contoso.com
+  ```
+
+### Delegated Managed Service Account (dMSA) ACLs (Optional)
+- **Checks**: Presence of delegation ACEs on msDS-DelegatedManagedServiceAccount objects
+- **Cmdlets**: `Test-TierModelDmsaAcl`, `Get-TierModelDmsaAcl`
+- **Enable with**: `-IncludeDmsa` switch
+- **Common Issues**: Missing delegations, extra permissions on dMSA objects
+- **Example**:
+  ```powershell
+  .\Audit-TierModel.ps1 -IncludeDmsa -PreferredDc DC01.contoso.com
+  ```
+
 ## Notes
 - Drift detection is **read-only**; no changes are made to AD
 - Remediation is performed using `Deploy-TierModel.ps1` script
 - MD5 hash-based ADMX drift detection is fully implemented
+- MSA/gMSA/dMSA drift detection is optional and enabled via `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` switches
 - Individual cmdlets can be called directly for programmatic use
 
 ## Related Documentation

@@ -46,6 +46,9 @@ Ordering mirrors authoritative design (plan.md) to satisfy dependencies and enab
 4. **ACL Delegations** – Apply OU permissions (requires OUs & groups)
 5. **GPO Import/Create/Linking** – Materialize and link baselines & configurable policies (requires OUs)
 6. **ADMX Import** – Administrative templates (performed only in `-FullDeployment` or standalone `-ImportAdmxOnly` scope)
+7. **MSA ACL Delegations** (Optional) – Apply permissions on Managed Service Accounts (requires MSAs & groups; enable with `-IncludeMsa`)
+8. **gMSA ACL Delegations** (Optional) – Apply permissions on Group Managed Service Accounts (requires gMSAs & groups; enable with `-IncludeGmsa`)
+9. **dMSA ACL Delegations** (Optional) – Apply permissions on Delegated Managed Service Accounts (requires dMSAs & groups; enable with `-IncludeDmsa`)
 
 ## Testing Strategy by Component
 
@@ -148,16 +151,19 @@ ForEach ($delegation in $model.ouDelegations) {
 ## Auditing and Logging Requirements
 
 ### Information Messages (INFO)
-- Object already exists (OU, Group, User, GPO)
-- Correct configuration found (ACL, GPO link order)
+- Object already exists (OU, Group, User, GPO, MSA, gMSA, dMSA)
+- Correct configuration found (ACL, GPO link order, MSA/gMSA/dMSA delegations)
 - Successful creation/configuration
 - File count validation success
+- MSA/gMSA/dMSA optional feature enabled
 
 ### Warning Messages (WARN)  
 - GPO link order incorrect (manual fix required)
 - ADMX locale `.adml` missing for source template
 - ADMX import failure (permission/lock issues)
 - Missing declared ADML locale file
+- MSA/gMSA/dMSA optional feature switch not enabled but configuration present
+- MSA/gMSA/dMSA ACL application failure (permissions/lock issues)
 
 ### Error Messages (ERROR)
 - Object creation failure
@@ -269,6 +275,9 @@ The following table and function contract list define the canonical validation l
 | GPO | OU exists (if linking) | Get-GPO -Name | GPO found | N/A | Lookup failure | Create/import/configure |
 | GPO Link Order | GPO + target OU exist | Get-GPInheritance | LinkOrder matches expected | LinkOrder mismatch | Cannot enumerate | Log warning only (no auto-fix) |
 | ADMX Template | Source path valid | Enumerate source/destination | Template pair present both sides | Locale ADML missing | Copy failure | Import template pair |
+| MSA ACL | OU + Group exist | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-ManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL | Apply two-ACE delegation |
+| gMSA ACL | OU + Group exist | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-GroupManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL | Apply two-ACE delegation |
+| dMSA ACL | OU + Group exist + Schema GUID resolved | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-DelegatedManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL / GUID resolution failure | Apply two-ACE delegation |
 
 ### Function Contracts
 
@@ -282,6 +291,9 @@ All test functions are pure (no side-effects) except when `-Apply` or Import cmd
 6. `Test-TierModelGpoLinkOrder -Ou <string> -ExpectedOrderMap <hashtable>`
 7. `Get-TierModelAdmxState -SourcePath <string> -DefaultLocale <string>`
 8. `Import-TierModelAdmx -SourcePath <string> -DefaultLocale <string> [-WhatIf]`
+9. `Test-TierModelMsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+10. `Test-TierModelGmsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+11. `Test-TierModelDmsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
 
 ### Result Object Shape (PowerShell PSCustomObject)
 ```
@@ -304,6 +316,9 @@ The TierModel includes comprehensive Pester test suites covering all deployment 
 - `Unit.GroupOperations.Tests.ps1` - Group creation and membership
 - `Unit.UserOperations.Tests.ps1` - User account operations
 - `Unit.OuAclOperations.Tests.ps1` - ACL delegation logic
+- `Unit.MsaAclOperations.Tests.ps1` - MSA ACL delegation planning, execution, and audit
+- `Unit.GmsaAclOperations.Tests.ps1` - gMSA ACL delegation planning, execution, and audit
+- `Unit.DmsaAclOperations.Tests.ps1` - dMSA ACL delegation planning, execution, and audit
 - `Unit.GpoOperations.Tests.ps1` - GPO creation and import
 - `Unit.GpoLinking.Tests.ps1` - GPO linking logic
 - `Unit.GpoTemplates.Tests.ps1` - GPO template generation (URA, Restricted Groups)

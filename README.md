@@ -1,6 +1,6 @@
 # 🏛️ Tier Model
 
-Declarative PowerShell framework to deploy and audit an Active Directory Tier Model (OUs, Groups, Users, ACL Delegations, GPOs, ADMX) from a single version-controlled JSON configuration file. Supports idempotent re-runs, drift detection, and reproducible builds via pinned dependency versions.
+Declarative PowerShell framework to deploy and audit an Active Directory Tier Model (OUs, Groups, Users, ACL Delegations, GPOs, ADMX, MSA/gMSA/dMSA Permissions) from a single version-controlled JSON configuration file. Supports idempotent re-runs, drift detection, and reproducible builds via pinned dependency versions.
 
 > 🏗️ **Built with the Specify Framework** - Test-driven development ensuring quality and reliability
 
@@ -38,21 +38,22 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ ALL TESTS PASSING** *(Last run: March 6, 2026)*
+**Current Test Status: ✅ ALL TESTS PASSING** *(Last run: June 4, 2026)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 12 files | 878 tests | ✅ 100% Pass | **91.3%** |
+| **Unit Tests** | 15 files | 1,034 tests | ✅ 100% Pass | **91.3%** *(pending re-measure)* |
 | **Integration Tests** | 6 files | 201 tests | ✅ 100% Pass | **100%** |
-| **Manual Integration Tests** | 1 file | 265 tests | ✅ 100% Pass | **100%** |
-| **Total** | **18 files** | **1,079 tests** | ✅ **All Passing** | **91.3%** |
+| **Manual Integration Tests** | 1 file | 311 tests | ✅ 100% Pass | **100%** |
+| **Total** | **22 files** | **1,235 tests** | ✅ **All Passing** | **91.3%** *(pending re-measure)* |
 
 ### Test Coverage Highlights
-- ✅ **46/46** production files have comprehensive test coverage
-- ✅ **100%** of all automated 1,079 test cases passing
+- ✅ **58/58** production files have comprehensive test coverage (12 new MSA/gMSA/dMSA cmdlets added in Phase 16)
+- ✅ **100%** of all automated 1,235 test cases passing
 - ✅ **100%** of all manual 265 test cases passing
-- ✅ **91.3%** overall line coverage (8,140 / 8,916 commands) — all files at 80%+
+- ✅ **91.3%** overall line coverage (8,140+ / 8,916+ commands) — all files at 80%+
 - ✅ `Get-TierModelConditionalGroupNames` — new function with full test coverage (6 unit tests)
+- ✅ **New in Phase 16:** Unit test files for MSA/gMSA/dMSA ACL operations (Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1)
 - ✅ Mock-based testing (no Active Directory connectivity required)
 - ✅ WhatIf support validation across all deployment operations
 
@@ -75,10 +76,10 @@ To get started with TierModel, please refer to our comprehensive documentation:
 ```
 
 ### Deployment Scripts
-| Script | Purpose |
-|--------|---------|
-| `Deploy-TierModel.ps1` | 🚀 Deploy with scoped execution |
-| `Audit-TierModel.ps1` | 📊 Audit and compliance checking |
+| Script | Purpose | Optional Features |
+|--------|---------|-------------------|
+| `Deploy-TierModel.ps1` | 🚀 Deploy with scoped execution | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL delegation) |
+| `Audit-TierModel.ps1` | 📊 Audit and compliance checking | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL audit) |
 
 ## 🤝 Contributing
 

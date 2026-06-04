@@ -21,6 +21,9 @@ This document defines Pester tags used across all TierModel test suites.
 | GpoTemplates | GPO template (GptTmpl.inf) operations |
 | ADMX | Administrative template import and validation |
 | OuAcl | OU permissions and ACL operations |
+| MsaAcl | Managed Service Account ACL delegation operations |
+| GmsaAcl | Group Managed Service Account ACL delegation operations |
+| DmsaAcl | Delegated Managed Service Account ACL delegation operations |
 | Resolution | Name resolution and placeholder expansion |
 | Manifest | Module manifest validation |
 | Module | Module loading and integration tests |
@@ -51,6 +54,9 @@ This document defines Pester tags used across all TierModel test suites.
 | Dependencies | dependencies.json parsing and validation |
 | Modules | External module version and presence checks |
 | Domain | Domain/forest detection logic |
+| MsaPrereq | MSA feature prerequisite checks |
+| GmsaPrereq | gMSA feature prerequisite checks |
+| DmsaPrereq | dMSA feature prerequisite checks |
 
 ## Test Type Tags
 

@@ -268,6 +268,135 @@ Verify ADMX template compliance:
 
 ---
 
+## Step 7: Deploy MSA ACL Delegations (Optional)
+
+This step is optional and only required if you need to manage Managed Service Account (MSA) permissions using the Tier Model. Enable with `-IncludeMsa` switch.
+
+### 7.1 Plan MSA ACL Deployment
+Review what MSA ACL delegations will be applied:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeMsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- List of MSAs receiving ACL delegations
+- Groups being delegated permissions (msDS-ManagedServiceAccount object class)
+- Rights and access control entries to be applied
+- No changes applied to Active Directory
+
+### 7.2 Deploy MSA ACLs
+Execute the MSA ACL delegation deployment:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeMsa -PreferredDc DC01.contoso.com -ConfirmApply
+```
+
+**Expected Output:**
+- MSA ACL delegations applied successfully
+- Groups granted appropriate permissions on MSA objects
+- Deployment summary
+
+### 7.3 Audit MSA ACLs
+Verify MSA ACL delegation compliance:
+
+```powershell
+.\Audit-TierModel.ps1 -IncludeMsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- All MSA delegations compliant
+- Security principals have correct permissions on msDS-ManagedServiceAccount objects
+- No drift detected
+
+---
+
+## Step 8: Deploy gMSA ACL Delegations (Optional)
+
+This step is optional and only required if you need to manage Group Managed Service Account (gMSA) permissions using the Tier Model. Enable with `-IncludeGmsa` switch.
+
+### 8.1 Plan gMSA ACL Deployment
+Review what gMSA ACL delegations will be applied:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeGmsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- List of gMSAs receiving ACL delegations
+- Groups being delegated permissions (msDS-GroupManagedServiceAccount object class)
+- Rights and access control entries to be applied
+- No changes applied to Active Directory
+
+### 8.2 Deploy gMSA ACLs
+Execute the gMSA ACL delegation deployment:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeGmsa -PreferredDc DC01.contoso.com -ConfirmApply
+```
+
+**Expected Output:**
+- gMSA ACL delegations applied successfully
+- Groups granted appropriate permissions on gMSA objects
+- Deployment summary
+
+### 8.3 Audit gMSA ACLs
+Verify gMSA ACL delegation compliance:
+
+```powershell
+.\Audit-TierModel.ps1 -IncludeGmsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- All gMSA delegations compliant
+- Security principals have correct permissions on msDS-GroupManagedServiceAccount objects
+- No drift detected
+
+---
+
+## Step 9: Deploy dMSA ACL Delegations (Optional)
+
+This step is optional and only required if you need to manage Delegated Managed Service Account (dMSA) permissions using the Tier Model. Enable with `-IncludeDmsa` switch.
+
+### 9.1 Plan dMSA ACL Deployment
+Review what dMSA ACL delegations will be applied:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeDmsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- List of dMSAs receiving ACL delegations
+- Groups being delegated permissions (msDS-DelegatedManagedServiceAccount object class)
+- Rights and access control entries to be applied
+- No changes applied to Active Directory
+
+### 9.2 Deploy dMSA ACLs
+Execute the dMSA ACL delegation deployment:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeDmsa -PreferredDc DC01.contoso.com -ConfirmApply
+```
+
+**Expected Output:**
+- dMSA ACL delegations applied successfully
+- Groups granted appropriate permissions on dMSA objects
+- Deployment summary
+
+### 9.3 Audit dMSA ACLs
+Verify dMSA ACL delegation compliance:
+
+```powershell
+.\Audit-TierModel.ps1 -IncludeDmsa -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- All dMSA delegations compliant
+- Security principals have correct permissions on msDS-DelegatedManagedServiceAccount objects
+- No drift detected
+
+---
+
 ## Post-Deployment Verification
 
 After completing all deployment steps, run a comprehensive audit to ensure the entire Tier Model is compliant:
@@ -289,6 +418,9 @@ If a deployment step fails, verify dependencies are in place:
 - **Groups** require OUs to exist
 - **Users** require OUs and Groups to exist
 - **OU ACLs** require OUs and Groups to exist
+- **MSA ACLs** (Optional) require MSA objects and Groups to exist
+- **gMSA ACLs** (Optional) require gMSA objects and Groups to exist
+- **dMSA ACLs** (Optional) require dMSA objects and Groups to exist
 - **GPOs** require OUs to exist for linking
 
 ### Redeployment

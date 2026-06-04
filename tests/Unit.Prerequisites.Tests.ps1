@@ -272,6 +272,86 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             $result.Remediation | Should -Contain "Check network configuration and firewall settings"
         }
     }
+
+    Context "MSA Prerequisites" -Tag 'MsaPrereq', 'Prereq' {
+
+        It "-IncludeMsa switch is accepted without error" {
+            # Verify the switch exists and the function does not throw when used
+            { Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeMsa } |
+                Should -Not -Throw
+        }
+
+        It "-IncludeMsa returns a valid result object" {
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeMsa
+            $result | Should -Not -BeNullOrEmpty
+            $result.PSObject.Properties.Name | Should -Contain 'Valid'
+            $result.PSObject.Properties.Name | Should -Contain 'Errors'
+            $result.PSObject.Properties.Name | Should -Contain 'Remediation'
+            $result.PSObject.Properties.Name | Should -Contain 'EnvironmentSnapshot'
+        }
+
+        It "-IncludeMsa does not break existing prerequisite check output" {
+            $resultBase = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+            $resultMsa  = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeMsa
+
+            # Both should have the same standard EnvironmentSnapshot fields
+            $resultBase.EnvironmentSnapshot.PSObject.Properties.Name | ForEach-Object {
+                $resultMsa.EnvironmentSnapshot.PSObject.Properties.Name | Should -Contain $_
+            }
+        }
+    }
+
+    Context "gMSA Prerequisites" -Tag 'GmsaPrereq', 'Prereq' {
+
+        It "-IncludeGmsa switch is accepted without error" {
+            { Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeGmsa } |
+                Should -Not -Throw
+        }
+
+        It "-IncludeGmsa returns a valid result object" {
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeGmsa
+            $result | Should -Not -BeNullOrEmpty
+            $result.PSObject.Properties.Name | Should -Contain 'Valid'
+            $result.PSObject.Properties.Name | Should -Contain 'Errors'
+            $result.PSObject.Properties.Name | Should -Contain 'Remediation'
+            $result.PSObject.Properties.Name | Should -Contain 'EnvironmentSnapshot'
+        }
+
+        It "-IncludeGmsa does not break existing prerequisite check output" {
+            $resultBase  = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+            $resultGmsa  = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeGmsa
+
+            $resultBase.EnvironmentSnapshot.PSObject.Properties.Name | ForEach-Object {
+                $resultGmsa.EnvironmentSnapshot.PSObject.Properties.Name | Should -Contain $_
+            }
+        }
+    }
+
+    Context "dMSA Prerequisites" -Tag 'DmsaPrereq', 'Prereq' {
+
+        It "-IncludeDmsa switch is accepted without error" {
+            { Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa } |
+                Should -Not -Throw
+        }
+
+        It "-IncludeDmsa returns a valid result object" {
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $result | Should -Not -BeNullOrEmpty
+            $result.PSObject.Properties.Name | Should -Contain 'Valid'
+            $result.PSObject.Properties.Name | Should -Contain 'Errors'
+            $result.PSObject.Properties.Name | Should -Contain 'Remediation'
+            $result.PSObject.Properties.Name | Should -Contain 'EnvironmentSnapshot'
+        }
+
+        It "-IncludeDmsa does not break existing prerequisite check output" {
+            $resultBase  = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+            $resultDmsa  = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+
+            $resultBase.EnvironmentSnapshot.PSObject.Properties.Name | ForEach-Object {
+                $resultDmsa.EnvironmentSnapshot.PSObject.Properties.Name | Should -Contain $_
+            }
+        }
+    }
 }
 
 Describe "Get-TierModelConfig - Configuration Loading" -Tag "Unit", "Config" {

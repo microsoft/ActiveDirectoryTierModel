@@ -122,6 +122,90 @@ Phase 3 (UsersFd):
 - [ ] Comprehensive test coverage for both modes
 - [ ] Documentation updated to reflect new architecture
 
+## Phase 7: Managed Service Account (MSA) ACL Configuration (Optional)
+
+MSA ACL delegation is an optional feature enabled with `-IncludeMsa` switch.
+
+### Cmdlets
+- **Get-TierModelMsaAcl** - Plan MSA ACL delegations (phase-specific)
+  - Configuration + DomainController → validates MSA OUs/groups exist, checks ACL state → plan
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **Get-TierModelMsaAclFd** - Full deployment variant (lighter validation)
+  - Assumes MSA objects created by prior steps
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **New-TierModelMsaAcl** - Apply MSA ACL delegations
+  - Plan + DomainController + Config → applies ACLs via ADSI
+  - Supports `-WhatIf`
+  - Parameters: `-Plan`, `-DomainController`, `-Config`, `-WhatIf`
+
+- **Test-TierModelMsaAcl** - Audit MSA ACL delegations
+  - Configuration + DomainController → checks ACEs exist on msDS-ManagedServiceAccount objects
+  - Returns: TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings
+  - Parameters: `-Config`, `-DomainController`, `-Silent`, `-SuppressSummary`
+
+### ACL Model
+Two ACEs per MSA delegation:
+1. CreateChild/DeleteChild scoped to msDS-ManagedServiceAccount class on the OU
+2. GenericAll on descendant objects of msDS-ManagedServiceAccount class
+
+## Phase 8: Group Managed Service Account (gMSA) ACL Configuration (Optional)
+
+gMSA ACL delegation is an optional feature enabled with `-IncludeGmsa` switch.
+
+### Cmdlets
+- **Get-TierModelGmsaAcl** - Plan gMSA ACL delegations (phase-specific)
+  - Configuration + DomainController → validates gMSA OUs/groups exist, checks ACL state → plan
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **Get-TierModelGmsaAclFd** - Full deployment variant (lighter validation)
+  - Assumes gMSA objects created by prior steps
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **New-TierModelGmsaAcl** - Apply gMSA ACL delegations
+  - Plan + DomainController + Config → applies ACLs via ADSI
+  - Supports `-WhatIf`
+  - Parameters: `-Plan`, `-DomainController`, `-Config`, `-WhatIf`
+
+- **Test-TierModelGmsaAcl** - Audit gMSA ACL delegations
+  - Configuration + DomainController → checks ACEs exist on msDS-GroupManagedServiceAccount objects
+  - Returns: TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings
+  - Parameters: `-Config`, `-DomainController`, `-Silent`, `-SuppressSummary`
+
+### ACL Model
+Two ACEs per gMSA delegation:
+1. CreateChild/DeleteChild scoped to msDS-GroupManagedServiceAccount class on the OU
+2. GenericAll on descendant objects of msDS-GroupManagedServiceAccount class
+
+## Phase 9: Delegated Managed Service Account (dMSA) ACL Configuration (Optional)
+
+dMSA ACL delegation is an optional feature enabled with `-IncludeDmsa` switch.
+
+### Cmdlets
+- **Get-TierModelDmsaAcl** - Plan dMSA ACL delegations (phase-specific)
+  - Configuration + DomainController → validates dMSA OUs/groups exist, checks ACL state → plan
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **Get-TierModelDmsaAclFd** - Full deployment variant (lighter validation)
+  - Assumes dMSA objects created by prior steps
+  - Parameters: `-Config`, `-DomainController`, `-Silent`
+
+- **New-TierModelDmsaAcl** - Apply dMSA ACL delegations
+  - Plan + DomainController + Config → applies ACLs via ADSI
+  - Supports `-WhatIf`
+  - Parameters: `-Plan`, `-DomainController`, `-Config`, `-WhatIf`
+
+- **Test-TierModelDmsaAcl** - Audit dMSA ACL delegations
+  - Configuration + DomainController → checks ACEs exist on msDS-DelegatedManagedServiceAccount objects
+  - Returns: TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings
+  - Parameters: `-Config`, `-DomainController`, `-Silent`, `-SuppressSummary`
+
+### ACL Model
+Two ACEs per dMSA delegation:
+1. CreateChild/DeleteChild scoped to msDS-DelegatedManagedServiceAccount class on the OU
+2. GenericAll on descendant objects of msDS-DelegatedManagedServiceAccount class
+
 ## Related Documentation
 
 For additional documentation, see:

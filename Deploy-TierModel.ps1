@@ -89,6 +89,10 @@ param(
     [switch]$FullDeployment,
     [switch]$ConfirmApply,
     
+    [switch]$IncludeMsa,
+    [switch]$IncludeGmsa,
+    [switch]$IncludeDmsa,
+    
     [Parameter()]
     [string]$AdmlLanguage = 'en-US',
     
@@ -108,12 +112,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one deployment scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa)
+$activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
-if ($activeScopeCount -eq 0) {
-    Write-Error "You must specify exactly one deployment scope parameter: -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, or -FullDeployment" -ErrorAction Stop
+if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
+    Write-Error "You must specify exactly one deployment scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one deployment scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
+}
+elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
+    Write-Error "-IncludeMsa, -IncludeGmsa, and -IncludeDmsa can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Deploy TierModel orchestration starting." -ForegroundColor Cyan
@@ -153,6 +162,16 @@ if ($Logging) {
     if (-not (Test-Path $logDir)) {
         New-Item -Path $logDir -ItemType Directory -Force | Out-Null
     }
+}
+
+# Check PowerShell version before importing the module
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Host ""
+    Write-Host "  Deploying and Auditing of the Tier Model requires PowerShell 7.x or later." -ForegroundColor Red
+    Write-Host "  Current version: PowerShell $($PSVersionTable.PSVersion)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Deploy script completed." -ForegroundColor Green
+    return
 }
 
 # Import TierModel module with all public functions
@@ -1010,6 +1029,57 @@ function Invoke-GpoDeployment {
     }
 }
 
+function Write-IncludeAclPlanActions {
+    param(
+        [Parameter(Mandatory)] [object[]]$Actions
+    )
+
+    @($Actions) | ForEach-Object {
+        if ($_.Action -eq 'CreateAcl') {
+            $ouName = if ($_.Path -match '^OU=([^,]+)') { $matches[1] } else { 'Unknown OU' }
+            $principal = $_.Data.identityreference
+            Write-Host "  ■ Create ACL: $principal on $ouName" -ForegroundColor Yellow
+        }
+    }
+}
+
+function Add-IncludeAclPhaseToDeploymentPlan {
+    param(
+        [Parameter(Mandatory)] [hashtable]$DeploymentPlan,
+        [Parameter(Mandatory)] [int]$PhaseNumber,
+        [Parameter(Mandatory)] [string]$PhaseName,
+        [Parameter(Mandatory)] [object]$Plan
+    )
+
+    $actionCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'TotalActions') {
+        [int]$Plan.Summary.TotalActions
+    } else {
+        @($Plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
+    }
+    $createCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'CreateActions') {
+        [int]$Plan.Summary.CreateActions
+    } else {
+        @($Plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
+    }
+    $existingCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'ExistingCount') {
+        [int]$Plan.Summary.ExistingCount
+    } else {
+        0
+    }
+
+    $DeploymentPlan.CreateCount += $createCount
+    $DeploymentPlan.TotalActions += $actionCount
+    $DeploymentPlan.AlreadyExistCount += $existingCount
+    $DeploymentPlan.Actions += @($Plan.Actions)
+    $DeploymentPlan.Phases += [PSCustomObject]@{
+        Phase = $PhaseNumber
+        Name = $PhaseName
+        ActionCount = $actionCount
+        ExistingCount = $existingCount
+        Actions = @($Plan.Actions)
+    }
+}
+
 # Execute deployment based on scope
 if ($FullDeployment) {
     Write-Host "=== Full Deployment ===" -ForegroundColor Magenta
@@ -1444,6 +1514,106 @@ if ($FullDeployment) {
         }
     }
     
+    # Phases 7-9: Optional MSA/gMSA/dMSA ACL delegations
+    if ($activeIncludeCount -gt 0) {
+        if (-not $ConfirmApply) {
+            Write-Host "" # Blank line
+        }
+
+        if ($IncludeMsa) {
+            if (-not $ConfirmApply) {
+                Write-Host "Phase 7: MSA ACL Delegations" -ForegroundColor Cyan
+            }
+
+            $msaFdPlanParams = @{
+                Config = $config
+                DomainController = $PreferredDc
+                IncludeDetails = $true
+            }
+            if ($ConfirmApply) { $msaFdPlanParams['Silent'] = $true }
+            $msaFdPlan = Get-TierModelMsaAclFd @msaFdPlanParams
+
+            if ($msaFdPlan.Errors -and $msaFdPlan.Errors.Count -gt 0) {
+                if (-not $ConfirmApply) {
+                    Write-Host "  ❌ MSA planning errors:" -ForegroundColor Red
+                    $msaFdPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                }
+            } else {
+                Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 7 -PhaseName 'MSA ACL Delegations' -Plan $msaFdPlan
+                if (-not $ConfirmApply) {
+                    if ($msaFdPlan.Summary.TotalActions -gt 0) {
+                        Write-Host "  Actions planned: $($msaFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                        Write-IncludeAclPlanActions -Actions $msaFdPlan.Actions
+                    } else {
+                        Write-Host "  ✅ MSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        }
+
+        if ($IncludeGmsa) {
+            if (-not $ConfirmApply) {
+                Write-Host "Phase 8: gMSA ACL Delegations" -ForegroundColor Cyan
+            }
+
+            $gmsaFdPlanParams = @{
+                Config = $config
+                DomainController = $PreferredDc
+                IncludeDetails = $true
+            }
+            if ($ConfirmApply) { $gmsaFdPlanParams['Silent'] = $true }
+            $gmsaFdPlan = Get-TierModelGmsaAclFd @gmsaFdPlanParams
+
+            if ($gmsaFdPlan.Errors -and $gmsaFdPlan.Errors.Count -gt 0) {
+                if (-not $ConfirmApply) {
+                    Write-Host "  ❌ gMSA planning errors:" -ForegroundColor Red
+                    $gmsaFdPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                }
+            } else {
+                Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 8 -PhaseName 'gMSA ACL Delegations' -Plan $gmsaFdPlan
+                if (-not $ConfirmApply) {
+                    if ($gmsaFdPlan.Summary.TotalActions -gt 0) {
+                        Write-Host "  Actions planned: $($gmsaFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                        Write-IncludeAclPlanActions -Actions $gmsaFdPlan.Actions
+                    } else {
+                        Write-Host "  ✅ gMSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        }
+
+        if ($IncludeDmsa) {
+            if (-not $ConfirmApply) {
+                Write-Host "Phase 9: dMSA ACL Delegations" -ForegroundColor Cyan
+            }
+
+            $dmsaFdPlanParams = @{
+                Config = $config
+                DomainController = $PreferredDc
+                IncludeDetails = $true
+            }
+            if ($ConfirmApply) { $dmsaFdPlanParams['Silent'] = $true }
+            $dmsaFdPlan = Get-TierModelDmsaAclFd @dmsaFdPlanParams
+
+            if ($dmsaFdPlan.Errors -and $dmsaFdPlan.Errors.Count -gt 0) {
+                if (-not $ConfirmApply) {
+                    Write-Host "  ❌ dMSA planning errors:" -ForegroundColor Red
+                    $dmsaFdPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                }
+            } else {
+                Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 9 -PhaseName 'dMSA ACL Delegations' -Plan $dmsaFdPlan
+                if (-not $ConfirmApply) {
+                    if ($dmsaFdPlan.Summary.TotalActions -gt 0) {
+                        Write-Host "  Actions planned: $($dmsaFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                        Write-IncludeAclPlanActions -Actions $dmsaFdPlan.Actions
+                    } else {
+                        Write-Host "  ✅ dMSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        }
+    }
+    
     # Show deployment plan summary (only if not applying changes)
     if (-not $ConfirmApply) {
         Write-Host "`n=== Deployment Plan ===" -ForegroundColor Blue
@@ -1460,6 +1630,13 @@ if ($FullDeployment) {
             Write-Host "" # Blank line
         }
     }
+    
+    $ouExecutionResult = $null
+    $groupExecutionResult = $null
+    $userExecutionResult = $null
+    $ouAclExecutionResult = $null
+    $gpoExecutionResult = $null
+    $admxExecutionResult = $null
     
     if ($ConfirmApply -and $deploymentPlan.TotalActions -gt 0) {
         Write-Host "`nApplying Full Deployment changes..." -ForegroundColor Cyan
@@ -1540,6 +1717,72 @@ if ($FullDeployment) {
         
         Write-Host "Full deployment execution completed." -ForegroundColor Green
         
+        # Check if standard deployment had errors (before running optional features)
+        $standardDeployHadErrors = $false
+        foreach ($r in @($ouExecutionResult, $groupExecutionResult, $userExecutionResult, $ouAclExecutionResult, $gpoExecutionResult, $admxExecutionResult)) {
+            if ($null -ne $r) {
+                if ($r.PSObject.Properties.Name -contains 'Errors' -and $r.Errors -and @($r.Errors).Count -gt 0) { $standardDeployHadErrors = $true }
+                if ($r.PSObject.Properties.Name -contains 'Failed' -and $r.Failed -gt 0) { $standardDeployHadErrors = $true }
+                if ($r.PSObject.Properties.Name -contains 'Summary' -and $r.Summary -and $r.Summary.PSObject.Properties.Name -contains 'Failed' -and $r.Summary.Failed -gt 0) { $standardDeployHadErrors = $true }
+            }
+        }
+        
+        # === OPTIONAL FEATURES: MSA/gMSA/dMSA ACL Delegations ===
+        if ($activeIncludeCount -gt 0 -and -not $standardDeployHadErrors) {
+            Write-Host "`n=== Optional Features: MSA/gMSA/dMSA ACL Delegations ===" -ForegroundColor Magenta
+            
+            # Pass Include switches to prerequisites
+            $prereqSplat = @{ PreferredDc = $PreferredDc }
+            if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
+            if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
+            if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+            $msaPrereqs = Test-TierModelPrerequisites @prereqSplat
+            
+            if (-not $msaPrereqs.Valid) {
+                Write-Host "  ❌ MSA/gMSA/dMSA prerequisites failed:" -ForegroundColor Red
+                $msaPrereqs.Errors | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
+            } else {
+                if ($IncludeMsa) {
+                    Write-Host "  Deploying MSA ACL delegations..." -ForegroundColor Cyan
+                    $msaPlan = if (Get-Variable msaFdPlan -ErrorAction SilentlyContinue) { $msaFdPlan } else { Get-TierModelMsaAclFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent }
+                    if ($msaPlan.Errors -and $msaPlan.Errors.Count -gt 0) {
+                        Write-Host "  ❌ MSA planning errors:" -ForegroundColor Red
+                        $msaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                    } elseif (@($msaPlan.Actions).Count -gt 0) {
+                        $msaExecResult = New-TierModelMsaAcl -Plan $msaPlan -DomainController $PreferredDc -Config $config
+                    } else {
+                        Write-Host "  ✅ MSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+                if ($IncludeGmsa) {
+                    Write-Host "  Deploying gMSA ACL delegations..." -ForegroundColor Cyan
+                    $gmsaPlan = if (Get-Variable gmsaFdPlan -ErrorAction SilentlyContinue) { $gmsaFdPlan } else { Get-TierModelGmsaAclFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent }
+                    if ($gmsaPlan.Errors -and $gmsaPlan.Errors.Count -gt 0) {
+                        Write-Host "  ❌ gMSA planning errors:" -ForegroundColor Red
+                        $gmsaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                    } elseif (@($gmsaPlan.Actions).Count -gt 0) {
+                        $gmsaExecResult = New-TierModelGmsaAcl -Plan $gmsaPlan -DomainController $PreferredDc -Config $config
+                    } else {
+                        Write-Host "  ✅ gMSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+                if ($IncludeDmsa) {
+                    Write-Host "  Deploying dMSA ACL delegations..." -ForegroundColor Cyan
+                    $dmsaPlan = if (Get-Variable dmsaFdPlan -ErrorAction SilentlyContinue) { $dmsaFdPlan } else { Get-TierModelDmsaAclFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent }
+                    if ($dmsaPlan.Errors -and $dmsaPlan.Errors.Count -gt 0) {
+                        Write-Host "  ❌ dMSA planning errors:" -ForegroundColor Red
+                        $dmsaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                    } elseif (@($dmsaPlan.Actions).Count -gt 0) {
+                        $dmsaExecResult = New-TierModelDmsaAcl -Plan $dmsaPlan -DomainController $PreferredDc -Config $config
+                    } else {
+                        Write-Host "  ✅ dMSA ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        } elseif ($activeIncludeCount -gt 0 -and $standardDeployHadErrors) {
+            Write-Host "`n⚠️  Skipping optional MSA/gMSA/dMSA features due to errors in standard deployment." -ForegroundColor Yellow
+        }
+        
         # Show consolidated deployment results
         Write-Host "`n=== Deployment Results ===" -ForegroundColor Blue
         
@@ -1551,6 +1794,9 @@ if ($FullDeployment) {
         if (Get-Variable ouAclExecutionResult -ErrorAction SilentlyContinue) { $allResults += $ouAclExecutionResult }
         if (Get-Variable gpoExecutionResult -ErrorAction SilentlyContinue) { $allResults += $gpoExecutionResult }
         if (Get-Variable admxExecutionResult -ErrorAction SilentlyContinue) { $allResults += $admxExecutionResult }
+        if (Get-Variable msaExecResult -ErrorAction SilentlyContinue) { $allResults += $msaExecResult }
+        if (Get-Variable gmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $gmsaExecResult }
+        if (Get-Variable dmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $dmsaExecResult }
         
         # Calculate consolidated counts
         $totalApplied = 0
@@ -2024,6 +2270,154 @@ else {
     }
 }
 
+# === Standalone -Include* Mode (no scope parameter) ===
+if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
+    Write-Host "`n=== Standalone MSA/gMSA/dMSA ACL Deployment ===" -ForegroundColor Magenta
+    
+    # Load config
+    $config = Get-TierModelConfig
+    Write-Host "TierModel module loaded successfully." -ForegroundColor Green
+    
+    # Run prerequisites with Include switches
+    Write-Host "Validating prerequisites..." -ForegroundColor Yellow
+    $prereqSplat = @{ PreferredDc = $PreferredDc }
+    if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
+    if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
+    if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+    $prereqs = Test-TierModelPrerequisites @prereqSplat
+    
+    if (-not $prereqs.Valid) {
+        Write-Host "❌ Prerequisites failed:" -ForegroundColor Red
+        $prereqs.Errors | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+        Write-Host ""
+        Write-Host "Deploy script completed." -ForegroundColor Green
+        return
+    }
+    Write-Host "Prerequisites validation passed." -ForegroundColor Green
+    
+    $standaloneResults = @()
+    $standaloneTotalApplied = 0
+    $standaloneTotalSkipped = 0
+    $standaloneTotalErrors = 0
+    $standaloneTotalDuration = 0
+    $standaloneConverged = $true
+    $standaloneDeploymentPlan = @{
+        TotalActions = 0
+        CreateCount = 0
+        UpdateCount = 0
+        LinkCount = 0
+        ConfigureCount = 0
+        AlreadyExistCount = 0
+        Actions = @()
+        Phases = @()
+    }
+    
+    if ($IncludeMsa) {
+        Write-Host "`nPhase: MSA ACL Delegations" -ForegroundColor Cyan
+        $msaPlan = Get-TierModelMsaAcl -Config $config -DomainController $PreferredDc
+        if ($msaPlan.Errors -and $msaPlan.Errors.Count -gt 0) {
+            Write-Host "  ❌ MSA planning errors:" -ForegroundColor Red
+            $msaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+            $standaloneTotalErrors += $msaPlan.Errors.Count
+        } else {
+            Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 1 -PhaseName 'MSA ACL Delegations' -Plan $msaPlan
+            if ($msaPlan.Summary.TotalActions -gt 0) {
+                Write-Host "  Actions planned: $($msaPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                if (-not $ConfirmApply) {
+                    Write-IncludeAclPlanActions -Actions $msaPlan.Actions
+                }
+                if ($ConfirmApply) {
+                    $msaResult = New-TierModelMsaAcl -Plan $msaPlan -DomainController $PreferredDc -Config $config
+                    $standaloneResults += $msaResult
+                    $standaloneTotalApplied += if ($msaResult.Applied) { @($msaResult.Applied).Count } else { 0 }
+                    $standaloneTotalErrors += if ($msaResult.Errors) { @($msaResult.Errors).Count } else { 0 }
+                    $standaloneTotalDuration += if ($msaResult.DurationMs) { $msaResult.DurationMs } else { 0 }
+                    if ($msaResult.PSObject.Properties.Name -contains 'Converged' -and -not $msaResult.Converged) { $standaloneConverged = $false }
+                }
+            } else {
+                Write-Host "  ✅ MSA ACL delegations already up to date" -ForegroundColor Green
+            }
+        }
+    }
+    
+    if ($IncludeGmsa) {
+        Write-Host "`nPhase: gMSA ACL Delegations" -ForegroundColor Cyan
+        $gmsaPlan = Get-TierModelGmsaAcl -Config $config -DomainController $PreferredDc
+        if ($gmsaPlan.Errors -and $gmsaPlan.Errors.Count -gt 0) {
+            Write-Host "  ❌ gMSA planning errors:" -ForegroundColor Red
+            $gmsaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+            $standaloneTotalErrors += $gmsaPlan.Errors.Count
+        } else {
+            Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 2 -PhaseName 'gMSA ACL Delegations' -Plan $gmsaPlan
+            if ($gmsaPlan.Summary.TotalActions -gt 0) {
+                Write-Host "  Actions planned: $($gmsaPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                if (-not $ConfirmApply) {
+                    Write-IncludeAclPlanActions -Actions $gmsaPlan.Actions
+                }
+                if ($ConfirmApply) {
+                    $gmsaResult = New-TierModelGmsaAcl -Plan $gmsaPlan -DomainController $PreferredDc -Config $config
+                    $standaloneResults += $gmsaResult
+                    $standaloneTotalApplied += if ($gmsaResult.Applied) { @($gmsaResult.Applied).Count } else { 0 }
+                    $standaloneTotalErrors += if ($gmsaResult.Errors) { @($gmsaResult.Errors).Count } else { 0 }
+                    $standaloneTotalDuration += if ($gmsaResult.DurationMs) { $gmsaResult.DurationMs } else { 0 }
+                    if ($gmsaResult.PSObject.Properties.Name -contains 'Converged' -and -not $gmsaResult.Converged) { $standaloneConverged = $false }
+                }
+            } else {
+                Write-Host "  ✅ gMSA ACL delegations already up to date" -ForegroundColor Green
+            }
+        }
+    }
+    
+    if ($IncludeDmsa) {
+        Write-Host "`nPhase: dMSA ACL Delegations" -ForegroundColor Cyan
+        $dmsaPlan = Get-TierModelDmsaAcl -Config $config -DomainController $PreferredDc
+        if ($dmsaPlan.Errors -and $dmsaPlan.Errors.Count -gt 0) {
+            Write-Host "  ❌ dMSA planning errors:" -ForegroundColor Red
+            $dmsaPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+            $standaloneTotalErrors += $dmsaPlan.Errors.Count
+        } else {
+            Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 3 -PhaseName 'dMSA ACL Delegations' -Plan $dmsaPlan
+            if ($dmsaPlan.Summary.TotalActions -gt 0) {
+                Write-Host "  Actions planned: $($dmsaPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                if (-not $ConfirmApply) {
+                    Write-IncludeAclPlanActions -Actions $dmsaPlan.Actions
+                }
+                if ($ConfirmApply) {
+                    $dmsaResult = New-TierModelDmsaAcl -Plan $dmsaPlan -DomainController $PreferredDc -Config $config
+                    $standaloneResults += $dmsaResult
+                    $standaloneTotalApplied += if ($dmsaResult.Applied) { @($dmsaResult.Applied).Count } else { 0 }
+                    $standaloneTotalErrors += if ($dmsaResult.Errors) { @($dmsaResult.Errors).Count } else { 0 }
+                    $standaloneTotalDuration += if ($dmsaResult.DurationMs) { $dmsaResult.DurationMs } else { 0 }
+                    if ($dmsaResult.PSObject.Properties.Name -contains 'Converged' -and -not $dmsaResult.Converged) { $standaloneConverged = $false }
+                }
+            } else {
+                Write-Host "  ✅ dMSA ACL delegations already up to date" -ForegroundColor Green
+            }
+        }
+    }
+    
+    if ($ConfirmApply) {
+        Write-Host "`n=== Deployment Results ===" -ForegroundColor Blue
+        Write-Host "Applied: $standaloneTotalApplied" -ForegroundColor Green
+        Write-Host "Skipped: $standaloneTotalSkipped" -ForegroundColor Yellow
+        Write-Host "Errors: $standaloneTotalErrors" -ForegroundColor $(if ($standaloneTotalErrors -gt 0) { 'Red' } else { 'Green' })
+        Write-Host "Duration: $($standaloneTotalDuration)ms" -ForegroundColor Gray
+        Write-Host "Converged: $standaloneConverged" -ForegroundColor $(if ($standaloneConverged) { 'Green' } else { 'Yellow' })
+    } elseif ($standaloneTotalErrors -eq 0) {
+        Write-Host "`n=== Deployment Plan ===" -ForegroundColor Blue
+        Write-Host "Action count: $($standaloneDeploymentPlan.TotalActions)" -ForegroundColor White
+        Write-Host "Create count: $($standaloneDeploymentPlan.CreateCount)" -ForegroundColor Yellow
+        Write-Host "Update count: $($standaloneDeploymentPlan.UpdateCount)" -ForegroundColor Yellow
+        Write-Host "Link count: $($standaloneDeploymentPlan.LinkCount)" -ForegroundColor Yellow
+        Write-Host "Configure count: $($standaloneDeploymentPlan.ConfigureCount)" -ForegroundColor Yellow
+        Write-Host "Already exist: $($standaloneDeploymentPlan.AlreadyExistCount)" -ForegroundColor Green
+        if ($standaloneDeploymentPlan.TotalActions -gt 0) {
+            Write-Host ""
+            Write-Host "Use -ConfirmApply to execute the deployment plan" -ForegroundColor DarkCyan
+        }
+    }
+}
+
 # Show ConfirmApply message for single-entity operations if in planning mode
 if (-not $FullDeployment -and -not $ConfirmApply) {
     # Check if any actions were planned and no errors exist
@@ -2054,6 +2448,7 @@ if (-not $FullDeployment -and -not $ConfirmApply) {
     }
 }
 
+Write-Host ""
 Write-Host "Deploy script completed." -ForegroundColor Green
 if ($Logging) {
     Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "Deploy script completed successfully"

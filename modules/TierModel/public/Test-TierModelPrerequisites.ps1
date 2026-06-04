@@ -47,7 +47,11 @@ function Test-TierModelPrerequisites {
         [string]$PreferredDc,
         
         [Parameter(Mandatory = $false)]
-        [string]$DependenciesPath = 'config/dependencies.json'
+        [string]$DependenciesPath = 'config/dependencies.json',
+        
+        [switch]$IncludeMsa,
+        [switch]$IncludeGmsa,
+        [switch]$IncludeDmsa
     )
     
     $ErrorActionPreference = 'Stop'
@@ -354,6 +358,148 @@ function Test-TierModelPrerequisites {
             }
             catch {
                 $result.EnvironmentSnapshot.DomainDetectionError = $_.Exception.Message
+            }
+        }
+        
+        # --- MSA/gMSA/dMSA Prerequisites (only when -Include* switches are specified) ---
+        if ($IncludeMsa -or $IncludeGmsa -or $IncludeDmsa) {
+            $schemaDN = $null
+            $schemaVersion = $null
+            $dfl = $null
+            $ffl = $null
+            try {
+                # Get schema version and functional levels
+                $rootDSE = Get-ADRootDSE -Server $PreferredDc -ErrorAction Stop
+                $schemaDN = $rootDSE.schemaNamingContext
+                
+                # Schema version is on the schema partition object, not RootDSE
+                $schemaObj = Get-ADObject -Identity $schemaDN -Server $PreferredDc -Properties objectVersion -ErrorAction Stop
+                $schemaVersion = [int]$schemaObj.objectVersion
+                $result.EnvironmentSnapshot.SchemaVersion = $schemaVersion
+                
+                $adDomain = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
+                $dfl = $adDomain.DomainMode
+                $result.EnvironmentSnapshot.DomainFunctionalLevel = $dfl
+                
+                $adForest = Get-ADForest -Server $PreferredDc -ErrorAction Stop
+                $ffl = $adForest.ForestMode
+                $result.EnvironmentSnapshot.ForestFunctionalLevel = $ffl
+            } catch {
+                $result.Valid = $false
+                $null = $result.Errors.Add("Failed to query AD schema/functional levels: $($_.Exception.Message)")
+                $null = $result.Remediation.Add("Ensure the domain controller is reachable and AD Web Services are running")
+            }
+        }
+        
+        if ($IncludeMsa -and $null -ne $schemaDN) {
+            # MSA requires schema version >= 47 (Windows Server 2008 R2)
+            if ($schemaVersion -lt 47) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("MSA requires schema version >= 47 (Windows Server 2008 R2). Current: $schemaVersion")
+                $null = $result.Remediation.Add("Upgrade the AD schema to at least Windows Server 2008 R2 level (schema version 47)")
+            }
+            # Verify msDS-ManagedServiceAccount class exists
+            try {
+                $msaClass = Get-ADObject -Filter "ldapDisplayName -eq 'msDS-ManagedServiceAccount'" -SearchBase $schemaDN -Server $PreferredDc -ErrorAction Stop
+                $result.EnvironmentSnapshot.MsaSchemaClassExists = [bool]$msaClass
+            } catch {
+                $result.Valid = $false
+                $result.EnvironmentSnapshot.MsaSchemaClassExists = $false
+                $null = $result.Errors.Add("msDS-ManagedServiceAccount class not found in schema")
+                $null = $result.Remediation.Add("Ensure the domain schema includes the msDS-ManagedServiceAccount class (schema version >= 47)")
+            }
+        }
+        
+        if ($IncludeGmsa -and $null -ne $schemaDN) {
+            # gMSA requires schema version >= 56 (Windows Server 2012)
+            if ($schemaVersion -lt 56) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("gMSA requires schema version >= 56 (Windows Server 2012). Current: $schemaVersion")
+                $null = $result.Remediation.Add("Upgrade the AD schema to at least Windows Server 2012 level (schema version 56)")
+            }
+            # gMSA requires DFL >= Windows2012Domain
+            $gmsaDflValues = @('Windows2012Domain', 'Windows2012R2Domain', 'Windows2016Domain', 'Windows2025Domain')
+            if ($dfl -notin $gmsaDflValues) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("gMSA requires Domain Functional Level >= Windows2012Domain. Current: $dfl")
+                $null = $result.Remediation.Add("Raise the domain functional level to at least Windows Server 2012")
+            }
+            # Verify msDS-GroupManagedServiceAccount class exists
+            try {
+                $gmsaClass = Get-ADObject -Filter "ldapDisplayName -eq 'msDS-GroupManagedServiceAccount'" -SearchBase $schemaDN -Server $PreferredDc -ErrorAction Stop
+                $result.EnvironmentSnapshot.GmsaSchemaClassExists = [bool]$gmsaClass
+            } catch {
+                $result.Valid = $false
+                $result.EnvironmentSnapshot.GmsaSchemaClassExists = $false
+                $null = $result.Errors.Add("msDS-GroupManagedServiceAccount class not found in schema")
+                $null = $result.Remediation.Add("Ensure the domain schema includes the msDS-GroupManagedServiceAccount class (schema version >= 56)")
+            }
+            # KDS Root Key check for gMSA
+            try {
+                $kdsKeys = Invoke-Command -ComputerName $PreferredDc -ScriptBlock { Get-KdsRootKey } -ErrorAction Stop
+                $result.EnvironmentSnapshot.KdsRootKeyExists = ($null -ne $kdsKeys -and @($kdsKeys).Count -gt 0)
+                if (-not $result.EnvironmentSnapshot.KdsRootKeyExists) {
+                    $result.Valid = $false
+                    $null = $result.Errors.Add("No KDS Root Key found. gMSA requires an effective KDS Root Key.")
+                    $null = $result.Remediation.Add("Create a KDS Root Key: Add-KdsRootKey -EffectiveImmediately (for lab) or Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) (for production). The Tier Model will NEVER create KDS keys automatically.")
+                } else {
+                    $latestKey = @($kdsKeys) | Sort-Object EffectiveTime -Descending | Select-Object -First 1
+                    $result.EnvironmentSnapshot.KdsRootKeyEffective = ($latestKey.EffectiveTime -lt (Get-Date).AddHours(-10))
+                    if (-not $result.EnvironmentSnapshot.KdsRootKeyEffective) {
+                        $result.Valid = $false
+                        $null = $result.Errors.Add("KDS Root Key exists but is not yet effective (must be older than 10 hours). Effective time: $($latestKey.EffectiveTime)")
+                        $null = $result.Remediation.Add("Wait until the KDS Root Key effective time has passed (10-hour replication window). Key effective at: $($latestKey.EffectiveTime)")
+                    }
+                }
+            } catch {
+                $result.Valid = $false
+                $result.EnvironmentSnapshot.KdsRootKeyExists = $false
+                $null = $result.Errors.Add("Failed to check KDS Root Key via Invoke-Command on $PreferredDc`: $($_.Exception.Message)")
+                $null = $result.Remediation.Add("Ensure WinRM is enabled on $PreferredDc and you have remote execution permissions. Create a KDS Root Key manually if needed.")
+            }
+        }
+        
+        if ($IncludeDmsa -and $null -ne $schemaDN) {
+            # dMSA requires schema version >= 91 (Windows Server 2025)
+            if ($schemaVersion -lt 91) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("dMSA requires schema version >= 91 (Windows Server 2025). Current: $schemaVersion")
+            }
+            # dMSA requires DFL = Windows2025Domain
+            if ($dfl -ne 'Windows2025Domain') {
+                $result.Valid = $false
+                $null = $result.Errors.Add("dMSA requires Domain Functional Level = Windows2025Domain. Current: $dfl")
+            }
+            # Verify msDS-DelegatedManagedServiceAccount class exists
+            try {
+                $dmsaClass = Get-ADObject -Filter "ldapDisplayName -eq 'msDS-DelegatedManagedServiceAccount'" -SearchBase $schemaDN -Server $PreferredDc -Properties objectClass -ErrorAction Stop
+                $result.EnvironmentSnapshot.DmsaSchemaClassExists = [bool]$dmsaClass
+            } catch {
+                $result.Valid = $false
+                $result.EnvironmentSnapshot.DmsaSchemaClassExists = $false
+                $null = $result.Errors.Add("msDS-DelegatedManagedServiceAccount class not found in schema")
+            }
+            # KDS Root Key check for dMSA (only if not already checked by gMSA)
+            if (-not $result.EnvironmentSnapshot.ContainsKey('KdsRootKeyExists')) {
+                try {
+                    $kdsKeys = Invoke-Command -ComputerName $PreferredDc -ScriptBlock { Get-KdsRootKey } -ErrorAction Stop
+                    $result.EnvironmentSnapshot.KdsRootKeyExists = ($null -ne $kdsKeys -and @($kdsKeys).Count -gt 0)
+                    if (-not $result.EnvironmentSnapshot.KdsRootKeyExists) {
+                        $result.Valid = $false
+                        $null = $result.Errors.Add("No KDS Root Key found. dMSA requires an effective KDS Root Key.")
+                    } else {
+                        $latestKey = @($kdsKeys) | Sort-Object EffectiveTime -Descending | Select-Object -First 1
+                        $result.EnvironmentSnapshot.KdsRootKeyEffective = ($latestKey.EffectiveTime -lt (Get-Date).AddHours(-10))
+                        if (-not $result.EnvironmentSnapshot.KdsRootKeyEffective) {
+                            $result.Valid = $false
+                            $null = $result.Errors.Add("KDS Root Key exists but is not yet effective for dMSA (must be older than 10 hours). Effective time: $($latestKey.EffectiveTime)")
+                        }
+                    }
+                } catch {
+                    $result.Valid = $false
+                    $result.EnvironmentSnapshot.KdsRootKeyExists = $false
+                    $null = $result.Errors.Add("Failed to check KDS Root Key via Invoke-Command on $PreferredDc`: $($_.Exception.Message)")
+                }
             }
         }
         

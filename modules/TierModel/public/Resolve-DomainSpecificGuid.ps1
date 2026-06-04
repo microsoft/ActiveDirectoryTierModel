@@ -1,15 +1,16 @@
 function Resolve-DomainSpecificGuid {
     <#
     .SYNOPSIS
-    Resolves domain-specific attribute GUIDs by querying the Active Directory schema.
+    Resolves domain-specific attribute or class GUIDs by querying the Active Directory schema.
     
     .DESCRIPTION
     Some attributes like BitLocker recovery passwords and LAPS passwords have GUIDs that are 
     unique to each domain/forest. This function queries the domain's schema to resolve 
-    these attribute names to their actual GUIDs at runtime.
+    these attribute or class names to their actual GUIDs at runtime.
     
     .PARAMETER AttributeName
-    The schema attribute name to resolve (e.g., "msFVE-RecoveryPassword", "ms-Mcs-AdmPwd").
+    The schema attribute or class name to resolve (e.g., "msFVE-RecoveryPassword", "ms-Mcs-AdmPwd",
+    "msDS-DelegatedManagedServiceAccount").
     
     .PARAMETER ConfigPath
     The configuration path, used to determine domain controller if needed.
@@ -17,6 +18,10 @@ function Resolve-DomainSpecificGuid {
     .PARAMETER DomainController
     Optional domain controller to use for the schema query. If not provided, will use 
     the default domain controller.
+    
+    .PARAMETER SchemaObjectClass
+    The schema object class to search within. Default is 'attributeSchema'.
+    Use 'classSchema' when resolving object class GUIDs (e.g., for dMSA).
     
     .EXAMPLE
     $guid = Resolve-DomainSpecificGuid -AttributeName "msFVE-RecoveryPassword"
@@ -26,12 +31,16 @@ function Resolve-DomainSpecificGuid {
     $guid = Resolve-DomainSpecificGuid -AttributeName "lockoutTime" -DomainController "DC01.contoso.com"
     # Returns the domain-specific GUID for the lockout time attribute
     
+    .EXAMPLE
+    $guid = Resolve-DomainSpecificGuid -AttributeName "msDS-DelegatedManagedServiceAccount" -SchemaObjectClass "classSchema" -DomainController "DC01.contoso.com"
+    # Returns the schema GUID for the dMSA object class
+    
     .OUTPUTS
     String representing the resolved GUID
     
     .NOTES
     This function requires appropriate permissions to query the Active Directory schema.
-    It uses the SchemaIDGUID property of schema attributes to get the correct GUID.
+    It uses the SchemaIDGUID property of schema attributes/classes to get the correct GUID.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -43,7 +52,11 @@ function Resolve-DomainSpecificGuid {
         [string]$ConfigPath,
         
         [Parameter()]
-        [string]$DomainController
+        [string]$DomainController,
+        
+        [Parameter()]
+        [ValidateSet('attributeSchema', 'classSchema')]
+        [string]$SchemaObjectClass = 'attributeSchema'
     )
     
     try {
@@ -65,8 +78,8 @@ function Resolve-DomainSpecificGuid {
             SchemaDN = $schemaDN
         } | Out-Null
         
-        # Search for the attribute in the schema
-        $searchFilter = "(&(objectClass=attributeSchema)(ldapDisplayName=$AttributeName))"
+        # Search for the attribute/class in the schema
+        $searchFilter = "(&(objectClass=$SchemaObjectClass)(ldapDisplayName=$AttributeName))"
         $searcher = New-Object System.DirectoryServices.DirectorySearcher
         $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$schemaDN")
         $searcher.Filter = $searchFilter
@@ -105,7 +118,7 @@ function Resolve-DomainSpecificGuid {
             
             $searcher = New-Object System.DirectoryServices.DirectorySearcher
             $searcher.SearchRoot = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$schemaDN")
-            $searcher.Filter = "(&(objectClass=attributeSchema)(ldapDisplayName=$AttributeName))"
+            $searcher.Filter = "(&(objectClass=$SchemaObjectClass)(ldapDisplayName=$AttributeName))"
             $searcher.PropertiesToLoad.Add("schemaIDGUID") | Out-Null
             
             $result = $searcher.FindOne()

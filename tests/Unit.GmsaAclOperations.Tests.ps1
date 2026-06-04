@@ -696,6 +696,349 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
     }
 
     # ─────────────────────────────────────────────────────────────
+
+    Context "Get-TierModelGmsaAclFd - Existing ACL analysis" -Tag "Unit", "GmsaAcl", "FullDeployment" {
+        BeforeEach {
+            Mock Write-Host -ModuleName TierModel { }
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ DistinguishedName = $Identity; Name = "Tier 1 Service Accounts" }
+            }
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Groups,$script:TestDomainDN" }
+            }
+            Mock Get-ADUser -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                throw "User not found"
+            }
+            Mock Resolve-TierModelDomainDN -ModuleName TierModel { return $script:TestDomainDN }
+            Mock Resolve-TierModelPlaceholder -ModuleName TierModel {
+                param($Path, $DomainDN)
+                return $Path.Replace("{{domainDN}}", $DomainDN)
+            }
+            Mock Resolve-TierModelGuid -ModuleName TierModel {
+                param([string]$Value, [object]$Mappings, [string]$DomainController)
+                $map = @{
+                    "msDS-GroupManagedServiceAccount" = "7b8b558a-93a5-4af7-adca-c017e67f1057"
+                    "User" = "bf967aba-0de6-11d0-a285-00aa003049e2"
+                    "Computer" = "bf967a86-0de6-11d0-a285-00aa003049e2"
+                }
+                if ($map.ContainsKey($Value)) { return $map[$Value] }
+                return $null
+            }
+            Mock Write-TierModelLog -ModuleName TierModel { }
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $serviceGuid = [Guid]"7b8b558a-93a5-4af7-adca-c017e67f1057"
+
+                $rule1 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = "TEST\Tier1Admins" }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = ([System.DirectoryServices.ActiveDirectoryRights]::CreateChild -bor [System.DirectoryServices.ActiveDirectoryRights]::DeleteChild)
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
+                    ObjectType = $serviceGuid
+                    InheritedObjectType = [Guid]::Empty
+                }
+
+                $rule2 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = "TEST\Tier1Admins" }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+                    ObjectType = [Guid]::Empty
+                    InheritedObjectType = $serviceGuid
+                }
+
+                return [PSCustomObject]@{
+                    Path = $Path
+                    Access = @($rule1, $rule2)
+                }
+            }
+        }
+
+        It "Recognizes existing ACLs and updates analysis when called with -IncludeDetails" {
+            $result = Get-TierModelGmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC -IncludeDetails
+
+            $result.Summary.ExistingCount | Should -BeGreaterThan 0
+            $result.Analysis.ConfiguredAcls | Should -Be 2
+            $result.Analysis.ExistingAcls | Should -BeGreaterThan 0
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -like '*gMSA ACL Exists*' } -Times 1
+        }
+    }
+
+    Context "New-TierModelGmsaAcl - Successful execution" -Tag "Unit", "GmsaAcl", "Execution" {
+        BeforeEach {
+            Mock Write-Host -ModuleName TierModel { }
+            Mock Write-TierModelLog -ModuleName TierModel { }
+            Mock Resolve-TierModelGuid -ModuleName TierModel {
+                param([string]$Value, [object]$Mappings, [string]$DomainController)
+                switch ($Value) {
+                    'msDS-GroupManagedServiceAccount' { '7b8b558a-93a5-4af7-adca-c017e67f1057' }
+                    'BrokenObjectType' { '00000000-0000-0000-0000-000000000000' }
+                    'BrokenInheritedType' { '00000000-0000-0000-0000-000000000000' }
+                    'User' { 'bf967aba-0de6-11d0-a285-00aa003049e2' }
+                    'Computer' { 'bf967a86-0de6-11d0-a285-00aa003049e2' }
+                    default { $null }
+                }
+            }
+            Mock New-Object -ModuleName TierModel -ParameterFilter { $TypeName -eq 'System.DirectoryServices.DirectoryEntry' } {
+                $mockAcl = [PSCustomObject]@{}
+                $mockAcl | Add-Member -MemberType ScriptMethod -Name AddAccessRule -Value { param($rule) }
+                $mockDe = [PSCustomObject]@{ ObjectSecurity = $mockAcl }
+                $mockDe | Add-Member -MemberType ScriptMethod -Name CommitChanges -Value { }
+                return $mockDe
+            }
+        }
+
+        It "Applies CreateAcl actions and records applied entries" {
+            $plan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action = 'CreateAcl'
+                    Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                    Data = [PSCustomObject]@{
+                        identityreference = 'BUILTIN\Administrators'
+                        activedirectoryrights = @('GenericAll')
+                        accesscontroltype = 'Allow'
+                        activeDirectorysecurityinheritance = 'All'
+                        objecttype = '7b8b558a-93a5-4af7-adca-c017e67f1057'
+                    }
+                })
+            }
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 1
+            $result.Failed | Should -Be 0
+            $result.Converged | Should -BeTrue
+            $result.Applied.Count | Should -Be 1
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -like '*Applied gMSA ACL*' } -Times 1
+        }
+
+        It "Uses the inheritedObjectType constructor when the plan includes inheritedObjectType" {
+            $plan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action = 'CreateAcl'
+                    Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                    Data = [PSCustomObject]@{
+                        identityreference = 'BUILTIN\Administrators'
+                        activedirectoryrights = @('GenericAll')
+                        accesscontroltype = 'Allow'
+                        activeDirectorysecurityinheritance = 'Descendents'
+                        objecttype = 'AllObjectClasses'
+                        inheritedObjectType = '7b8b558a-93a5-4af7-adca-c017e67f1057'
+                    }
+                })
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 1
+            $result.Applied[0].InheritedObjectType | Should -Not -Be ([Guid]::Empty)
+        }
+
+        It "Fails safely when objectType resolves to Guid.Empty" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateAcl'
+                        Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                        Data = [PSCustomObject]@{
+                            identityreference = 'BUILTIN\Administrators'
+                            activedirectoryrights = @('CreateChild')
+                            accesscontroltype = 'Allow'
+                            activeDirectorysecurityinheritance = 'All'
+                            objecttype = 'BrokenObjectType'
+                        }
+                    }
+                )
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 0
+            $result.Failed | Should -Be 1
+            $result.Converged | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'AclApplicationFailed' }).Count | Should -BeGreaterThan 0
+            ($result.Errors[0].Message) | Should -Match 'Resolved objectType GUID'
+        }
+
+        It "Fails safely when inheritedObjectType resolves to Guid.Empty" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateAcl'
+                        Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                        Data = [PSCustomObject]@{
+                            identityreference = 'BUILTIN\Administrators'
+                            activedirectoryrights = @('GenericAll')
+                            accesscontroltype = 'Allow'
+                            activeDirectorysecurityinheritance = 'Descendents'
+                            objecttype = 'AllObjectClasses'
+                            inheritedObjectType = 'BrokenInheritedType'
+                        }
+                    }
+                )
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 0
+            $result.Failed | Should -Be 1
+            $result.Converged | Should -BeFalse
+            ($result.Errors[0].Message) | Should -Match 'Resolved inheritedObjectType GUID'
+        }
+    }
+
+    Context "Test-TierModelGmsaAcl - Non-silent output" -Tag "Unit", "GmsaAcl", "Audit" {
+        BeforeEach {
+            Mock Write-Host -ModuleName TierModel { }
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ DistinguishedName = $Identity; Name = 'Tier 1 Service Accounts' }
+            }
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Groups,$script:TestDomainDN" }
+            }
+            Mock Get-ADUser -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                throw 'User not found'
+            }
+            Mock Resolve-TierModelDomainDN -ModuleName TierModel { return $script:TestDomainDN }
+            Mock Resolve-TierModelPlaceholder -ModuleName TierModel {
+                param($Path, $DomainDN)
+                return $Path.Replace('{{domainDN}}', $DomainDN)
+            }
+            Mock Resolve-TierModelGuid -ModuleName TierModel {
+                param([string]$Value, [object]$Mappings, [string]$DomainController)
+                $map = @{
+                    'msDS-GroupManagedServiceAccount' = '7b8b558a-93a5-4af7-adca-c017e67f1057'
+                    'User' = 'bf967aba-0de6-11d0-a285-00aa003049e2'
+                    'Computer' = 'bf967a86-0de6-11d0-a285-00aa003049e2'
+                }
+                if ($map.ContainsKey($Value)) { return $map[$Value] }
+                return $null
+            }
+            Mock Write-TierModelLog -ModuleName TierModel { }
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $serviceGuid = [Guid]'7b8b558a-93a5-4af7-adca-c017e67f1057'
+                $rule1 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = ([System.DirectoryServices.ActiveDirectoryRights]::CreateChild -bor [System.DirectoryServices.ActiveDirectoryRights]::DeleteChild)
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
+                    ObjectType = $serviceGuid
+                    InheritedObjectType = [Guid]::Empty
+                }
+                $rule2 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+                    ObjectType = [Guid]::Empty
+                    InheritedObjectType = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($rule1, $rule2) }
+            }
+        }
+
+        It "Writes progress and summary output for compliant delegations" {
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Compliant | Should -Be 1
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq 'Auditing gMSA ACL delegations...' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -like 'Checking gMSA ACL Delegation:*' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ✅ Target OU exists' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq "    ✅ Identity 'Tier1Admins' exists (Group)" }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ✅ OU ACL readable' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ✅ ACL Delegation COMPLIANT' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq "`n=== gMSA ACL Audit Summary ===" }
+        }
+
+        It "Uses user fallback, reports missing ACEs, and suppresses summary when requested" {
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                throw 'Group not found'
+            }
+            Mock Get-ADUser -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Users,$script:TestDomainDN" }
+            }
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                return [PSCustomObject]@{ Path = $Path; Access = @() }
+            }
+
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC -SuppressSummary
+
+            $result.Missing | Should -Be 1
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq "    ✅ Identity 'Tier1Admins' exists (User)" }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ❌ Missing expected ACEs' }
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -match 'gMSA ACL Audit Summary' } -Times 0
+        }
+
+        It "Writes missing target OU output in non-silent mode" {
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                throw 'OU not found'
+            }
+
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfigBadOU -DomainController $script:TestDC
+
+            $result.Missing | Should -BeGreaterThan 0
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ❌ Target OU missing' }
+        }
+
+        It "Detects unexpected ACEs and increments mismatched count" {
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $serviceGuid = [Guid]'7b8b558a-93a5-4af7-adca-c017e67f1057'
+                $expected1 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = ([System.DirectoryServices.ActiveDirectoryRights]::CreateChild -bor [System.DirectoryServices.ActiveDirectoryRights]::DeleteChild)
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
+                    ObjectType = $serviceGuid
+                    InheritedObjectType = [Guid]::Empty
+                }
+                $expected2 = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+                    ObjectType = [Guid]::Empty
+                    InheritedObjectType = $serviceGuid
+                }
+                $unexpected = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::All
+                    ObjectType = $serviceGuid
+                    InheritedObjectType = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($expected1, $expected2, $unexpected) }
+            }
+
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Mismatched | Should -Be 1
+            ($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' }).Count | Should -Be 1
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -eq '    ⚠️ Unexpected ACEs detected' }
+        }
+
+        It "Returns an error result when initialization fails" {
+            Mock Resolve-TierModelDomainDN -ModuleName TierModel { throw 'Domain lookup failed' }
+
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Errors | Should -Be 1
+            $result.Findings[0].Identifier | Should -Be 'gMSA ACL Audit'
+            $result.Findings[0].Details | Should -Be 'Domain lookup failed'
+        }
+    }
+
     # Context 5: Get-TierModelGmsaAcl vs Get-TierModelGmsaAclFd Comparison
     # ─────────────────────────────────────────────────────────────
     Context "Get-TierModelGmsaAcl vs Get-TierModelGmsaAclFd - Comparison" -Tag "Unit", "GmsaAcl" {
@@ -721,3 +1064,4 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
         }
     }
 }
+

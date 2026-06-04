@@ -90,6 +90,26 @@ function Get-TierModelConfig {
         }
     }
     
+    # Load optional MSA/gMSA/dMSA add-on configuration files (not in $requiredFiles — only loaded when present)
+    $optionalFiles = @(
+        'tiermodel-msa.json',
+        'tiermodel-gmsa.json',
+        'tiermodel-dmsa.json'
+    )
+    $optionalSegments = @{}
+    foreach ($fileName in $optionalFiles) {
+        $filePath = Join-Path $ConfigPath $fileName
+        if (Test-Path $filePath) {
+            try {
+                Write-TierModelLog -Level Debug -Message "Loading optional configuration segment" -Data @{ File = $fileName; CorrelationId = $CorrelationId }
+                $content = Get-Content -Path $filePath -Raw -Encoding UTF8
+                $optionalSegments[$fileName] = $content | ConvertFrom-Json -Depth 20
+            } catch {
+                Write-TierModelLog -Level Warning -Message "Failed to parse optional segment $fileName — skipping" -Data @{ File = $fileName; Error = $_.Exception.Message; CorrelationId = $CorrelationId }
+            }
+        }
+    }
+
     # Merge segments into unified configuration
     try {
         # Store GUID mappings for later resolution during deployment/audit operations
@@ -122,11 +142,21 @@ function Get-TierModelConfig {
             gpos = if ($segments['tiermodel-gpos.json'].PSObject.Properties['gpos']) { $segments['tiermodel-gpos.json'].gpos } else { @{} }
             admx = if ($segments['tiermodel-admx.json'].PSObject.Properties['admx']) { $segments['tiermodel-admx.json'].admx } else { @{} }
             guidMappings = $guidMappings
+            msaAclDelegations = if ($optionalSegments['tiermodel-msa.json'] -and $optionalSegments['tiermodel-msa.json'].PSObject.Properties['aclDelegations']) { $optionalSegments['tiermodel-msa.json'].aclDelegations } else { $null }
+            gmsaAclDelegations = if ($optionalSegments['tiermodel-gmsa.json'] -and $optionalSegments['tiermodel-gmsa.json'].PSObject.Properties['aclDelegations']) { $optionalSegments['tiermodel-gmsa.json'].aclDelegations } else { $null }
+            dmsaAclDelegations = if ($optionalSegments['tiermodel-dmsa.json'] -and $optionalSegments['tiermodel-dmsa.json'].PSObject.Properties['aclDelegations']) { $optionalSegments['tiermodel-dmsa.json'].aclDelegations } else { $null }
         }
         
         # Compute composite hash for provenance (FR-005)
         $allContent = $requiredFiles | ForEach-Object { 
             Get-Content -Path (Join-Path $ConfigPath $_) -Raw 
+        }
+        # Include optional segments in hash when loaded
+        foreach ($optFile in $optionalFiles) {
+            $optPath = Join-Path $ConfigPath $optFile
+            if (Test-Path $optPath) {
+                $allContent += Get-Content -Path $optPath -Raw
+            }
         }
         $combinedContent = $allContent -join ''
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($combinedContent)

@@ -90,6 +90,10 @@ param(
     [switch]$AdmxOnly,
     [switch]$FullDeployment,
     
+    [switch]$IncludeMsa,
+    [switch]$IncludeGmsa,
+    [switch]$IncludeDmsa,
+    
     [Parameter()]
     [ValidateSet('Text', 'Json', 'Html', 'NUnitXml')]
     [string]$OutputFormat,
@@ -111,12 +115,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one audit scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa)
+$activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
-if ($activeScopeCount -eq 0) {
-    Write-Error "You must specify exactly one audit scope parameter: -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, or -FullDeployment" -ErrorAction Stop
+if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
+    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one audit scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
+}
+elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
+    Write-Error "-IncludeMsa, -IncludeGmsa, and -IncludeDmsa can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Audit TierModel orchestration starting." -ForegroundColor Cyan
@@ -521,6 +530,89 @@ if ($FullDeployment) {
         Write-Host "  Warning: ADMX audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
     }
     
+    # === Optional Features: MSA/gMSA/dMSA ACL Audit ===
+    if ($activeIncludeCount -gt 0) {
+        Write-Host "`n=== Optional Features: MSA/gMSA/dMSA ACL Audit ===" -ForegroundColor Magenta
+        
+        if ($IncludeMsa) {
+            try {
+                $msaAudit = Test-TierModelMsaAcl -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($msaAudit) {
+                    # Wrap flat result into structure with Summary property for consolidated reporting
+                    $msaWrapped = [PSCustomObject]@{
+                        EntityType = 'MSA ACL'
+                        Summary = @{
+                            TotalAcls = $msaAudit.TotalChecked
+                            Compliant = $msaAudit.Compliant
+                            Missing = $msaAudit.Missing
+                            Mismatched = $msaAudit.Mismatched
+                            Errors = $msaAudit.Errors
+                            Drift = $msaAudit.Drift
+                        }
+                        Findings = $msaAudit.Findings
+                        DurationMs = $msaAudit.DurationMs
+                        CorrelationId = $msaAudit.CorrelationId
+                    }
+                    $auditResults += $msaWrapped
+                }
+            } catch {
+                Write-Host "  Warning: MSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+        
+        if ($IncludeGmsa) {
+            try {
+                $gmsaAudit = Test-TierModelGmsaAcl -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($gmsaAudit) {
+                    # Wrap flat result into structure with Summary property for consolidated reporting
+                    $gmsaWrapped = [PSCustomObject]@{
+                        EntityType = 'gMSA ACL'
+                        Summary = @{
+                            TotalAcls = $gmsaAudit.TotalChecked
+                            Compliant = $gmsaAudit.Compliant
+                            Missing = $gmsaAudit.Missing
+                            Mismatched = $gmsaAudit.Mismatched
+                            Errors = $gmsaAudit.Errors
+                            Drift = $gmsaAudit.Drift
+                        }
+                        Findings = $gmsaAudit.Findings
+                        DurationMs = $gmsaAudit.DurationMs
+                        CorrelationId = $gmsaAudit.CorrelationId
+                    }
+                    $auditResults += $gmsaWrapped
+                }
+            } catch {
+                Write-Host "  Warning: gMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+        
+        if ($IncludeDmsa) {
+            try {
+                $dmsaAudit = Test-TierModelDmsaAcl -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($dmsaAudit) {
+                    # Wrap flat result into structure with Summary property for consolidated reporting
+                    $dmsaWrapped = [PSCustomObject]@{
+                        EntityType = 'dMSA ACL'
+                        Summary = @{
+                            TotalAcls = $dmsaAudit.TotalChecked
+                            Compliant = $dmsaAudit.Compliant
+                            Missing = $dmsaAudit.Missing
+                            Mismatched = $dmsaAudit.Mismatched
+                            Errors = $dmsaAudit.Errors
+                            Drift = $dmsaAudit.Drift
+                        }
+                        Findings = $dmsaAudit.Findings
+                        DurationMs = $dmsaAudit.DurationMs
+                        CorrelationId = $dmsaAudit.CorrelationId
+                    }
+                    $auditResults += $dmsaWrapped
+                }
+            } catch {
+                Write-Host "  Warning: dMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+    
     # Show consolidated audit report at the end
     Write-Host "`n=== Full Audit Results ===" -ForegroundColor Magenta
     
@@ -553,6 +645,12 @@ if ($FullDeployment) {
         # Debug: Log result object properties for troubleshooting
         Write-Verbose "Processing audit result with properties: $($result.PSObject.Properties.Name -join ', ')"
         
+        # Skip results that lack a Summary property (defensive guard under StrictMode)
+        if (-not ($result.PSObject.Properties.Name -contains 'Summary')) {
+            Write-Verbose "Skipping result without Summary property (EntityType: $($result.EntityType))"
+            continue
+        }
+        
         # Each audit result has ONE total count - handle both hashtable and PSObject Summary objects
         if ($result.PSObject.Properties.Name -contains 'EntityType' -and $result.EntityType) {
             switch ($result.EntityType) {
@@ -572,6 +670,9 @@ if ($FullDeployment) {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalFiles'] } else { $result.Summary.TotalFiles }
                 }
                 'OU ACL' { 
+                    $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
+                }
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL' } {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
                 default { 
@@ -648,6 +749,11 @@ if ($FullDeployment) {
     
     # Show per-entity breakdown
     foreach ($result in $auditResults) {
+        # Skip results that lack a Summary property (defensive guard under StrictMode)
+        if (-not ($result.PSObject.Properties.Name -contains 'Summary')) {
+            continue
+        }
+        
         # Determine entity type safely
         $entityType = if ($result.PSObject.Properties.Name -contains 'EntityType' -and $result.EntityType) { 
             switch ($result.EntityType) {
@@ -656,6 +762,9 @@ if ($FullDeployment) {
                 'User' { 'User' }
                 'GPO' { 'GPO' }
                 'ADMX' { 'ADMX' }
+                'MSA ACL' { 'MSA ACL' }
+                'gMSA ACL' { 'gMSA ACL' }
+                'dMSA ACL' { 'dMSA ACL' }
                 default { 'OU ACL' }
             }
         } elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0) { "OU" }
@@ -689,6 +798,10 @@ if ($FullDeployment) {
                     else { $result.Summary.TotalFiles }
                 }
                 'OU ACL' { 
+                    if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
+                    else { $result.Summary.TotalAcls }
+                }
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL' } {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
@@ -902,6 +1015,79 @@ else {
         }
         Write-Host "" # Blank line before script completion message
     }
+}
+
+# === Standalone -Include* Audit Mode (no scope parameter) ===
+if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
+    Write-Host "`n=== Standalone MSA/gMSA/dMSA ACL Audit ===" -ForegroundColor Magenta
+    
+    # Load config
+    $config = Get-TierModelConfig
+    Write-Host "TierModel module loaded successfully." -ForegroundColor Green
+    
+    # Run prerequisites with Include switches
+    Write-Host "Validating prerequisites..." -ForegroundColor Yellow
+    $prereqSplat = @{ PreferredDc = $PreferredDc }
+    if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
+    if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
+    if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+    $prereqs = Test-TierModelPrerequisites @prereqSplat
+    
+    if (-not $prereqs.Valid) {
+        Write-Host "❌ Prerequisites failed:" -ForegroundColor Red
+        $prereqs.Errors | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+        Write-Error "Prerequisites validation failed. Cannot proceed with audit." -ErrorAction Stop
+    }
+    Write-Host "Prerequisites validation passed." -ForegroundColor Green
+    
+    $standaloneTotalChecked = 0
+    $standaloneTotalDrift = 0
+    $standaloneTotalErrors = 0
+    
+    if ($IncludeMsa) {
+        try {
+            $msaAudit = Test-TierModelMsaAcl -Config $config -DomainController $PreferredDc
+            if ($msaAudit) {
+                $standaloneTotalChecked += $msaAudit.TotalChecked
+                $standaloneTotalDrift += $msaAudit.Drift
+                $standaloneTotalErrors += $msaAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ MSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    
+    if ($IncludeGmsa) {
+        try {
+            $gmsaAudit = Test-TierModelGmsaAcl -Config $config -DomainController $PreferredDc
+            if ($gmsaAudit) {
+                $standaloneTotalChecked += $gmsaAudit.TotalChecked
+                $standaloneTotalDrift += $gmsaAudit.Drift
+                $standaloneTotalErrors += $gmsaAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ gMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    
+    if ($IncludeDmsa) {
+        try {
+            $dmsaAudit = Test-TierModelDmsaAcl -Config $config -DomainController $PreferredDc
+            if ($dmsaAudit) {
+                $standaloneTotalChecked += $dmsaAudit.TotalChecked
+                $standaloneTotalDrift += $dmsaAudit.Drift
+                $standaloneTotalErrors += $dmsaAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ dMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    
+    Write-Host "`n=== MSA/gMSA/dMSA Audit Results ===" -ForegroundColor Magenta
+    Write-Host "Overall Status: $(if ($standaloneTotalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $standaloneTotalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($standaloneTotalDrift -eq 0) { 'Green' } else { 'Red' })
+    Write-Host "  Total Checked: $standaloneTotalChecked" -ForegroundColor White
+    Write-Host "  Total Drift: $standaloneTotalDrift" -ForegroundColor $(if ($standaloneTotalDrift -gt 0) { 'Red' } else { 'Green' })
+    Write-Host "  Total Errors: $standaloneTotalErrors" -ForegroundColor $(if ($standaloneTotalErrors -gt 0) { 'Red' } else { 'Green' })
 }
 
 # Generate output file if requested

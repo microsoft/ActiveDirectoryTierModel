@@ -11,7 +11,7 @@
 
 **Last measured:** March 6, 2026 (1,069 tests / 0 failed — New-TierModelOuAcl.ps1 46.5%→97.5% ✦) | **Overall: 91.3%** (8,140/8,916) | **Target: 95%**
 
-> ⚠️ **Pending re-measure:** `Get-TierModelConditionalGroupNames` function added to `Resolve-TierModelPrincipalSid.ps1` (+~63 lines); `New-TierModelGptTmplContent.ps1` updated with conditional-group call sites. Line counts and percentages for these two files will shift on next full coverage run. +10 new tests added (6 in Unit.Resolution.Tests.ps1, 4 in Unit.GpoTemplates.Tests.ps1).
+> ⚠️ **Pending re-measure:** Phase 16 — 12 new MSA/gMSA/dMSA cmdlets added (Get-TierModelMsaAcl, Get-TierModelMsaAclFd, New-TierModelMsaAcl, Test-TierModelMsaAcl, Get-TierModelGmsaAcl, Get-TierModelGmsaAclFd, New-TierModelGmsaAcl, Test-TierModelGmsaAcl, Get-TierModelDmsaAcl, Get-TierModelDmsaAclFd, New-TierModelDmsaAcl, Test-TierModelDmsaAcl); 3 new test files added (Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1). Updated existing files: Audit-TierModel.ps1, Deploy-TierModel.ps1, Test-TierModelPrerequisites.ps1, Get-TierModelConfig.ps1, TierModel.psd1. Estimated line count for new cmdlets: ~1,844 lines (+3 new test files). Coverage will be re-measured after Phase 16 implementation.
 
 | Tier | Files | Count |
 |------|-------|-------|
@@ -71,7 +71,19 @@
 | `modules/TierModel/public/Test-TierModelGPOLink.ps1` | 222 | 0 | 222 | ✅ 100% |
 | `modules/TierModel/public/Test-TierModelOuExists.ps1` | 9 | 0 | 9 | ✅ 100% |
 | `modules/TierModel/public/Write-TierModelLog.ps1` | 37 | 0 | 37 | ✅ 100% |
-| **TOTAL (all 46 files)** | **8,140** | **776** | **8,916** | **91.3%** |
+| `modules/TierModel/public/Get-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
+| `modules/TierModel/public/Get-TierModelMsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
+| `modules/TierModel/public/New-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
+| `modules/TierModel/public/Test-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
+| `modules/TierModel/public/Get-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
+| `modules/TierModel/public/Get-TierModelGmsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
+| `modules/TierModel/public/New-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
+| `modules/TierModel/public/Test-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
+| `modules/TierModel/public/Get-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
+| `modules/TierModel/public/Get-TierModelDmsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
+| `modules/TierModel/public/New-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
+| `modules/TierModel/public/Test-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
+| **TOTAL (58 files — 12 new MSA/gMSA/dMSA cmdlets pending coverage measurement)** | **8,140+** | **776** | **~11,174** | **91.3%** *(re-measure pending)* |
 
 > **✦** = File has a documented structural barrier preventing full coverage without production code refactoring. See **Hard Coverage Limits** table below for details.
 

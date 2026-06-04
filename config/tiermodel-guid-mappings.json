@@ -9,7 +9,9 @@
       "Group": "bf967a9c-0de6-11d0-a285-00aa003049e2",
       "OrganizationalUnit": "bf967aa5-0de6-11d0-a285-00aa003049e2",
       "Contact": "5cb41ed0-0e4c-11d0-a286-00aa003049e2",
-      "msFVE-RecoveryInformation": "ea715d30-8f53-40d0-bd1e-6109186d782c"
+      "msFVE-RecoveryInformation": "ea715d30-8f53-40d0-bd1e-6109186d782c",
+      "msDS-ManagedServiceAccount": "ce206244-5827-4a86-ba1c-1c0c386c1b64",
+      "msDS-GroupManagedServiceAccount": "7b8b558a-93a5-4af7-adca-c017e67f1057"
     },
     "extendedRights": {
       "UserForceChangePassword": "00299570-246d-11d0-a768-00aa006e0529",
@@ -27,6 +29,9 @@
   },
   "dynamicMappings": {
     "comment": "Domain-specific GUIDs - must be resolved at runtime by querying the domain schema",
+    "objectClasses": {
+      "msDS-DelegatedManagedServiceAccount": "{{resolve_guid:msDS-DelegatedManagedServiceAccount}}"
+    },
     "attributes": {
       "LockoutTime": "{{resolve_guid:lockoutTime}}"
     }

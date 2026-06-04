@@ -989,3 +989,123 @@ Describe 'Audit-TierModel.ps1 - Module Import' -Tag 'Integration', 'Audit', 'Mod
     }
 }
 
+Describe 'Audit-TierModel.ps1 - MSA/gMSA/dMSA Include Switches' -Tag 'Integration', 'Audit', 'IncludeSwitches' {
+
+    BeforeEach {
+        Mock -CommandName Test-TierModelPrerequisites {
+            return [PSCustomObject]@{ Valid = $true; Errors = @(); Remediation = @() }
+        }
+        $mockConfig = $script:MockConfig
+        Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+    }
+
+    function New-MockMsaAuditResult {
+        param([int]$TotalChecked = 2, [int]$DriftCount = 0)
+        $compliant = $TotalChecked - $DriftCount
+        return [PSCustomObject]@{
+            TotalChecked  = $TotalChecked
+            Compliant     = $compliant
+            Missing       = $DriftCount
+            Mismatched    = 0
+            Errors        = 0
+            Drift         = $DriftCount
+            Findings      = @()
+            DurationMs    = 1.0
+            CorrelationId = [System.Guid]::NewGuid().ToString()
+        }
+    }
+
+    Context '-IncludeMsa with standalone scope' {
+
+        It 'Should accept -IncludeMsa with standalone scope without throwing' {
+            Mock -CommandName Test-TierModelMsaAcl { return New-MockMsaAuditResult }
+
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeMsa 6>&1 | Out-Null } |
+                Should -Not -Throw
+        }
+
+        It 'Should call Test-TierModelMsaAcl when -IncludeMsa is specified standalone' {
+            Mock -CommandName Test-TierModelMsaAcl { return New-MockMsaAuditResult } -Verifiable
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeMsa 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelMsaAcl -Times 1
+        }
+    }
+
+    Context '-IncludeGmsa with standalone scope' {
+
+        It 'Should accept -IncludeGmsa with standalone scope without throwing' {
+            Mock -CommandName Test-TierModelGmsaAcl { return New-MockMsaAuditResult }
+
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeGmsa 6>&1 | Out-Null } |
+                Should -Not -Throw
+        }
+
+        It 'Should call Test-TierModelGmsaAcl when -IncludeGmsa is specified standalone' {
+            Mock -CommandName Test-TierModelGmsaAcl { return New-MockMsaAuditResult } -Verifiable
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeGmsa 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelGmsaAcl -Times 1
+        }
+    }
+
+    Context '-IncludeDmsa with standalone scope' {
+
+        It 'Should accept -IncludeDmsa with standalone scope without throwing' {
+            Mock -CommandName Test-TierModelDmsaAcl { return New-MockMsaAuditResult }
+
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeDmsa 6>&1 | Out-Null } |
+                Should -Not -Throw
+        }
+
+        It 'Should call Test-TierModelDmsaAcl when -IncludeDmsa is specified standalone' {
+            Mock -CommandName Test-TierModelDmsaAcl { return New-MockMsaAuditResult } -Verifiable
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -IncludeDmsa 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelDmsaAcl -Times 1
+        }
+    }
+
+    Context '-IncludeMsa/-IncludeGmsa/-IncludeDmsa with -FullDeployment' {
+
+        It 'Should call all three Test-TierModel*Acl cmdlets when all switches used with -FullDeployment' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelMsaAcl   { return New-MockMsaAuditResult } -Verifiable
+            Mock -CommandName Test-TierModelGmsaAcl  { return New-MockMsaAuditResult } -Verifiable
+            Mock -CommandName Test-TierModelDmsaAcl  { return New-MockMsaAuditResult } -Verifiable
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelMsaAcl  -Times 1
+            Should -Invoke Test-TierModelGmsaAcl -Times 1
+            Should -Invoke Test-TierModelDmsaAcl -Times 1
+        }
+
+        It 'Should not call MSA/gMSA/dMSA audit cmdlets when no -Include* switches are set' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelMsaAcl   { return New-MockMsaAuditResult }
+            Mock -CommandName Test-TierModelGmsaAcl  { return New-MockMsaAuditResult }
+            Mock -CommandName Test-TierModelDmsaAcl  { return New-MockMsaAuditResult }
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelMsaAcl  -Times 0
+            Should -Invoke Test-TierModelGmsaAcl -Times 0
+            Should -Invoke Test-TierModelDmsaAcl -Times 0
+        }
+    }
+}
