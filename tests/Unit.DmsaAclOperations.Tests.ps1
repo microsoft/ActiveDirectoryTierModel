@@ -375,6 +375,122 @@ Describe "dMSA ACL Operations" -Tag "Unit", "DmsaAcl" {
         }
     }
 
+    Context "Get-TierModelDmsaAcl - Existing ACL detection" -Tag "Unit", "DmsaAcl", "Planning" {
+        BeforeEach {
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ DistinguishedName = $Identity; Name = 'Tier 1 Service Accounts' }
+            }
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                return [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Groups,$script:TestDomainDN" }
+            }
+            Mock Get-ADUser -ModuleName TierModel {
+                param($Identity, $Server, $ErrorAction)
+                throw 'User not found'
+            }
+            Mock Resolve-DomainSpecificGuid -ModuleName TierModel {
+                param([string]$AttributeName, [string]$SchemaObjectClass, [string]$DomainController)
+                if ($AttributeName -eq 'msDS-DelegatedManagedServiceAccount') { return $script:DmsaPlaceholderGuid }
+                return $null
+            }
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $dmsaGuid = [Guid]$script:DmsaPlaceholderGuid
+                $badRule = [PSCustomObject]@{ AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow }
+                $matchingRule = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+                    ObjectType = [Guid]::Empty
+                    InheritedObjectType = $dmsaGuid
+                }
+                [PSCustomObject]@{
+                    Path = $Path
+                    Access = @($badRule, $matchingRule)
+                }
+            }
+        }
+
+        It "Processes inherited ACL definitions with malformed ACEs without errors" {
+            $singleEntryConfig = [PSCustomObject]@{
+                dmsaAclDelegations = @(
+                    @{
+                        targetOUPath = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}'
+                        identityreference = 'Tier1Admins'
+                        activedirectoryrights = @('GenericAll')
+                        accesscontroltype = 'Allow'
+                        objecttype = 'AllObjectClasses'
+                        activeDirectorysecurityinheritance = 'Descendents'
+                        inheritedObjectType = $script:DmsaPlaceholderGuid
+                    }
+                )
+                guidMappings = $script:TestConfig.guidMappings
+            }
+
+            $result = Get-TierModelDmsaAcl -Config $singleEntryConfig -DomainController $script:TestDC
+            $result.Errors | Should -BeNullOrEmpty
+            $result.Summary.TotalActions | Should -BeLessOrEqual 1
+        }
+
+        It "Handles null object types and explicit inherited GUIDs without analysis errors" {
+            Mock Get-Acl -ModuleName TierModel { param($Path, $ErrorAction) [PSCustomObject]@{ Path = $Path; Access = @() } }
+
+            $singleEntryConfig = [PSCustomObject]@{
+                dmsaAclDelegations = @(
+                    @{
+                        targetOUPath = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}'
+                        identityreference = 'Tier1Admins'
+                        activedirectoryrights = @('GenericAll')
+                        accesscontroltype = 'Allow'
+                        objecttype = $null
+                        activeDirectorysecurityinheritance = 'Descendents'
+                        inheritedObjectType = $script:DmsaPlaceholderGuid
+                    }
+                )
+                guidMappings = $script:TestConfig.guidMappings
+            }
+
+            $result = Get-TierModelDmsaAcl -Config $singleEntryConfig -DomainController $script:TestDC
+            $result.Errors | Should -BeNullOrEmpty
+            $result.Summary.CreateActions | Should -BeLessOrEqual 1
+        }
+    }
+
+    Context "Get-TierModelDmsaAcl - Processing failures" -Tag "Unit", "DmsaAcl", "Planning" {
+        BeforeEach {
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ DistinguishedName = $Identity; Name = 'Tier 1 Service Accounts' } }
+            Mock Get-ADGroup -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Groups,$script:TestDomainDN" } }
+            Mock Get-ADUser -ModuleName TierModel { throw 'User not found' }
+            Mock Resolve-DomainSpecificGuid -ModuleName TierModel {
+                param([string]$AttributeName, [string]$SchemaObjectClass, [string]$DomainController)
+                if ($AttributeName -eq 'msDS-DelegatedManagedServiceAccount') { return $script:DmsaPlaceholderGuid }
+                return $null
+            }
+            Mock Get-Acl -ModuleName TierModel { param($Path, $ErrorAction) [PSCustomObject]@{ Path = $Path; Access = @() } }
+        }
+
+        It "Returns AclAnalysisFailed when GUID resolution fails during delegation analysis" {
+            $badConfig = [PSCustomObject]@{
+                dmsaAclDelegations = @([PSCustomObject]@{
+                    targetOUPath = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}'
+                    identityreference = 'Tier1Admins'
+                    activedirectoryrights = @('CreateChild')
+                    accesscontroltype = 'Allow'
+                    objecttype = 'UnknownObjectType'
+                    activeDirectorysecurityinheritance = 'All'
+                })
+                guidMappings = $script:TestConfig.guidMappings
+            }
+            Mock Resolve-TierModelGuid -ModuleName TierModel { return $null }
+
+            $result = Get-TierModelDmsaAcl -Config $badConfig -DomainController $script:TestDC
+
+            ($result.Errors | Where-Object { $_.Code -eq 'AclAnalysisFailed' }).Count | Should -BeGreaterThan 0
+        }
+    }
+
     # ─────────────────────────────────────────────────────────────
     # Context 2: Get-TierModelDmsaAclFd Full Deployment Planning
     # ─────────────────────────────────────────────────────────────
@@ -435,6 +551,25 @@ Describe "dMSA ACL Operations" -Tag "Unit", "DmsaAcl" {
         It "DurationMs is a positive number" {
             $result = Get-TierModelDmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC
             $result.DurationMs | Should -BeGreaterThan 0
+        }
+
+        It "Marks principals as resolvable when they are found as users" {
+            Mock Get-ADGroup -ModuleName TierModel { throw 'Group not found' }
+            Mock Get-ADUser -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Users,$script:TestDomainDN" } }
+
+            $result = Get-TierModelDmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC -IncludeDetails
+
+            if ($result.Actions.Count -gt 0) {
+                $result.Actions[0].Validation.PrincipalResolvable | Should -Be $true
+            }
+        }
+
+        It "Returns DmsaAclFdPlanningFailed on outer initialization failure" {
+            Mock Resolve-DomainSpecificGuid -ModuleName TierModel { return $null }
+
+            $result = Get-TierModelDmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Errors[0].Code | Should -Be 'DmsaAclFdPlanningFailed'
         }
 
         It "Returns DmsaAclFdAnalysisFailed error code on inner processing failure" {
@@ -617,6 +752,16 @@ Describe "dMSA ACL Operations" -Tag "Unit", "DmsaAcl" {
         It "Calls Resolve-TierModelPlaceholder during audit" {
             Test-TierModelDmsaAcl -Config $script:TestConfig -DomainController $script:TestDC -Silent | Out-Null
             Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times 1
+        }
+
+        It "Records configuration resolution failures as audit errors" {
+            Mock Resolve-TierModelPlaceholder -ModuleName TierModel { throw 'Placeholder resolution failed' }
+
+            $result = Test-TierModelDmsaAcl -Config $script:TestConfig -DomainController $script:TestDC -Silent
+
+            $result.Errors | Should -BeGreaterOrEqual 1
+            ($result.Findings | ForEach-Object { $_.Property } | Select-Object -Unique) | Should -Be @('Config')
+            ($result.Findings | ForEach-Object { $_.Details } | Select-Object -Unique) | Should -Be @('Placeholder resolution failed')
         }
     }
 
@@ -884,6 +1029,18 @@ Describe "dMSA ACL Operations" -Tag "Unit", "DmsaAcl" {
             $result.Failed | Should -Be 1
             $result.Converged | Should -BeFalse
             ($result.Errors[0].Message) | Should -Match 'Resolved inheritedObjectType GUID'
+        }
+
+        It "Returns a critical error when the dMSA class GUID cannot be resolved during execution" {
+            Mock Resolve-DomainSpecificGuid -ModuleName TierModel { return $null }
+
+            $result = New-TierModelDmsaAcl -Plan $script:EmptyPlan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 0
+            $result.Failed | Should -Be 1
+            $result.Converged | Should -BeFalse
+            $result.Errors[0].Code | Should -Be 'AclExecutionFailed'
+            $result.Errors[0].Message | Should -Match 'Failed to resolve domain-specific GUID'
         }
     }
 

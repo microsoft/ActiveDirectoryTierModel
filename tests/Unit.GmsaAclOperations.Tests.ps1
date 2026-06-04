@@ -373,6 +373,71 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
             $result = Get-TierModelGmsaAcl -Config $singleEntryConfig -DomainController $script:TestDC
             $result.Summary.CreateActions | Should -BeLessThan 1
         }
+
+        It "Processes inherited ACL definitions with malformed ACEs without errors" {
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $gmsaGuid = [Guid]"7b8b558a-93a5-4af7-adca-c017e67f1057"
+                $badRule = [PSCustomObject]@{ AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow }
+                $matchingRule = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'TEST\Tier1Admins' }
+                    AccessControlType = [System.Security.AccessControl.AccessControlType]::Allow
+                    ActiveDirectoryRights = [System.DirectoryServices.ActiveDirectoryRights]::GenericAll
+                    InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::Descendents
+                    ObjectType = [Guid]::Empty
+                    InheritedObjectType = $gmsaGuid
+                }
+                [PSCustomObject]@{
+                    Path = $Path
+                    Access = @($badRule, $matchingRule)
+                }
+            }
+
+            $singleEntryConfig = [PSCustomObject]@{
+                gmsaAclDelegations = @(
+                    [PSCustomObject]@{
+                        targetOUPath = "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}"
+                        identityreference = "Tier1Admins"
+                        activedirectoryrights = @("GenericAll")
+                        accesscontroltype = "Allow"
+                        objecttype = "AllObjectClasses"
+                        activeDirectorysecurityinheritance = "Descendents"
+                        inheritedObjectType = "7b8b558a-93a5-4af7-adca-c017e67f1057"
+                    }
+                )
+                guidMappings = $script:TestConfig.guidMappings
+            }
+
+            $result = Get-TierModelGmsaAcl -Config $singleEntryConfig -DomainController $script:TestDC
+            $result | Should -Not -BeNullOrEmpty
+            $result.Summary.TotalActions | Should -BeLessOrEqual 1
+        }
+
+        It "Handles null objectType and explicit inherited GUIDs without analysis errors" {
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                [PSCustomObject]@{ Path = $Path; Access = @() }
+            }
+
+            $singleEntryConfig = [PSCustomObject]@{
+                gmsaAclDelegations = @(
+                    [PSCustomObject]@{
+                        targetOUPath = "OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}"
+                        identityreference = "Tier1Admins"
+                        activedirectoryrights = @("GenericAll")
+                        accesscontroltype = "Allow"
+                        objecttype = $null
+                        activeDirectorysecurityinheritance = "Descendents"
+                        inheritedObjectType = "7b8b558a-93a5-4af7-adca-c017e67f1057"
+                    }
+                )
+                guidMappings = $script:TestConfig.guidMappings
+            }
+
+            $result = Get-TierModelGmsaAcl -Config $singleEntryConfig -DomainController $script:TestDC
+            $result | Should -Not -BeNullOrEmpty
+            $result.Summary.CreateActions | Should -BeLessOrEqual 1
+        }
     }
 
     Context "Get-TierModelGmsaAcl - AclReadFailed error" -Tag "Unit", "GmsaAcl", "Planning" {
@@ -394,6 +459,43 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
         It "Returns AclReadFailed error when Get-Acl throws" {
             $result = Get-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC
             ($result.Errors | Where-Object { $_.Code -eq 'AclReadFailed' }) | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "Get-TierModelGmsaAcl - Processing failures" -Tag "Unit", "GmsaAcl", "Planning" {
+        BeforeEach {
+            Mock Get-ADOrganizationalUnit -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ DistinguishedName = $Identity; Name = 'Tier 1 Service Accounts' } }
+            Mock Get-ADGroup -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Groups,$script:TestDomainDN" } }
+            Mock Get-ADUser -ModuleName TierModel { throw 'User not found' }
+            Mock Get-Acl -ModuleName TierModel { param($Path, $ErrorAction) [PSCustomObject]@{ Path = $Path; Access = @() } }
+        }
+
+        It "Returns AclAnalysisFailed when GUID resolution fails during delegation analysis" {
+            $badConfig = [PSCustomObject]@{
+                gmsaAclDelegations = @([PSCustomObject]@{
+                    targetOUPath = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,{{domainDN}}'
+                    identityreference = 'Tier1Admins'
+                    activedirectoryrights = @('CreateChild')
+                    accesscontroltype = 'Allow'
+                    objecttype = 'UnknownObjectType'
+                    activeDirectorysecurityinheritance = 'All'
+                })
+                guidMappings = $script:TestConfig.guidMappings
+            }
+            Mock Resolve-TierModelGuid -ModuleName TierModel { return $null }
+
+            $result = Get-TierModelGmsaAcl -Config $badConfig -DomainController $script:TestDC
+
+            ($result.Errors | Where-Object { $_.Code -eq 'AclAnalysisFailed' }).Count | Should -BeGreaterThan 0
+        }
+
+        It "Returns PlanningFailed when initialization throws" {
+            Mock Resolve-TierModelDomainDN -ModuleName TierModel { throw 'Domain DN lookup failed' }
+
+            $result = Get-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Errors[0].Code | Should -Be 'PlanningFailed'
+            $result.Errors[0].Message | Should -Be 'Domain DN lookup failed'
         }
     }
 
@@ -456,6 +558,26 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
         It "DurationMs is a positive number" {
             $result = Get-TierModelGmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC
             $result.DurationMs | Should -BeGreaterThan 0
+        }
+
+        It "Marks principals as resolvable when they are found as users" {
+            Mock Get-ADGroup -ModuleName TierModel { throw 'Group not found' }
+            Mock Get-ADUser -ModuleName TierModel { param($Identity, $Server, $ErrorAction) [PSCustomObject]@{ SamAccountName = $Identity; DistinguishedName = "CN=$Identity,OU=Users,$script:TestDomainDN" } }
+
+            $result = Get-TierModelGmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC -IncludeDetails
+
+            if ($result.Actions.Count -gt 0) {
+                $result.Actions[0].Validation.PrincipalResolvable | Should -Be $true
+            }
+        }
+
+        It "Returns GmsaAclFdPlanningFailed on outer initialization failure" {
+            Mock Resolve-TierModelDomainDN -ModuleName TierModel { throw 'Domain DN lookup failed' }
+
+            $result = Get-TierModelGmsaAclFd -Config $script:TestConfig -DomainController $script:TestDC
+
+            $result.Errors[0].Code | Should -Be 'GmsaAclFdPlanningFailed'
+            $result.Errors[0].Message | Should -Be 'Domain DN lookup failed'
         }
 
         It "Returns GmsaAclFdAnalysisFailed error code on inner processing failure" {
@@ -630,6 +752,16 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
         It "Calls Resolve-TierModelPlaceholder during audit" {
             Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC -Silent | Out-Null
             Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times 1
+        }
+
+        It "Records configuration resolution failures as audit errors" {
+            Mock Resolve-TierModelPlaceholder -ModuleName TierModel { throw 'Placeholder resolution failed' }
+
+            $result = Test-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC -Silent
+
+            $result.Errors | Should -BeGreaterOrEqual 1
+            ($result.Findings | ForEach-Object { $_.Property } | Select-Object -Unique) | Should -Be @('Config')
+            ($result.Findings | ForEach-Object { $_.Details } | Select-Object -Unique) | Should -Be @('Placeholder resolution failed')
         }
     }
 
@@ -887,6 +1019,75 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
             $result.Converged | Should -BeFalse
             ($result.Errors[0].Message) | Should -Match 'Resolved inheritedObjectType GUID'
         }
+
+        It "Applies ACLs with null object types, invalid rights, and non-OU paths" {
+            $plan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action = 'CreateAcl'
+                    Path = 'CN=Service Accounts,DC=test,DC=local'
+                    Data = [PSCustomObject]@{
+                        identityreference = 'BUILTIN\Administrators'
+                        activedirectoryrights = @('GenericAll', 'NotARealRight')
+                        accesscontroltype = 'Allow'
+                        activeDirectorysecurityinheritance = 'All'
+                        objecttype = $null
+                    }
+                })
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 1
+            $result.Applied[0].ObjectType | Should -Be ([Guid]::Empty)
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -like '*Invalid ActiveDirectoryRight*' } -Times 1
+            Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter { $Object -like '*Applied gMSA ACL*Unknown OU*' } -Times 1
+        }
+
+        It "Fails safely when inheritedObjectType resolves to an empty value" {
+            $plan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action = 'CreateAcl'
+                    Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                    Data = [PSCustomObject]@{
+                        identityreference = 'BUILTIN\Administrators'
+                        activedirectoryrights = @('GenericAll')
+                        accesscontroltype = 'Allow'
+                        activeDirectorysecurityinheritance = 'Descendents'
+                        objecttype = 'AllObjectClasses'
+                        inheritedObjectType = 'AllObjectClasses'
+                    }
+                })
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 0
+            $result.Failed | Should -Be 1
+            ($result.Errors[0].Message) | Should -Match 'Resolved inheritedObjectType GUID'
+        }
+
+        It "Fails safely when objectType cannot be resolved" {
+            $plan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action = 'CreateAcl'
+                    Path = 'OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,DC=test,DC=local'
+                    Data = [PSCustomObject]@{
+                        identityreference = 'BUILTIN\Administrators'
+                        activedirectoryrights = @('CreateChild')
+                        accesscontroltype = 'Allow'
+                        activeDirectorysecurityinheritance = 'All'
+                        objecttype = 'UnknownObjectType'
+                    }
+                })
+            }
+
+            $result = New-TierModelGmsaAcl -Plan $plan -DomainController $script:TestDC -Config $script:TestConfig
+
+            $result.Executed | Should -Be 0
+            $result.Failed | Should -Be 1
+            ($result.Errors[0].Message) | Should -Match "Failed to resolve GUID for 'UnknownObjectType'"
+        }
+
     }
 
     Context "Test-TierModelGmsaAcl - Non-silent output" -Tag "Unit", "GmsaAcl", "Audit" {

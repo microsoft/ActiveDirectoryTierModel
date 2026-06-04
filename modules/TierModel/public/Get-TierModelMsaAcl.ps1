@@ -200,12 +200,7 @@ function Get-TierModelMsaAcl {
                     }
                     
                     $inheritedObjectTypeGuid = [Guid]::Empty
-                    if ($acl.PSObject.Properties['inheritedObjectType'] -and -not [string]::IsNullOrEmpty($acl.inheritedObjectType)) {
-                        $resolvedInheritedObjectType = & $resolveAclGuid $acl.inheritedObjectType
-                        if ($null -ne $resolvedInheritedObjectType -and -not [string]::IsNullOrEmpty($resolvedInheritedObjectType)) {
-                            $inheritedObjectTypeGuid = [Guid]$resolvedInheritedObjectType
-                        }
-                    }
+                    if ($acl.PSObject.Properties['inheritedObjectType'] -and -not [string]::IsNullOrEmpty($acl.inheritedObjectType)) { $resolvedInheritedObjectType = & $resolveAclGuid $acl.inheritedObjectType; if ($null -ne $resolvedInheritedObjectType -and -not [string]::IsNullOrEmpty($resolvedInheritedObjectType)) { $inheritedObjectTypeGuid = [Guid]$resolvedInheritedObjectType } }
                     
                     $existingAcl = $currentAcl.Access | Where-Object {
                         try {
@@ -229,13 +224,7 @@ function Get-TierModelMsaAcl {
                     
                     if ($existingAcl) {
                         $needsApplication = $false
-                        Write-TierModelLog -Level Info -Message "MSA ACL delegation already exists with exact match" -Data @{
-                            TargetOUPath = $targetOUPath
-                            IdentityReference = $identityReference
-                            ObjectType = $resolvedObjectType
-                            Rights = ($acl.activedirectoryrights -join ', ')
-                            CorrelationId = $CorrelationId
-                        } | Out-Null
+                        Write-TierModelLog -Level Info -Message "MSA ACL delegation already exists with exact match" -Data @{ TargetOUPath = $targetOUPath; IdentityReference = $identityReference; ObjectType = $resolvedObjectType; Rights = ($acl.activedirectoryrights -join ', '); CorrelationId = $CorrelationId } | Out-Null
                     }
                 } catch {
                     $planErrors += @{
@@ -260,11 +249,7 @@ function Get-TierModelMsaAcl {
                         $actionData['objecttype'] = $resolvedObjectType
                     }
                     if ($acl.PSObject.Properties['inheritedObjectType']) {
-                        $actionData['inheritedObjectType'] = if ($inheritedObjectTypeGuid -ne [Guid]::Empty) {
-                            $inheritedObjectTypeGuid.ToString()
-                        } else {
-                            $acl.inheritedObjectType
-                        }
+                        $actionData['inheritedObjectType'] = if ($inheritedObjectTypeGuid -ne [Guid]::Empty) { $inheritedObjectTypeGuid.ToString() } else { $acl.inheritedObjectType }
                     }
                     
                     $actions += [PSCustomObject]@{

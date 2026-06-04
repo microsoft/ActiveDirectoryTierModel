@@ -9,9 +9,9 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** March 6, 2026 (1,069 tests / 0 failed — New-TierModelOuAcl.ps1 46.5%→97.5% ✦) | **Overall: 91.3%** (8,140/8,916) | **Target: 95%**
+**Last measured:** June 4, 2026 (1,292 tests / 0 failed — Phase 16 MSA/gMSA/dMSA complete) | **Overall: 91.6%** (10,444/11,389) | **Target: 95%**
 
-> ⚠️ **Pending re-measure:** Phase 16 — 12 new MSA/gMSA/dMSA cmdlets added (Get-TierModelMsaAcl, Get-TierModelMsaAclFd, New-TierModelMsaAcl, Test-TierModelMsaAcl, Get-TierModelGmsaAcl, Get-TierModelGmsaAclFd, New-TierModelGmsaAcl, Test-TierModelGmsaAcl, Get-TierModelDmsaAcl, Get-TierModelDmsaAclFd, New-TierModelDmsaAcl, Test-TierModelDmsaAcl); 3 new test files added (Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1). Updated existing files: Audit-TierModel.ps1, Deploy-TierModel.ps1, Test-TierModelPrerequisites.ps1, Get-TierModelConfig.ps1, TierModel.psd1. Estimated line count for new cmdlets: ~1,844 lines (+3 new test files). Coverage will be re-measured after Phase 16 implementation.
+> ✅ **Phase 16 measured:** 12 new MSA/gMSA/dMSA cmdlets added with comprehensive test coverage. All new files at 90%+ (aggregate 93.2%). 3 new test files: Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1.
 
 | Tier | Files | Count |
 |------|-------|-------|
@@ -41,7 +41,16 @@
 | `modules/TierModel/public/New-TierModelGroup.ps1` | 127 | 20 | 147 | 🟠 86.4% |
 | `modules/TierModel/public/Set-TierModelGpoTemplate.ps1` | 52 | 8 | 60 | 🟠 86.7% |
 | `Deploy-TierModel.ps1` | 1471 | 181 | 1652 | 🟠 89.0% ✦ |
+| `modules/TierModel/public/Get-TierModelDmsaAclFd.ps1` | 193 | 21 | 214 | 🟡 90.2% |
+| `modules/TierModel/public/Get-TierModelMsaAclFd.ps1` | 186 | 17 | 203 | 🟡 91.6% |
+| `modules/TierModel/public/Get-TierModelGmsaAclFd.ps1` | 186 | 17 | 203 | 🟡 91.6% |
+| `modules/TierModel/public/Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 🟡 91.6% |
+| `modules/TierModel/public/Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 🟡 92.7% |
+| `modules/TierModel/public/Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
+| `modules/TierModel/public/Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
 | `modules/TierModel/public/Get-TierModelUser.ps1` | 107 | 8 | 115 | 🟡 93.0% |
+| `modules/TierModel/public/Get-TierModelMsaAcl.ps1` | 200 | 15 | 215 | 🟡 93.0% |
+| `modules/TierModel/public/Get-TierModelGmsaAcl.ps1` | 201 | 15 | 216 | 🟡 93.1% |
 | `modules/TierModel/public/Test-TierModelGPOAudit.ps1` | 246 | 18 | 264 | 🟡 93.18% ✦ |
 | `modules/TierModel/public/Get-TierModelConfig.ps1` | 113 | 8 | 121 | 🟡 93.4% ✦ |
 | `modules/TierModel/public/Get-TierModelGpoTemplate.ps1` | 46 | 3 | 49 | 🟡 93.9% |
@@ -51,11 +60,14 @@
 | `modules/TierModel/public/Get-TierModelGpoLinkFd.ps1` | 151 | 8 | 159 | 🟡 94.97% ✦ |
 | `modules/TierModel/public/Resolve-DomainSpecificGuid.ps1` | 46 | 2 | 48 | 🟡 95.8% |
 | `modules/TierModel/public/Get-TierModelGpo.ps1` | 500 | 20 | 520 | 🟡 96.2% |
+| `modules/TierModel/public/New-TierModelDmsaAcl.ps1` | 151 | 5 | 156 | 🟡 96.8% |
 | `modules/TierModel/public/Get-TierModelGpoFd.ps1` | 310 | 8 | 318 | 🟡 97.5% |
 | `modules/TierModel/public/New-TierModelGpo.ps1` | 119 | 3 | 122 | 🟡 97.5% ✦ |
 | `modules/TierModel/public/New-TierModelOuAcl.ps1` | 155 | 4 | 159 | 🟡 97.5% ✦ |
 | `modules/TierModel/public/Resolve-TierModelPrincipalSid.ps1` | 196 | 4 | 200 | 🟡 98.0% |
 | `modules/TierModel/public/Get-TierModelOuAcl.ps1` | 240 | 4 | 244 | 🟡 98.36% ✦ |
+| `modules/TierModel/public/New-TierModelMsaAcl.ps1` | 129 | 2 | 131 | 🟡 98.5% |
+| `modules/TierModel/public/New-TierModelGmsaAcl.ps1` | 130 | 2 | 132 | 🟡 98.5% |
 | `modules/TierModel/public/Get-TierModelGroupFd.ps1` | 110 | 1 | 111 | 🟡 99.1% ✦ |
 | `modules/TierModel/public/Test-TierModelGPOContent.ps1` | 228 | 2 | 230 | 🟡 99.1% |
 | `modules/TierModel/public/Get-TierModelOuAclFd.ps1` | 194 | 1 | 195 | 🟡 99.49% ✦ |
@@ -71,19 +83,7 @@
 | `modules/TierModel/public/Test-TierModelGPOLink.ps1` | 222 | 0 | 222 | ✅ 100% |
 | `modules/TierModel/public/Test-TierModelOuExists.ps1` | 9 | 0 | 9 | ✅ 100% |
 | `modules/TierModel/public/Write-TierModelLog.ps1` | 37 | 0 | 37 | ✅ 100% |
-| `modules/TierModel/public/Get-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
-| `modules/TierModel/public/Get-TierModelMsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
-| `modules/TierModel/public/New-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
-| `modules/TierModel/public/Test-TierModelMsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
-| `modules/TierModel/public/Get-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
-| `modules/TierModel/public/Get-TierModelGmsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
-| `modules/TierModel/public/New-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
-| `modules/TierModel/public/Test-TierModelGmsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
-| `modules/TierModel/public/Get-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~240 | ⏳ Pending |
-| `modules/TierModel/public/Get-TierModelDmsaAclFd.ps1` | ⏳ | ⏳ | ~195 | ⏳ Pending |
-| `modules/TierModel/public/New-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~159 | ⏳ Pending |
-| `modules/TierModel/public/Test-TierModelDmsaAcl.ps1` | ⏳ | ⏳ | ~318 | ⏳ Pending |
-| **TOTAL (58 files — 12 new MSA/gMSA/dMSA cmdlets pending coverage measurement)** | **8,140+** | **776** | **~11,174** | **91.3%** *(re-measure pending)* |
+| **TOTAL (58 files)** | **10,444** | **945** | **11,389** | **91.6%** |
 
 > **✦** = File has a documented structural barrier preventing full coverage without production code refactoring. See **Hard Coverage Limits** table below for details.
 

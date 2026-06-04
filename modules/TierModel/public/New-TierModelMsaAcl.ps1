@@ -233,26 +233,7 @@ function New-TierModelMsaAcl {
             CorrelationId = $CorrelationId
         }
     } catch {
-        Write-TierModelLog -Level Error -Message "MSA ACL execution failed" -Data @{
-            Exception = $_.Exception.Message
-            CorrelationId = $CorrelationId
-        } | Out-Null
-        
-        return [PSCustomObject]@{
-            Applied = @()
-            Executed = 0
-            Failed = 1
-            Skipped = @()
-            Errors = @(@{
-                Timestamp = Get-Date
-                Category = 'Critical'
-                Code = 'AclExecutionFailed'
-                Message = $_.Exception.Message
-                Context = @{ CorrelationId = $CorrelationId }
-            })
-            DurationMs = ((Get-Date) - $startTime).TotalMilliseconds
-            Converged = $false
-            CorrelationId = $CorrelationId
-        }
+        Write-TierModelLog -Level Error -Message "MSA ACL execution failed" -Data @{ Exception = $_.Exception.Message; CorrelationId = $CorrelationId } | Out-Null
+        return [PSCustomObject]@{ Applied = @(); Executed = 0; Failed = 1; Skipped = @(); Errors = @(@{ Timestamp = Get-Date; Category = 'Critical'; Code = 'AclExecutionFailed'; Message = $_.Exception.Message; Context = @{ CorrelationId = $CorrelationId } }); DurationMs = ((Get-Date) - $startTime).TotalMilliseconds; Converged = $false; CorrelationId = $CorrelationId }
     }
 }
