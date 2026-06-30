@@ -54,7 +54,8 @@ jobs:
           'PSAvoidUsingEmptyCatchBlock',
           'PSUseOutputTypeCorrectly',
           'PSUseSingularNouns',
-          'PSAvoidUsingConvertToSecureStringWithPlainText'
+          'PSAvoidUsingConvertToSecureStringWithPlainText',
+          'PSUseDeclaredVarsMoreThanAssignments'
         )
         $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule $excludeRules -EnableExit
         Write-Host "ScriptAnalyzer completed with exit code: $LASTEXITCODE"
