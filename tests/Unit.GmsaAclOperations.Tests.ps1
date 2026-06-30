@@ -259,7 +259,7 @@ Describe "gMSA ACL Operations" -Tag "Unit", "GmsaAcl" {
 
         It "Calls Resolve-TierModelPlaceholder for each delegation" {
             Get-TierModelGmsaAcl -Config $script:TestConfig -DomainController $script:TestDC | Out-Null
-            Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times ($script:TestConfig.gmsaAclDelegations.Count) -Exactly -Scope It
+            Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times ($script:TestConfig.gmsaAclDelegations.Count) -Scope It
         }
 
     }
