@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-06-30
+
+### Added
+
+#### Managed Service Account (MSA/gMSA/dMSA) ACL Support
+- **gMSA ACL Cmdlets**: `Get-TierModelGmsaAcl`, `Get-TierModelGmsaAclFd`, `New-TierModelGmsaAcl`, and `Test-TierModelGmsaAcl` for deploying and auditing Group Managed Service Account ACLs
+- **dMSA ACL Cmdlets**: `Get-TierModelDmsaAcl`, `Get-TierModelDmsaAclFd`, `New-TierModelDmsaAcl`, and `Test-TierModelDmsaAcl` for Delegated Managed Service Account ACLs
+- **MSA ACL Cmdlets**: `Get-TierModelMsaAcl`, `Get-TierModelMsaAclFd`, `New-TierModelMsaAcl`, and `Test-TierModelMsaAcl` for standalone Managed Service Account ACLs
+- **Configuration**: `config/tiermodel-gmsa.json`, `config/tiermodel-dmsa.json`, and `config/tiermodel-msa.json` for MSA tier model ACL definitions
+- **Prerequisite Validation**: Extended `Test-TierModelPrerequisites` with MSA-related checks
+- **Domain GUID Resolution**: Enhanced `Resolve-DomainSpecificGuid` to support MSA schema/extended-rights GUIDs
+
+### Tests
+- Added unit test suites for MSA, gMSA, and dMSA ACL operations and updated prerequisite/manifest tests
+- Added integration tests for MSA deploy and audit workflows
+
 ## [2.0.0] - 2026-02-27
 
 ### Added
