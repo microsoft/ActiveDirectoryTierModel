@@ -258,7 +258,7 @@ Describe "MSA ACL Operations" -Tag "Unit", "MsaAcl" {
 
         It "Calls Resolve-TierModelPlaceholder for each delegation" {
             Get-TierModelMsaAcl -Config $script:TestConfig -DomainController $script:TestDC | Out-Null
-            Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times ($script:TestConfig.msaAclDelegations.Count) -Exactly
+            Should -Invoke Resolve-TierModelPlaceholder -ModuleName TierModel -Times ($script:TestConfig.msaAclDelegations.Count) -Exactly -Scope It
         }
 
     }
