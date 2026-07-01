@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.1.0] - 2026-06-30
+## [1.1.0] - 2026-06-30
 
 ### Added
 
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added unit test suites for MSA, gMSA, and dMSA ACL operations and updated prerequisite/manifest tests
 - Added integration tests for MSA deploy and audit workflows
 
-## [2.0.0] - 2026-02-27
+## [1.0.0] - 2026-02-27
 
 ### Added
 
@@ -138,18 +138,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example functions that were never implemented
 - Confusing documentation references
 - Outdated cmdlet references in CI/CD pipelines
-
-## [1.0.0] - Initial Release
-
-### Added
-- Basic Active Directory Tier Model framework
-- Organizational Unit management
-- Security Group operations
-- User account management
-- Group Policy Object support
-- Configuration-driven deployment
-- JSON schema validation
-- Pester test framework
 
 ---
 

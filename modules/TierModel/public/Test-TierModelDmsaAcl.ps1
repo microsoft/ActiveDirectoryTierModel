@@ -184,13 +184,13 @@ function Test-TierModelDmsaAcl {
             
             # Step 2: Check if identity/group exists
             try {
-                $groupObject = Get-ADGroup -Identity $identityReference -Server $DomainController -ErrorAction Stop
+                $null = Get-ADGroup -Identity $identityReference -Server $DomainController -ErrorAction Stop
                 if (-not $Silent) {
                     Write-Host "    ✅ Identity '$identityReference' exists (Group)" -ForegroundColor Green
                 }
             } catch {
                 try {
-                    $userObject = Get-ADUser -Identity $identityReference -Server $DomainController -ErrorAction Stop
+                    $null = Get-ADUser -Identity $identityReference -Server $DomainController -ErrorAction Stop
                     if (-not $Silent) {
                         Write-Host "    ✅ Identity '$identityReference' exists (User)" -ForegroundColor Green
                     }

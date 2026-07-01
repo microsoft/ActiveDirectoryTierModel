@@ -13,24 +13,25 @@
 - Not a substitute for a full security architecture review
 
 ### What version of the Tier Model is this?
-- Current release is **v2.0.0** (released February 27, 2026)
+- Current release is **v1.1.0** (released June 30, 2026)
+- The initial automated release was **v1.0.0** (released February 27, 2026)
 - See the `CHANGELOG.md` file in the repository root for full release history
-- Note that v2.0.0 is a major release with breaking changes from v1.x
+- v1.1.0 is a **minor, backward-compatible** feature release (adds MSA/gMSA/dMSA ACL support); `2.x` is reserved for future breaking changes
 
 ---
 
 ## Upgrading from a Previous Version
 
 ### I deployed an earlier version of the Tier Model. What do I need to know before upgrading?
-- v2.0.0 is a **major release** — review the full CHANGELOG before proceeding
+- This automated module was first released as **v1.0.0** — review the full CHANGELOG before proceeding
 - The deployment script (`Deploy-TierModel.ps1`) is idempotent; existing objects in AD will be skipped, not overwritten
-- New components added in v2.0.0 (e.g., structured logging, drift detection, ADMX management) will be created fresh
+- New components added in v1.0.0 (e.g., structured logging, drift detection, ADMX management) will be created fresh
 - Back up your Active Directory (System State or AD-specific backup) before running any upgrade
 
-### What changed between v1.x and v2.0.0?
+### What changed compared to a legacy, manually-maintained Tier Model?
 - `Deploy-TierModel.ps1` was fully rewritten with component-specific switches (`-OuOnly`, `-GroupOnly`, `-GposOnly`, etc.)
-- `Audit-TierModel.ps1` is a **new script** — it did not exist in v1.x
-- Structured logging with correlation IDs and security redaction is new in v2.0.0
+- `Audit-TierModel.ps1` is a **new script** — it did not exist in legacy manual deployments
+- Structured logging with correlation IDs and security redaction is new in v1.0.0
 - GPO deployment modes expanded to three options: `create`, `createAndImport`, `createImportAndConfigure`
 - ADMX hash verification added for template integrity
 - A **Microsoft Sentinel monitoring pack** has been built against the new structure, enabling day-one SOC monitoring of your Tier Model immediately after deployment
@@ -42,7 +43,7 @@
 - Exceptions and edge cases to be noted here
 
 ### Do I need to re-import my ADMX templates?
-- If you previously imported ADMX templates manually, they may not match the v2.0.0 hash manifest
+- If you previously imported ADMX templates manually, they may not match the v1.0.0 hash manifest
 - Use the drift detection audit (`Audit-TierModel.ps1`) to identify hash mismatches before re-importing
 - Re-import can be triggered with `-AdmxOnly` or as part of `-FullDeployment`
 
@@ -82,9 +83,9 @@ The high-level migration path is:
 ### My previous deployment used a different OU structure. What happens?
 - The Tier Model will create any OUs defined in `tiermodel-ous.json` that do not already exist
 - OUs that exist in your environment but are **not** in the config will be left untouched
-- If your existing OU paths differ from the v2.0.0 defaults, update `tiermodel-ous.json` accordingly before deploying
+- If your existing OU paths differ from the v1.0.0 defaults, update `tiermodel-ous.json` accordingly before deploying
 
-### Can I roll back to v1.x if something goes wrong?
+### Can I roll back to a previous manual configuration if something goes wrong?
 - The Tier Model does not provide an automated rollback mechanism
 - Because all objects created by the Tier Model are **new objects not in production use**, the recommended remediation for any deployment failure is to **delete the affected object(s) and redeploy** using the appropriate component-specific switch
   - Example: if a GPO fails to import, delete the GPO in GPMC or via PowerShell, resolve the underlying issue, then re-run `Deploy-TierModel.ps1 -GposOnly` until all GPOs import successfully
