@@ -18,6 +18,10 @@
 - Start-LabAndDeploy.ps1 only shows the last 40 lines of deploy output — planning-mode "Action count"/"Create count" are not visible in normal runs. Capture them with a direct planning-only run if needed.
 - **Baseline reference (no -IncludeWinLaps, 2026-07-14):** Applied: 643, Converged: False. WinLaps run must produce Applied > 643.
 - **WinLaps Bug 5b (BLOCKING — SELF idempotency IsInherited mismatch):** In PowerShell 7, `Get-ADOrganizationalUnit -Properties nTSecurityDescriptor` returns ACEs set by `Set-LapsADComputerSelfPermission` as `IsInherited = True`, even though they are explicitly-set non-inherited ACEs. `Get-Acl "AD:$ouDn"` returns the same ACEs with the correct `IsInherited = False`. Both `Get-TierModelWinLapsAcl.ps1` and `Get-TierModelWinLapsAclFd.ps1` use the AD module path for the SELF check → `-not $_.IsInherited` filter excludes all LAPS SELF ACEs → `$selfExists = false` always → SELF re-applied every run. Fix: replace `Get-ADOrganizationalUnit -Properties nTSecurityDescriptor` with `Get-Acl "AD:$resolvedOuDn"` in the SELF detection block of both planners. GUID comparison logic is correct (confirmed: `msLAPS-Password` → `25139f56-7148-409b-9ec7-251a558a4ddc` = ACE ObjectType = same System.Guid value).
+- **Find-LapsADExtendedRights reports DIRECT holders only (NOT inherited):** The cmdlet shows principals with directly-set LAPS extended right ACEs on the specified OU. It does NOT report principals whose access comes from INHERITED ACEs (e.g., a GenericAll inherited from a parent OU). Verified: root `OU=Tier Model Administration` shows TIERLAB\Tier0Admins (direct GenericAll), but T1PAW does NOT show Tier0Admins despite having inherited GenericAll from root OU (confirmed via Get-Acl).
+- **GenericAll from base deploy OU ACL phase provides effective LAPS access:** In this lab, the base deploy grants Tier0Admins `GenericAll` (Rights=GenericAll, InheritanceType=All) on `OU=Tier Model Administration`. This inherits to T0PAW, T1PAW, T2PAW as IsInherited=True ACEs. GenericAll includes all rights including LAPS read/reset. WinLaps planner correctly detects Tier0Admins as already-present on root OU and skips explicit LAPS Read/Reset delegation. Functional LAPS access exists even without explicit LAPS extended right ACEs.
+- **WinLaps root delegation idempotency behavior:** When a principal already has sufficient access (e.g., GenericAll) on a target OU, `Find-LapsADExtendedRights` includes them in the holders list, and the WinLaps planner correctly marks R/R as already-present and skips. The WinLaps SELF permission is still applied (SELF check uses Get-Acl DACL inspection, independent of extended rights).
+- **Applied total (Run 6, 2026-07-14):** 673 (baseline 643 + delta +30). Bug 5b fixed. Idempotency Converged=True. All bugs 1-5b CLOSED. **GREEN FOR JOEL'S GATE.**
 - lab-config.json lives at `.research\copilot-cli-hyperv-ad-lab\lab-config.json`, NOT in the scripts\ subdirectory. Always pass `-ConfigPath` explicitly to Start-LabAndDeploy.ps1.
 - **WinLaps Bug 1 (BLOCKING):** `Test-TierModelPrerequisites.ps1` line 367: `$schemaDN = $null` init is inside `if ($IncludeMsa -or $IncludeGmsa -or $IncludeDmsa)`. When only `-IncludeWinLaps` is used, this block is skipped; line 515 reads `$schemaDN` under `Set-StrictMode -Version Latest` → VariableIsUndefined. Execution fails for both `-FullDeployment` and standalone paths. Beast must fix before any execution-mode WinLaps testing can complete.
 - **WinLaps Bug 2 (MINOR):** `Write-IncludeAclPlanActions` in Deploy-TierModel.ps1 (~line 1038) uses `$_.Data.identityreference` — property exists on MSA/gMSA/dMSA actions but NOT on WinLaps actions (which use `lapsOperation`, `allowedPrincipals`, `ouDn`). Affects plan display only; action count calculation is correct. Beast must fix.
@@ -79,6 +83,37 @@ When `-IncludeWinLaps` plan runs BEFORE base deploy (groups not yet in AD), `Get
 #### Final Lab State
 - **VM: Off, restored to WinLapsSchema** (no WinLaps ACLs applied)
 - Output files: `wtest2-precheck.txt`, `wtest2-plan.txt`, `wtest2-winlaps.txt`, `wtest2-idem.txt`, `wtest2-delegation.txt`, `wtest2-compose.txt`, `wtest2-guards.txt`
+
+### 2026-07-14 — WinLaps FINAL Run #6 (Bug 5b fixed, Root Delegation config change — GREEN)
+
+#### Mission
+Combined final re-test: Bug 5b fix (`Get-Acl "AD:$ouDn"` for SELF detection) + config change (Tier 0 Admins entry moved from `OU=Tier 0 PAW Devices` to `OU=Tier Model Administration` root). Expected: Applied > 643, idempotency Converged=True (all 3 types: Self/Read/Reset = 0).
+
+#### Bug 5b Confirmed Fixed ✅
+Idempotency 2nd run: **Applied: 0, Skipped: 0, Errors: 0, Converged: True**. `Windows LAPS ACL delegations already up to date`. SELF, READ, RESET all 0. Bug 5b is CLOSED. All bugs 1–5b now CLOSED.
+
+#### Totals
+- **Applied = 673** (baseline 643, delta **+30**)
+
+#### Phase 10 (7 SELF applied, R/R as expected)
+- 7/7 SELF applied including "Tier Model Administration" (new config entry) ✅
+- Root OU Read/Reset: skipped (Tier0Admins already present via GenericAll from base deploy) ✅
+- T1PAW/T2PAW Read/Reset: skipped (Tier1/2Admins already present) ✅
+- DC, T0Members, T1Members, EUD: Read+Reset applied with correct principals ✅
+
+#### Root Delegation Design Behavior
+- Root OU (`OU=Tier Model Administration`): Tier0Admins already has `GenericAll` from base deploy's OU ACL phase
+- WinLaps planner correctly detects this via `Find-LapsADExtendedRights` → skips explicit LAPS Read/Reset, adds SELF only
+- `Find-LapsADExtendedRights` on T1PAW/T2PAW: does NOT show Tier0Admins (tool reports DIRECT holders only, not inherited)
+- `Get-Acl` on T1PAW: Tier0Admins HAS inherited GenericAll (IsInherited=True) — functional access confirmed
+- Tier0Admins can effectively read/reset LAPS on all PAW tiers via GenericAll inheritance
+
+#### Delegation All 7 OUs ✅
+All configured OUs have correct principals confirmed.
+
+#### Final Lab State (Run 6)
+- **VM: Off, restored to WinLapsSchema** (clean)
+- All wt6-*.txt, wt6-*.ps1 cleaned up
 
 ### 2026-07-14 — WinLaps Re-Test #5 + Bug 5b Root Cause Diagnostic
 

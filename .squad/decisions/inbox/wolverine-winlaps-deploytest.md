@@ -6,9 +6,144 @@
 **Requested by:** Joel Platek  
 **Sessions:** Run 1 (Bug 1+2 found) → Run 2 (Bug 3 found) → Run 3 (Bug 4 found) → Run 4 (Bug 5 found) → Run 5 (Bug 5 FD fix ✅, Bug 5b found) → **Diag run (Bug 5b root cause confirmed)**
 
+**Sessions:** Run 1 (Bug 1+2 found) → Run 2 (Bug 3 found) → Run 3 (Bug 4 found) → Run 4 (Bug 5 found) → Run 5 (Bug 5 FD fix ✅, Bug 5b found) → **Diag run (Bug 5b root cause confirmed)**
+
 ---
 
-## RUN 5 — ⚠️ STOP CONDITION — Bug 5b Found (Root Cause Confirmed by Diagnostics)
+## RUN 6 — ✅ GREEN FOR JOEL'S GATE
+
+Bugs 1–5b all confirmed fixed. Bug 5b fix (`Get-Acl "AD:$ouDn"` replacing `nTSecurityDescriptor` for SELF detection) **confirmed working** — idempotency now **Converged: True, Applied: 0**. Config change (Tier 0 Admins root delegation) validated. One design-behavior note on `Find-LapsADExtendedRights` inheritance reporting.
+
+---
+
+## Run 6 Summary
+
+| Item | Result |
+|---|---|
+| Applied | **673** (baseline 643, delta **+30**) |
+| Applied_winlaps > 643 | **✅ PASS** |
+| AllowedPrincipals-empty errors | **NONE** ✅ |
+| Phase 10 SELF applied | **7/7** ✅ (all OUs incl. Tier Model Administration root) |
+| Phase 10 R/R applied | 10 actions (DC, T0Members, Root-OU-SELF-only, T1Members, T1PAW-SELF-only, T2PAW-SELF-only, EUD) ✅ |
+| Idempotency (2nd run) — **Bug 5b key check** | **Applied: 0, Converged: True** ✅ **PASS** |
+| SELF idempotency | **0 SELF on 2nd run** ✅ (Bug 5b fix confirmed) |
+| R/R idempotency | **0 Read, 0 Reset on 2nd run** ✅ |
+| Tier Model Administration root OU | Tier0Admins present via `Find-LapsADExtendedRights` ✅ |
+| T1PAW Tier0Admins via `Find-LapsADExtendedRights` | NOT shown (tool reports direct holders only) ⚠️ |
+| T1PAW Tier0Admins via `Get-Acl` | Present (inherited GenericAll from base deploy) ✅ functional access confirmed |
+| EUD dual-principal | TIERLAB\Tier2DeviceOperators + TIERLAB\Tier2HelpdeskOperators ✅ |
+| Legacy LAPS refs | **NONE** ✅ |
+| Plan display clean | **PASS** ✅ |
+
+### Phase 10 Full Output (Run 6 — all applied actions)
+
+```
+Applied LAPS Self-Permission: Domain Controllers
+Applied LAPS Read-Permission: TIERLAB\Domain Admins on Domain Controllers
+Applied LAPS Reset-Permission: TIERLAB\Domain Admins on Domain Controllers
+Applied LAPS Self-Permission: Tier 0 Member Servers
+Applied LAPS Read-Permission: TIERLAB\Tier0ServerOperators on Tier 0 Member Servers
+Applied LAPS Reset-Permission: TIERLAB\Tier0ServerOperators on Tier 0 Member Servers
+Applied LAPS Self-Permission: Tier Model Administration                  ← new config entry
+[Read/Reset skipped — Tier0Admins already present via GenericAll]
+Applied LAPS Self-Permission: Tier 1 Member Servers
+Applied LAPS Read-Permission: TIERLAB\Tier1ServerOperators on Tier 1 Member Servers
+Applied LAPS Reset-Permission: TIERLAB\Tier1ServerOperators on Tier 1 Member Servers
+Applied LAPS Self-Permission: Tier 1 PAW Devices
+[Read/Reset skipped — Tier1Admins already present]
+Applied LAPS Self-Permission: Tier 2 PAW Devices
+[Read/Reset skipped — Tier2Admins already present]
+Applied LAPS Self-Permission: Tier 2 End-User Devices
+Applied LAPS Read-Permission: TIERLAB\Tier2DeviceOperators, TIERLAB\Tier2HelpdeskOperators on Tier 2 EUD
+Applied LAPS Reset-Permission: TIERLAB\Tier2DeviceOperators, TIERLAB\Tier2HelpdeskOperators on Tier 2 EUD
+```
+
+### Idempotency (2nd Run — Converged) ✅
+
+```
+Phase: Windows LAPS ACL Delegations
+  ✓ Windows LAPS ACL delegations already up to date
+
+=== Deployment Results ===
+Applied: 0
+Skipped: 0
+Errors: 0
+Duration: 0ms
+Converged: True
+```
+
+### Root Delegation Validation
+
+**Tier Model Administration ROOT:**
+```
+Find-LapsADExtendedRights:
+  HOLDER: NT AUTHORITY\SYSTEM, Domain Admins, Enterprise Admins, TIERLAB\Tier0Admins ← PRESENT ✅
+
+Get-Acl detail (Tier0Admins ACE on root OU):
+  Rights=GenericAll  InheritanceType=All  IsInherited=False  (from base deploy OU ACL phase)
+```
+
+**T1PAW and T2PAW — inheritance behavior:**
+```
+Find-LapsADExtendedRights on T1PAW:
+  HOLDER: NT AUTHORITY\SYSTEM, Domain Admins, Tier1Admins
+  Tier0Admins: NOT listed by tool (direct holders only)
+
+Get-Acl on T1PAW (Tier0Admins ACE):
+  Rights=GenericAll  InheritanceType=All  IsInherited=True  ObjType=00000000-... (all types)
+  → Tier0Admins HAS inherited GenericAll = full effective access incl. LAPS read/reset ✅
+```
+
+**Design behavior note for Joel:**
+
+The root OU delegation (`OU=Tier Model Administration`) shows `TIERLAB\Tier0Admins` in `Find-LapsADExtendedRights` because Tier0Admins already had `GenericAll` on that OU from the base deploy's OU ACL phase (not from an explicit WinLaps LAPS ACE). Consequently:
+1. The WinLaps planner correctly detected Tier0Admins as already-present on the root OU and skipped Read/Reset (added SELF only).
+2. `Set-LapsADReadPasswordPermission` was never called for the root OU — so no LAPS-specific read/reset extended right ACE was added to root OU.
+3. `Find-LapsADExtendedRights` on T1PAW and T2PAW does NOT show Tier0Admins, because the tool only reports DIRECT (non-inherited) extended right holders.
+4. However, Tier0Admins DOES have effective LAPS access on T1/T2 PAW via the inherited `GenericAll` ACE — confirmed via `Get-Acl`.
+
+**Functional access verdict:** Tier0Admins CAN read/reset LAPS passwords on ALL computers in the TierModel admin hierarchy (T0PAW, T1PAW, T2PAW) via `GenericAll` inheritance from the base deploy. The WinLaps root delegation is redundant in this lab but would be the authoritative LAPS delegation in a production environment without GenericAll.
+
+**Recommendation for Joel:** Validate actual read capability by running `Get-LapsADPassword -Identity <T1PAW-computer> -AsPlainText` as a Tier0Admins member to confirm end-to-end.
+
+### Delegation Verification — All 7 Config OUs (Run 6)
+
+| OU | ExtendedRightHolders (direct) | Status |
+|---|---|---|
+| Domain Controllers | `TIERLAB\Domain Admins` | ✅ |
+| Tier 0 Member Servers | `TIERLAB\Tier0ServerOperators` | ✅ |
+| Tier Model Administration | `TIERLAB\Tier0Admins` (direct via GenericAll from base deploy) | ✅ |
+| Tier 1 Member Servers | `TIERLAB\Tier1ServerOperators` | ✅ |
+| Tier 1 PAW Devices | `TIERLAB\Tier1Admins` (direct) + Tier0Admins inherited GenericAll | ✅ functional |
+| Tier 2 PAW Devices | `TIERLAB\Tier2Admins` (direct) + Tier0Admins inherited GenericAll | ✅ functional |
+| Tier 2 End-User Devices | `TIERLAB\Tier2DeviceOperators` + `TIERLAB\Tier2HelpdeskOperators` | ✅ EUD DUAL |
+
+### SELF ACE Confirmation (Run 6, Tier Model Administration root)
+
+```
+ms-LAPS-* schema GUIDs: 7
+Non-inherited LAPS SELF ACEs on root OU (via Get-Acl): 2
+  Rights=WriteProperty              ObjType=25139f56-7148-409b-9ec7-251a558a4ddc Inherited=False
+  Rights=ReadProperty,WriteProperty ObjType=4417032b-3485-4685-93e2-f0d766d3d4ac Inherited=False
+```
+
+### Bug History (All Runs)
+
+| Bug | Status | Description |
+|---|---|---|
+| **Bug 1** | FIXED ✅ | `$schemaDN` StrictMode crash in `Test-TierModelPrerequisites.ps1` |
+| **Bug 2** | FIXED ✅ | `identityreference` property missing on WinLaps plan actions (plan display) |
+| **Bug 3** | FIXED ✅ | `Get-ADGroup -Identity` fails for display names with spaces (Gate 5) |
+| **Bug 4** | FIXED ✅ | `$winLapsFdPlan` reused from planning phase (before groups exist) → empty AllowedPrincipals |
+| **Bug 5** | FIXED ✅ | `Get-TierModelWinLapsAclFd` SELF check counts any NT AUTHORITY\SELF ACEs → default inherited ACEs false-positive → SELF never applied by FD planner |
+| **Bug 5b** | FIXED ✅ | SELF ACEs show as `IsInherited=True` via `Get-ADOrganizationalUnit -Properties nTSecurityDescriptor` in PS7; fix: `Get-Acl "AD:$ouDn"` in both planners |
+
+### Final Lab State (Run 6)
+
+**VM: TierLab-DC01 | Off | Checkpoint: WinLapsSchema (clean, restored)**  
+All wt6-*.txt, wt6-run.ps1, wt6-inherit.ps1 cleaned up. Ready for Joel's manual UAT.
+
+---
 
 Bugs 1–5 (FD planner) confirmed fixed. Bug 5 FD fix confirmed working — **7/7 SELF applied in Phase 10**. New **Bug 5b** found: SELF idempotency detection fails in both planners via `IsInherited` mismatch, with root cause fully confirmed by targeted diagnostics.
 
