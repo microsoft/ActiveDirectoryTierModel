@@ -1,53 +1,56 @@
 # wolverine — History
 
-## Sessions
+## Summary
 
-### 2026-06-30 (v2.1.0 Release Prep)
-- Ran full Invoke-AllTests.ps1 suite: 1292 tests passed / 0 failed ✅
-- Fixed Unit.GmsaAclOperations.Tests.ps1 mock scope issue (added -Scope It to assertions)
-- Fixed Unit.DmsaAclOperations.Tests.ps1 mock scope consistency
-- Discovered: Get-TierModel*Acl cmdlets call Resolve-TierModelPlaceholder twice per delegation (not once per list)
-- Coordinated test fix with Coordinator (removed -Exactly Count, kept -Scope It for per-delegation assertions)
-- All tests passing, CI fully green
+Tester role: 6 live lab deployment runs on TierLab-DC01 validating Windows LAPS T001–T012 implementation. Final Run 6 GREEN with all 5 bugs fixed and idempotency confirmed (Converged: True). Total applied 673 (baseline 643, delta +30).
 
-## Learnings
-- Mock scope bleeding in Pester 5.7.1 requires careful placement of mocks and use of -Scope It flags
-- Shadow variables (existence-check vars) used in test assertions are intentionally not dereferenced in script body
-- Double invocation of Resolve-TierModelPlaceholder per delegation must be tested with "at least N" semantics, not exact counts
-- After restoring a Standard checkpoint on TierLab-DC01, AD readiness takes 4-6+ minutes (>300s). Use a 600s timeout. PS Direct "credential invalid" is normal for the first 30-60s while the VM boots.
-- Start-LabAndDeploy.ps1 only shows the last 40 lines of deploy output — planning-mode "Action count"/"Create count" are not visible in normal runs. Capture them with a direct planning-only run if needed.
-- **Baseline reference (no -IncludeWinLaps, 2026-07-14):** Applied: 643, Converged: False. WinLaps run must produce Applied > 643.
-- **WinLaps Bug 5b (BLOCKING — SELF idempotency IsInherited mismatch):** In PowerShell 7, `Get-ADOrganizationalUnit -Properties nTSecurityDescriptor` returns ACEs set by `Set-LapsADComputerSelfPermission` as `IsInherited = True`, even though they are explicitly-set non-inherited ACEs. `Get-Acl "AD:$ouDn"` returns the same ACEs with the correct `IsInherited = False`. Both `Get-TierModelWinLapsAcl.ps1` and `Get-TierModelWinLapsAclFd.ps1` use the AD module path for the SELF check → `-not $_.IsInherited` filter excludes all LAPS SELF ACEs → `$selfExists = false` always → SELF re-applied every run. Fix: replace `Get-ADOrganizationalUnit -Properties nTSecurityDescriptor` with `Get-Acl "AD:$resolvedOuDn"` in the SELF detection block of both planners. GUID comparison logic is correct (confirmed: `msLAPS-Password` → `25139f56-7148-409b-9ec7-251a558a4ddc` = ACE ObjectType = same System.Guid value).
-- **Find-LapsADExtendedRights reports DIRECT holders only (NOT inherited):** The cmdlet shows principals with directly-set LAPS extended right ACEs on the specified OU. It does NOT report principals whose access comes from INHERITED ACEs (e.g., a GenericAll inherited from a parent OU). Verified: root `OU=Tier Model Administration` shows TIERLAB\Tier0Admins (direct GenericAll), but T1PAW does NOT show Tier0Admins despite having inherited GenericAll from root OU (confirmed via Get-Acl).
-- **GenericAll from base deploy OU ACL phase provides effective LAPS access:** In this lab, the base deploy grants Tier0Admins `GenericAll` (Rights=GenericAll, InheritanceType=All) on `OU=Tier Model Administration`. This inherits to T0PAW, T1PAW, T2PAW as IsInherited=True ACEs. GenericAll includes all rights including LAPS read/reset. WinLaps planner correctly detects Tier0Admins as already-present on root OU and skips explicit LAPS Read/Reset delegation. Functional LAPS access exists even without explicit LAPS extended right ACEs.
-- **WinLaps root delegation idempotency behavior:** When a principal already has sufficient access (e.g., GenericAll) on a target OU, `Find-LapsADExtendedRights` includes them in the holders list, and the WinLaps planner correctly marks R/R as already-present and skips. The WinLaps SELF permission is still applied (SELF check uses Get-Acl DACL inspection, independent of extended rights).
-- **Applied total (Run 6, 2026-07-14):** 673 (baseline 643 + delta +30). Bug 5b fixed. Idempotency Converged=True. All bugs 1-5b CLOSED. **GREEN FOR JOEL'S GATE.**
-- lab-config.json lives at `.research\copilot-cli-hyperv-ad-lab\lab-config.json`, NOT in the scripts\ subdirectory. Always pass `-ConfigPath` explicitly to Start-LabAndDeploy.ps1.
-- **WinLaps Bug 1 (BLOCKING):** `Test-TierModelPrerequisites.ps1` line 367: `$schemaDN = $null` init is inside `if ($IncludeMsa -or $IncludeGmsa -or $IncludeDmsa)`. When only `-IncludeWinLaps` is used, this block is skipped; line 515 reads `$schemaDN` under `Set-StrictMode -Version Latest` → VariableIsUndefined. Execution fails for both `-FullDeployment` and standalone paths. Beast must fix before any execution-mode WinLaps testing can complete.
-- **WinLaps Bug 2 (MINOR):** `Write-IncludeAclPlanActions` in Deploy-TierModel.ps1 (~line 1038) uses `$_.Data.identityreference` — property exists on MSA/gMSA/dMSA actions but NOT on WinLaps actions (which use `lapsOperation`, `allowedPrincipals`, `ouDn`). Affects plan display only; action count calculation is correct. Beast must fix.
-- **Planning mode bypass Bug 1:** `-IncludeWinLaps` in planning mode (no -ConfirmApply) works correctly — the `Test-TierModelPrerequisites -IncludeWinLaps` call is inside the `if ($ConfirmApply...)` execution block and is NOT reached in planning mode. 21 WinLaps actions correctly planned on a fresh WinLapsSchema state.
-- **WinLapsSchema checkpoint has pre-existing LAPS permissions:** Previous finding of "4 pre-existing" was measuring post-base-deploy inherited ACLs. Clean WinLapsSchema restore (before deploy): only NT AUTHORITY\SYSTEM on Domain Controllers OU. Tier model OUs don't exist yet, so no other pre-existing WinLaps ACLs.
-- **Find-LapsADExtendedRights output shape — CONFIRMED:** Object type `ExtendedRightsInfo`. Properties: `ObjectDN` (string), `ExtendedRightHolders` (array of strings in `NETBIOS\sAMAccountName` format, e.g., `TIERLAB\Tier0Admins`). `AllComputerPermission` not observed. Beast's idempotency check should compare against `NETBIOS\sAMAccountName` format strings.
-- **WinLaps Bug 3 (BLOCKING):** `Test-TierModelPrerequisites.ps1` Gate 5 (~line 638): `Get-ADGroup -Identity $groupName` matches by SAMAccountName only. Config stores display names with spaces ("Tier 0 Server Operators"); AD SAMs are CamelCase ("Tier0ServerOperators"). Lookup fails for all 7 custom groups. Fix: use `-Filter "Name -eq '$groupName'"` — same pattern already in `Get-TierModelWinLapsAclFd`.
-- **Plan display blank principals pre-base-deploy is expected behavior:** `Get-TierModelWinLapsAclFd` resolves groups from AD; when groups don't exist yet (pre-base-deploy plan), principals are empty → blank in display. Not a bug. Four-compose plan (post-base-deploy) shows principals correctly.
-- **WinLaps Bug 5 (BLOCKING — SELF idempotency false positive):** `Get-TierModelWinLapsAclFd` checks `$selfAces.Count -ge 2` where `$selfAces` = ANY NT AUTHORITY\SELF ACEs on the OU DACL. Every AD OU inherits ≥2 default SELF ACEs (dnsHostName, SPN, Personal Information attribute set, etc.) → `$selfExists = true` for all OUs → 0 SELF planned in FD path → SELF never applied. Fix: either remove SELF detection entirely (rely on `Set-LapsADComputerSelfPermission` being idempotent) or filter by ms-LAPS-* schema attribute GUIDs.
-- **PS Direct Write-Host capture gotcha:** In PS Direct `Invoke-Command`, `Write-Host` in the remote scriptblock prints DIRECTLY to the local host console but is NOT included in the function's return value as pipeline output. Use `Write-Output` / return values for data capture. `Write-Host` output appears in terminal without `$delLines` content → file write yields 0 bytes.
-- **WinLaps delta composition (Run 4):** 7 LAPS GPO creates + 7 LAPS GPO imports + 7 LAPS GPO links = 21 GPO output lines (but counted as fewer in Applied due to GPO metric); 10 Phase 10 R/R (5 OUs × Read+Reset); 0 SELF (Bug 5). Applied=663 (delta=+20). After Bug 5 fix: expect +7 more from SELF → Applied~670 (not 664 — T1PAW/T2PAW R/R pre-existing + GPO delta means lab-specific total ≠ theoretical +21).
-- **Standalone "Applied" property error (minor, recurring):** Standalone `Deploy-TierModel.ps1 -IncludeWinLaps -ConfirmApply` throws "The property 'Applied' cannot be found on this object" at end of run (non-blocking). Actions complete successfully before error. Pre-existing result-object handling issue in standalone summary code path.** `Deploy-TierModel.ps1` execution block (~line 1818) re-uses `$winLapsFdPlan` (set during planning phase before Phase 2 creates groups). `Get-Variable winLapsFdPlan` always finds it → `else` branch (fresh re-generate at execution time) never executes → stale plan with `allowedPrincipals=[]` → `Set-LapsADReadPasswordPermission -AllowedPrincipals @()` fails. Fix: in execution block, always call `Get-TierModelWinLapsAclFd` fresh. Same pattern affects MSA/gMSA/dMSA.
-- **WinLaps actual totals (Run 3, 2026-07-14):** Full deploy `-FullDeployment -IncludeWinLaps` → Applied=661 (delta +18 from 643). 9 WinLaps ACL actions succeeded (7 SELF + DC Read + DC Reset). 12 failed (Bug 4). Standalone after = 15 actions applied. All delegations landed after combined run.
-- **Find-LapsADExtendedRights output shape — FINAL CONFIRMED (Run 3):** `ExtendedRightsInfo` object, `ExtendedRightHolders` = array of strings in `NETBIOS\sAMAccountName` format. Examples: `TIERLAB\Tier0ServerOperators`, `TIERLAB\Tier2HelpdeskOperators`, `NT AUTHORITY\SYSTEM`. `AllComputerPermission` NOT observed. SELF tracked via Get-Acl (6 ACEs per OU, not in ExtendedRightHolders). Idempotency check must use `NETBIOS\sAMAccountName` format.
-- **EUD dual-principal confirmed (Run 3):** Tier 2 End-User Devices: `TIERLAB\Tier2DeviceOperators` AND `TIERLAB\Tier2HelpdeskOperators` both present in `ExtendedRightHolders`. Beast's multi-principal WinLaps config and execution both correct.
-- **T1PAW/T2PAW pre-existing LAPS rights:** `Tier1Admins`/`Tier2Admins` detected by `Find-LapsADExtendedRights` after base deploy (inherited computer-object ACEs from OU ACL phase) — NOT explicit WinLaps delegations. Standalone planner correctly treats them as already-present and skips. Not a bug.
-- **Reliable VM restore:** Use `Get-VMCheckpoint -VMName $VM | Where-Object { $_.Name -eq 'WinLapsSchema' } | Restore-VMCheckpoint -Confirm:$false` — avoids wildcard error from `Restore-VMCheckpoint -VMName ... -Name ...` string form when VM is in certain states.
+## Key Bugs Discovered & Fixed
 
-### 2026-07-14 — WinLaps Re-Test (Bug 1+2 fixed by Beast, Bug 3 found)
+| Bug | Symptom | Root Cause | Fix |
+|-----|---------|-----------|-----|
+| 1 | $schemaDN crash | -IncludeWinLaps only path skipped variable init | Added -or $IncludeWinLaps to condition |
+| 2 | Plan display error | WinLaps actions lack identityreference property | Branched on ResourceType='LapsPermission' |
+| 3 | Groups not found | Get-ADGroup -Identity fails on display names with spaces | Changed to -Filter "Name -eq" |
+| 4 | Empty AllowedPrincipals | $winLapsFdPlan pre-generated before Phase 2 groups exist | Re-generate at execution time |
+| 5 | SELF false positive | Detection counts ANY SELF ACEs (includes default inherited) | Filter by LAPS schema GUIDs |
+| 5b | SELF re-applied every run | IsInherited mismatch: nTSecurityDescriptor=True, Get-Acl=False in PS7 | Use Get-Acl "AD:$ouDn" instead |
 
-#### Mission
-Re-run full P1+P2 test matrix after Beast fixed Bug 1 ($schemaDN StrictMode crash) and Bug 2 (plan display identityreference). Restore WinLapsSchema → stage fixed code → plan check → full WinLaps apply → idempotency → delegation → four-compose → guards.
+## Run 6 Final Validation (GREEN ✅)
 
-#### Bug 1 + Bug 2 Confirmed Fixed
-- No `"cannot be retrieved because it has not been set"` error. Bug 1 path now initializes `$schemaDN`/`$dfl` correctly when `-IncludeWinLaps` alone is used.
-- Plan display: 0 `identityreference` errors. All 21 `■ LAPS SetComputerSelfPermission/SetReadPasswordPermission/SetResetPasswordPermission` lines render.
+- **Applied:** 673 (baseline 643, delta +30 accounting for root OU design change)
+- **Idempotency:** Converged True, Applied 0 on 2nd run ✅
+- **SELF:** 7/7 OUs applied including Tier Model Administration root ✅
+- **Read/Reset:** 10 actions (DC + T0Members + T1Members + EUD) ✅
+- **EUD dual-principal:** Both Tier2DeviceOperators and Tier2HelpdeskOperators ✅
+- **All 7 OUs delegated:** Verified via Find-LapsADExtendedRights ✅
+- **Windows-LAPS-only:** No legacy LAPS references ✅
+- **Plan display:** Clean with correct ResourceType branching ✅
+
+## Lab Setup & Findings
+
+- **WinLapsSchema checkpoint:** 7 ms-LAPS-* attributes confirmed; used as baseline for all 6 runs
+- **Baseline (no WinLaps):** Applied 643, Converged False (reference for delta comparison)
+- **AD readiness:** >300s after checkpoint restore; use 600s timeout; PS Direct "credential invalid" first 60s is normal
+- **Find-LapsADExtendedRights:** Reports DIRECT holders only; SELF tracked via Get-Acl DACL inspection
+- **Tier0Admins inheritance:** Effective LAPS access on T1/T2 PAW via inherited GenericAll from root OU (GenericAll includes LAPS rights)
+
+## Design Behavior Notes
+
+1. **Root OU design (Joel):** Tier0Admins moved to "OU=Tier Model Administration" — already had GenericAll from base deploy, so WinLaps planner correctly detected and added only SELF permission
+2. **Inheritance detection limitation:** Find-LapsADExtendedRights can't distinguish read vs reset holders (acceptable; config enforces readGroup==resetGroup)
+3. **Get-Acl vs Get-ADOrganizationalUnit:** Get-Acl "AD:$ouDn" correctly returns IsInherited=False for explicitly-set ACEs; nTSecurityDescriptor path has PS7 mismatch
+
+## Previous Sessions (v2.1.0 Prep, gMSA/dMSA)
+
+- **2026-06-30:** Ran full Invoke-AllTests.ps1 (1292 tests passed); fixed gMSA/dMSA mock scope issues
+- **Learnings:** Mock scope bleeding in Pester 5.7.1; shadow variables for test assertions; double Resolve-TierModelPlaceholder invocation per delegation (not per list)
+
+## Baseline Reference Data
+
+- **Planning mode:** Shows `Action count: N` and `Create count: N` lines
+- **Apply mode:** Shows `Applied: N`, `Converged: True/False`
+- **Totals measurement:** Baseline (no WinLaps) = 643 applied; WinLaps run must be > 643
+- **Group mapping verified:** All 7 OUs to correct groups; EUD dual-principal confirmed
 
 #### STOP CONDITION — Bug 3 Found
 
