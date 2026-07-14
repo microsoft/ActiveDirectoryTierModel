@@ -1,6 +1,6 @@
 @{
     RootModule = 'TierModel.psm1'
-    ModuleVersion = '1.1.0'
+    ModuleVersion = '1.2.0'
     GUID = 'b6a7c9f8-5e5d-4c7a-9b9e-2e2e9a4f6d10'
     Author = 'TierModel Team'
     CompanyName = 'Enterprise AD'
@@ -65,6 +65,10 @@
         'Test-TierModelMsaAcl',
         'Test-TierModelGmsaAcl',
         'Test-TierModelDmsaAcl',
+        'Get-TierModelWinLapsAcl',
+        'New-TierModelWinLapsAcl',
+        'Test-TierModelWinLapsAcl',
+        'Get-TierModelWinLapsAclFd',
         'Test-TierModelOuExists',
         'Test-TierModelPrerequisites',
         'Test-TierModelUser',
@@ -74,7 +78,7 @@
     PrivateData = @{ 
         PSData = @{
             Tags = @('ActiveDirectory', 'TierModel', 'Security', 'GPO', 'ADMX', 'Deployment', 'Audit')
-            ReleaseNotes = '1.1.0: Added Managed Service Account (MSA/gMSA/dMSA) ACL deployment and audit cmdlets. 1.0.0: Segmented JSON config, fail-fast validation, correlation ID logging, ADMX import'
+            ReleaseNotes = '1.2.0: Added Windows LAPS deployment and audit cmdlets (-IncludeWinLaps). 1.1.0: Added Managed Service Account (MSA/gMSA/dMSA) ACL deployment and audit cmdlets. 1.0.0: Segmented JSON config, fail-fast validation, correlation ID logging, ADMX import'
         }
     }
 }

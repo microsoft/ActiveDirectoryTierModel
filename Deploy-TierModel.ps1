@@ -92,6 +92,7 @@ param(
     [switch]$IncludeMsa,
     [switch]$IncludeGmsa,
     [switch]$IncludeDmsa,
+    [switch]$IncludeWinLaps,
     
     [Parameter()]
     [string]$AdmlLanguage = 'en-US',
@@ -112,17 +113,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one deployment scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
-$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa)
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps)
 $activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
-    Write-Error "You must specify exactly one deployment scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa)." -ErrorAction Stop
+    Write-Error "You must specify exactly one deployment scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one deployment scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
 }
 elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
-    Write-Error "-IncludeMsa, -IncludeGmsa, and -IncludeDmsa can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
+    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, and -IncludeWinLaps can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Deploy TierModel orchestration starting." -ForegroundColor Cyan
@@ -1037,8 +1038,14 @@ function Write-IncludeAclPlanActions {
     @($Actions) | ForEach-Object {
         if ($_.Action -eq 'CreateAcl') {
             $ouName = if ($_.Path -match '^OU=([^,]+)') { $matches[1] } else { 'Unknown OU' }
-            $principal = $_.Data.identityreference
-            Write-Host "  ■ Create ACL: $principal on $ouName" -ForegroundColor Yellow
+            if ($_.ResourceType -eq 'LapsPermission') {
+                $lapsOp = $_.Data.lapsOperation
+                $principals = if ($_.Data.PSObject.Properties['allowedPrincipals']) { $_.Data.allowedPrincipals -join ', ' } else { 'SELF' }
+                Write-Host "  ■ LAPS $lapsOp`: $principals on $ouName" -ForegroundColor Yellow
+            } else {
+                $principal = $_.Data.identityreference
+                Write-Host "  ■ Create ACL: $principal on $ouName" -ForegroundColor Yellow
+            }
         }
     }
 }
@@ -1612,6 +1619,37 @@ if ($FullDeployment) {
                 }
             }
         }
+
+        if ($IncludeWinLaps) {
+            if (-not $ConfirmApply) {
+                Write-Host "Phase 10: Windows LAPS ACL Delegations" -ForegroundColor Cyan
+            }
+
+            $winLapsFdPlanParams = @{
+                Config = $config
+                DomainController = $PreferredDc
+                IncludeDetails = $true
+            }
+            if ($ConfirmApply) { $winLapsFdPlanParams['Silent'] = $true }
+            $winLapsFdPlan = Get-TierModelWinLapsAclFd @winLapsFdPlanParams
+
+            if ($winLapsFdPlan.Errors -and $winLapsFdPlan.Errors.Count -gt 0) {
+                if (-not $ConfirmApply) {
+                    Write-Host "  ❌ Windows LAPS planning errors:" -ForegroundColor Red
+                    $winLapsFdPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                }
+            } else {
+                Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 10 -PhaseName 'Windows LAPS ACL Delegations' -Plan $winLapsFdPlan
+                if (-not $ConfirmApply) {
+                    if ($winLapsFdPlan.Summary.TotalActions -gt 0) {
+                        Write-Host "  Actions planned: $($winLapsFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                        Write-IncludeAclPlanActions -Actions $winLapsFdPlan.Actions
+                    } else {
+                        Write-Host "  ✅ Windows LAPS ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        }
     }
     
     # Show deployment plan summary (only if not applying changes)
@@ -1727,19 +1765,20 @@ if ($FullDeployment) {
             }
         }
         
-        # === OPTIONAL FEATURES: MSA/gMSA/dMSA ACL Delegations ===
+        # === OPTIONAL FEATURES: MSA/gMSA/dMSA/WinLaps ACL Delegations ===
         if ($activeIncludeCount -gt 0 -and -not $standardDeployHadErrors) {
-            Write-Host "`n=== Optional Features: MSA/gMSA/dMSA ACL Delegations ===" -ForegroundColor Magenta
+            Write-Host "`n=== Optional Features: MSA/gMSA/dMSA/WinLaps ACL Delegations ===" -ForegroundColor Magenta
             
             # Pass Include switches to prerequisites
             $prereqSplat = @{ PreferredDc = $PreferredDc }
             if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
             if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
             if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+            if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
             $msaPrereqs = Test-TierModelPrerequisites @prereqSplat
             
             if (-not $msaPrereqs.Valid) {
-                Write-Host "  ❌ MSA/gMSA/dMSA prerequisites failed:" -ForegroundColor Red
+                Write-Host "  ❌ MSA/gMSA/dMSA/WinLaps prerequisites failed:" -ForegroundColor Red
                 $msaPrereqs.Errors | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
             } else {
                 if ($IncludeMsa) {
@@ -1778,9 +1817,22 @@ if ($FullDeployment) {
                         Write-Host "  ✅ dMSA ACL delegations already up to date" -ForegroundColor Green
                     }
                 }
+                if ($IncludeWinLaps) {
+                    Write-Host "  Deploying Windows LAPS ACL delegations..." -ForegroundColor Cyan
+                    # Always regenerate plan fresh at execution time — groups now exist after Phase 2
+                    $winLapsPlan = Get-TierModelWinLapsAclFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent
+                    if ($winLapsPlan.Errors -and $winLapsPlan.Errors.Count -gt 0) {
+                        Write-Host "  ❌ Windows LAPS planning errors:" -ForegroundColor Red
+                        $winLapsPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                    } elseif (@($winLapsPlan.Actions).Count -gt 0) {
+                        $winLapsExecResult = New-TierModelWinLapsAcl -Plan $winLapsPlan -DomainController $PreferredDc -Config $config
+                    } else {
+                        Write-Host "  ✅ Windows LAPS ACL delegations already up to date" -ForegroundColor Green
+                    }
+                }
             }
         } elseif ($activeIncludeCount -gt 0 -and $standardDeployHadErrors) {
-            Write-Host "`n⚠️  Skipping optional MSA/gMSA/dMSA features due to errors in standard deployment." -ForegroundColor Yellow
+            Write-Host "`n⚠️  Skipping optional MSA/gMSA/dMSA/WinLaps features due to errors in standard deployment." -ForegroundColor Yellow
         }
         
         # Show consolidated deployment results
@@ -1797,6 +1849,7 @@ if ($FullDeployment) {
         if (Get-Variable msaExecResult -ErrorAction SilentlyContinue) { $allResults += $msaExecResult }
         if (Get-Variable gmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $gmsaExecResult }
         if (Get-Variable dmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $dmsaExecResult }
+        if (Get-Variable winLapsExecResult -ErrorAction SilentlyContinue) { $allResults += $winLapsExecResult }
         
         # Calculate consolidated counts
         $totalApplied = 0
@@ -2272,7 +2325,7 @@ else {
 
 # === Standalone -Include* Mode (no scope parameter) ===
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
-    Write-Host "`n=== Standalone MSA/gMSA/dMSA ACL Deployment ===" -ForegroundColor Magenta
+    Write-Host "`n=== Standalone MSA/gMSA/dMSA/WinLaps ACL Deployment ===" -ForegroundColor Magenta
     
     # Load config
     $config = Get-TierModelConfig
@@ -2284,6 +2337,7 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
     if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
     if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+    if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
     $prereqs = Test-TierModelPrerequisites @prereqSplat
     
     if (-not $prereqs.Valid) {
@@ -2392,6 +2446,34 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
                 }
             } else {
                 Write-Host "  ✅ dMSA ACL delegations already up to date" -ForegroundColor Green
+            }
+        }
+    }
+    
+    if ($IncludeWinLaps) {
+        Write-Host "`nPhase: Windows LAPS ACL Delegations" -ForegroundColor Cyan
+        $winLapsPlan = Get-TierModelWinLapsAcl -Config $config -DomainController $PreferredDc
+        if ($winLapsPlan.Errors -and $winLapsPlan.Errors.Count -gt 0) {
+            Write-Host "  ❌ Windows LAPS planning errors:" -ForegroundColor Red
+            $winLapsPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+            $standaloneTotalErrors += $winLapsPlan.Errors.Count
+        } else {
+            Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 4 -PhaseName 'Windows LAPS ACL Delegations' -Plan $winLapsPlan
+            if ($winLapsPlan.Summary.TotalActions -gt 0) {
+                Write-Host "  Actions planned: $($winLapsPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                if (-not $ConfirmApply) {
+                    Write-IncludeAclPlanActions -Actions $winLapsPlan.Actions
+                }
+                if ($ConfirmApply) {
+                    $winLapsResult = New-TierModelWinLapsAcl -Plan $winLapsPlan -DomainController $PreferredDc -Config $config
+                    $standaloneResults += $winLapsResult
+                    $standaloneTotalApplied += if ($winLapsResult.Applied) { @($winLapsResult.Applied).Count } else { 0 }
+                    $standaloneTotalErrors += if ($winLapsResult.Errors) { @($winLapsResult.Errors).Count } else { 0 }
+                    $standaloneTotalDuration += if ($winLapsResult.DurationMs) { $winLapsResult.DurationMs } else { 0 }
+                    if ($winLapsResult.PSObject.Properties.Name -contains 'Converged' -and -not $winLapsResult.Converged) { $standaloneConverged = $false }
+                }
+            } else {
+                Write-Host "  ✅ Windows LAPS ACL delegations already up to date" -ForegroundColor Green
             }
         }
     }

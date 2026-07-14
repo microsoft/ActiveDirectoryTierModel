@@ -41,12 +41,13 @@
 
 > Foundation configuration file and JSON schema that all subsequent tasks depend on.
 
-- [ ] T001 [P] Create `config/tiermodel-winlaps.json` with `schemaVersion: "1.0.0"` and a `winLapsDelegations` array. Each entry has fields: `ouDn` (OU distinguished name using `{{DOMAIN_DN}}` placeholder), `computerSelfPermission` (boolean — enables computer SELF-store), `readGroup` (principal allowed to read/retrieve the LAPS password), `resetGroup` (principal allowed to force reset/expire), and optional `isDomainControllerOu` (boolean, default `false` — when `true`, the DC-object hard-stop is bypassed for that entry, enabling explicit opt-in for the Domain Controllers OU). `readGroup` and `resetGroup` are separate fields by design (reset/expire is a distinct right from read/decrypt); operators MAY set them to the same value. Beast confirmed 7 LAPS-linked computer OUs: Domain Controllers; Tier 0/1 Member Servers; Tier 0/1/2 PAW Devices; Tier 2 End-User Devices. Only the Domain Controllers entry sets `isDomainControllerOu: true`. Values marked `[NEEDS INPUT: Joel]` — Joel is sourcing the OU list now.
+- [x] T001 [P] Create `config/tiermodel-winlaps.json` with `schemaVersion: "1.0.0"` and a `winLapsDelegations` array. Each entry has fields: `ouDn` (OU distinguished name using `{{DOMAIN_DN}}` placeholder), `computerSelfPermission` (boolean — enables computer SELF-store), `readGroup` (principal allowed to read/retrieve the LAPS password), `resetGroup` (principal allowed to force reset/expire), and optional `isDomainControllerOu` (boolean, default `false` — when `true`, the DC-object hard-stop is bypassed for that entry, enabling explicit opt-in for the Domain Controllers OU). `readGroup` and `resetGroup` are separate fields by design (reset/expire is a distinct right from read/decrypt); operators MAY set them to the same value. Beast confirmed 7 LAPS-linked computer OUs: Domain Controllers; Tier 0/1 Member Servers; Tier 0/1/2 PAW Devices; Tier 2 End-User Devices. Only the Domain Controllers entry sets `isDomainControllerOu: true`. Values marked `[NEEDS INPUT: Joel]` — Joel is sourcing the OU list now.
+  - ✅ Completed 2026-07-14: 7 delegation entries with Joel-approved values, all groups verified against config.
   - **Files**: `config/tiermodel-winlaps.json`
   - **Satisfies**: FR-013, Constitution IX
 
-- [ ] T002 [P] Create `config/tiermodel-winlaps-schema.json` — JSON Schema for validation of `tiermodel-winlaps.json`. Enforce required properties (`ouDn` string, `computerSelfPermission` boolean, `readGroup` string, `resetGroup` string), optional property (`isDomainControllerOu` boolean, default `false`), array type for `winLapsDelegations`, `schemaVersion` pattern, and `{{DOMAIN_DN}}` placeholder pattern.
-  - **Files**: `config/tiermodel-winlaps-schema.json`
+- [x] T002 ~~[P] Create `config/tiermodel-winlaps-schema.json`~~ — DROPPED per Joel 2026-07-14 — no per-feature schema files; central tiermodel.schema.json is the single schema, aligned in this change.
+  - **Files**: ~~`config/tiermodel-winlaps-schema.json`~~ (deleted)
   - **Satisfies**: Constitution IX
 
 ---
@@ -55,12 +56,14 @@
 
 > Modify shared config and prerequisite helpers before introducing new WinLaps deployment cmdlets. **These are existing file modifications — review separately.**
 
-- [ ] T003 Update `modules/TierModel/public/Get-TierModelConfig.ps1` — load `tiermodel-winlaps.json` as an optional config segment (add to `$optionalFiles` array, same pattern as `tiermodel-msa.json`, `tiermodel-gmsa.json`, `tiermodel-dmsa.json`). Merge `winLapsDelegations` into the unified config object only when the file is present. Preserve current behavior when absent. Include optional segment content in the composite SHA-256 provenance hash only when loaded. Ensure downstream cmdlets receive the merged config object from `Get-TierModelConfig` rather than reading raw JSON directly.
+- [x] T003 Update `modules/TierModel/public/Get-TierModelConfig.ps1` — load `tiermodel-winlaps.json` as an optional config segment (add to `$optionalFiles` array, same pattern as `tiermodel-msa.json`, `tiermodel-gmsa.json`, `tiermodel-dmsa.json`). Merge `winLapsDelegations` into the unified config object only when the file is present. Preserve current behavior when absent. Include optional segment content in the composite SHA-256 provenance hash only when loaded. Ensure downstream cmdlets receive the merged config object from `Get-TierModelConfig` rather than reading raw JSON directly.
+  - ✅ Completed 2026-07-14: Added to $optionalFiles and merged as config.winLapsDelegations.
   - **Files**: `modules/TierModel/public/Get-TierModelConfig.ps1`
   - **Satisfies**: FR-014, Constitution IX
   - **Authorization**: ✅ APPROVED (OQ-WL-06)
 
-- [ ] T004 Update `modules/TierModel/public/Test-TierModelPrerequisites.ps1` — add `-IncludeWinLaps` switch parameter. When `-IncludeWinLaps` is specified, run the following gates (ALL must pass; fail-fast on Gate 1–3, accumulate on Gates 4–5):
+- [x] T004 Update `modules/TierModel/public/Test-TierModelPrerequisites.ps1` — add `-IncludeWinLaps` switch parameter. When `-IncludeWinLaps` is specified, run the following gates (ALL must pass; fail-fast on Gate 1–3, accumulate on Gates 4–5):
+  - ✅ Completed 2026-07-14: All 5 gates implemented with correct error codes and remediation messages.
   - **Gate 1 (HARD STOP)**: Windows LAPS schema present — query `msLAPS-*` attributeSchema objects in schema NC, verify computer class `mayContain` linkage. FAIL → emit stable error code `WINLAPS_SCHEMA_MISSING` using the KDS-key pattern (`$result.Errors.Add(...)` + `$result.Remediation.Add(...)`). Approved message: *"The Windows LAPS schema is not present in this directory. The -IncludeWinLaps parameter requires the Windows LAPS schema to be extended first. Extend the schema using your organization's controlled schema-change process before running with -IncludeWinLaps. Alternatively, deploy the Tier Model now without -IncludeWinLaps and add Windows LAPS later (post-deployment) once the schema is extended. The Tier Model will NEVER extend the schema automatically."*
   - **Gate 2**: LAPS PowerShell module available — `Import-Module LAPS -ErrorAction Stop`, verify `ExportedCommands` contains `Set-LapsADComputerSelfPermission`, `Set-LapsADReadPasswordPermission`, `Set-LapsADResetPasswordPermission`. FAIL → `WINLAPS_MODULE_MISSING`.
   - **Gate 3**: Domain Functional Level ≥ 2016 (encryption mandatory). FAIL → `WINLAPS_DFL_INSUFFICIENT`.
@@ -77,11 +80,13 @@
 
 > New cmdlets for Windows LAPS DACL delegation — standalone mode.
 
-- [ ] T005 [P] [US1] Create `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` — plan Windows LAPS DACL delegations for standalone deployment using the merged config object from `Get-TierModelConfig`. Accept `-Config` parameter (loaded by caller). Resolve `{{DOMAIN_DN}}` placeholders via `Resolve-TierModelPlaceholder`. Validate target OUs exist in live AD (fail-fast if missing with "Run -FullDeployment first or -OuOnly"), validate read/reset groups exist (fail-fast if missing). Perform defensive re-checks of Gates 1–3 (schema, module, DFL). For Gate 4 DC exclusion: honor `isDomainControllerOu` flag — if `true`, DC objects allowed for that entry; otherwise hard-stop (`WINLAPS_DC_SCOPE_REJECTED`). For each `winLapsDelegations` entry: determine required DACL state from `ouDn`, `computerSelfPermission`, `readGroup`, `resetGroup`; compare live state to required; produce 3 `CreateAcl` actions per entry (Self + Read + Reset) when not already present. Return plan object with `Actions`, `Summary` (`TotalActions`, `CreateActions`, `ExistingCount`, `RiskAssessment`), `Warnings`, `Errors`, and `Converged` matching `Get-TierModelOuAcl` output structure. Parameters: `-Config`, `-DomainController`, `-IncludeDetails`. Use `Write-TierModelLog` for structured logging with CorrelationId. Invoke ONLY `ms-LAPS-*` / `LAPS` module references (ADR-0001).
+- [x] T005 [P] [US1] Create `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` — plan Windows LAPS DACL delegations for standalone deployment using the merged config object from `Get-TierModelConfig`. Accept `-Config` parameter (loaded by caller). Resolve `{{DOMAIN_DN}}` placeholders via `Resolve-TierModelPlaceholder`. Validate target OUs exist in live AD (fail-fast if missing with "Run -FullDeployment first or -OuOnly"), validate read/reset groups exist (fail-fast if missing). Perform defensive re-checks of Gates 1–3 (schema, module, DFL). For Gate 4 DC exclusion: honor `isDomainControllerOu` flag — if `true`, DC objects allowed for that entry; otherwise hard-stop (`WINLAPS_DC_SCOPE_REJECTED`). For each `winLapsDelegations` entry: determine required DACL state from `ouDn`, `computerSelfPermission`, `readGroup`, `resetGroup`; compare live state to required; produce 3 `CreateAcl` actions per entry (Self + Read + Reset) when not already present. Return plan object with `Actions`, `Summary` (`TotalActions`, `CreateActions`, `ExistingCount`, `RiskAssessment`), `Warnings`, `Errors`, and `Converged` matching `Get-TierModelOuAcl` output structure. Parameters: `-Config`, `-DomainController`, `-IncludeDetails`. Use `Write-TierModelLog` for structured logging with CorrelationId. Invoke ONLY `ms-LAPS-*` / `LAPS` module references (ADR-0001).
+  - ✅ Completed 2026-07-14: 3 actions per delegation, Find-LapsADExtendedRights detection, idempotent, NeedsLabValidation.
   - **Files**: `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1`
   - **Satisfies**: FR-002, FR-003, FR-004, FR-007, FR-008, FR-009, FR-010, SC-004
 
-- [ ] T006 [P] [US1] Create `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` — apply Windows LAPS DACL delegations from plan. Accept plan object from `Get-TierModelWinLapsAcl` or `Get-TierModelWinLapsAclFd`. Support `-WhatIf` (zero writes when set). When applying, for each action in `Plan.Actions`:
+- [x] T006 [P] [US1] Create `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` — apply Windows LAPS DACL delegations from plan. Accept plan object from `Get-TierModelWinLapsAcl` or `Get-TierModelWinLapsAclFd`. Support `-WhatIf` (zero writes when set). When applying, for each action in `Plan.Actions`:
+  - ✅ Completed 2026-07-14: Calls Set-LapsAD*Permission cmdlets, SupportsShouldProcess, structured logging.
   - Invoke `Set-LapsADComputerSelfPermission -Identity <OU>` (if `computerSelfPermission = true`)
   - Invoke `Set-LapsADReadPasswordPermission -Identity <OU> -AllowedPrincipals <readGroup>`
   - Invoke `Set-LapsADResetPasswordPermission -Identity <OU> -AllowedPrincipals <resetGroup>`
@@ -96,7 +101,8 @@
 
 > Verification cmdlet to confirm DACL delegations were applied correctly. Mirrors the Test-TierModel*Acl pattern from MSA/gMSA/dMSA.
 
-- [ ] T007 [US1] Create `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` — verify Windows LAPS DACL delegations are applied correctly using the merged config object from `Get-TierModelConfig`. For each `winLapsDelegations` entry: verify Self-permission, Read-permission, and Reset-permission DACLs exist on the target OU with correct principals. Report findings as `Compliant`, `MissingAcl`, and `UnexpectedAcl`. Return result object compatible with audit reporting structure and follow `Test-TierModelOuAcl.ps1` pattern. Support `-Silent`/`-SuppressSummary` for consolidated reporting. Use `Write-TierModelLog` for structured logging.
+- [x] T007 [US1] Create `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` — verify Windows LAPS DACL delegations are applied correctly using the merged config object from `Get-TierModelConfig`. For each `winLapsDelegations` entry: verify Self-permission, Read-permission, and Reset-permission DACLs exist on the target OU with correct principals. Report findings as `Compliant`, `MissingAcl`, and `UnexpectedAcl`. Return result object compatible with audit reporting structure and follow `Test-TierModelOuAcl.ps1` pattern. Support `-Silent`/`-SuppressSummary` for consolidated reporting. Use `Write-TierModelLog` for structured logging.
+  - ✅ Completed 2026-07-14: Find-LapsADExtendedRights-based audit, Compliant/MissingAcl findings, Silent support.
   - **Files**: `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1`
   - **Satisfies**: FR-005, SC-001
 
@@ -106,7 +112,8 @@
 
 > Update module manifest to export standalone public functions. **This is an existing file modification — review separately.**
 
-- [ ] T008 Update `modules/TierModel/TierModel.psd1` — add `Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl` to `FunctionsToExport`. (FD variant will be added in Phase 8 when created.) Increment module version to 2.2.0.
+- [x] T008 Update `modules/TierModel/TierModel.psd1` — add `Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl` to `FunctionsToExport`. (FD variant will be added in Phase 8 when created.) Increment module version to 2.2.0.
+  - ✅ Completed 2026-07-14: Version bumped to 2.2.0, all standalone exports added.
   - **Files**: `modules/TierModel/TierModel.psd1`
   - **Satisfies**: FR-002, Constitution VIII
 
@@ -116,7 +123,8 @@
 
 > Update Deploy-TierModel.ps1 for standalone `-IncludeWinLaps` deployment. **This is an existing file modification — review separately.**
 
-- [ ] T009 [US1] [US2] Update `Deploy-TierModel.ps1` — add `-IncludeWinLaps` switch parameter to the param block. Update parameter validation: `-IncludeWinLaps` can be used standalone (without any scope parameter) or combined with `-FullDeployment` only — never with `-OuOnly`, `-GroupOnly`, `-UserOnly`, `-GposOnly`, `-OuAclsOnly`, or `-AdmxOnly`. When `-IncludeWinLaps` is used standalone: call `Get-TierModelConfig` so cmdlets receive the merged config object, pass `-IncludeWinLaps` to `Test-TierModelPrerequisites` for fail-fast validation, call `Get-TierModelWinLapsAcl` for planning and `New-TierModelWinLapsAcl` for apply when `-ConfirmApply`. Report deployment counts accurately — track so totals verifiably INCREASE when `-IncludeWinLaps` is added (3 × number of configured delegations). Support planning mode (no `-ConfirmApply`) and execution mode.
+- [x] T009 [US1] [US2] Update `Deploy-TierModel.ps1` — add `-IncludeWinLaps` switch parameter to the param block. Update parameter validation: `-IncludeWinLaps` can be used standalone (without any scope parameter) or combined with `-FullDeployment` only — never with `-OuOnly`, `-GroupOnly`, `-UserOnly`, `-GposOnly`, `-OuAclsOnly`, or `-AdmxOnly`. When `-IncludeWinLaps` is used standalone: call `Get-TierModelConfig` so cmdlets receive the merged config object, pass `-IncludeWinLaps` to `Test-TierModelPrerequisites` for fail-fast validation, call `Get-TierModelWinLapsAcl` for planning and `New-TierModelWinLapsAcl` for apply when `-ConfirmApply`. Report deployment counts accurately — track so totals verifiably INCREASE when `-IncludeWinLaps` is added (3 × number of configured delegations). Support planning mode (no `-ConfirmApply`) and execution mode.
+  - ✅ Completed 2026-07-14: Standalone -IncludeWinLaps wired with prereqs, planning, and apply paths.
   - **Files**: `Deploy-TierModel.ps1`
   - **Satisfies**: FR-011, FR-012, SC-002, SC-003
 
@@ -126,7 +134,8 @@
 
 > Create FD variant for full deployment integration.
 
-- [ ] T010 [P] [US1] [US3] Create `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` — plan Windows LAPS DACL delegations for full deployment mode using the merged config object from `Get-TierModelConfig`. Same logic as `Get-TierModelWinLapsAcl.ps1` but with lighter validation: assume OUs and groups will exist from earlier deployment phases, validate against configured state during planning, validate against live AD during apply. Schema + module + DFL + DC-exclusion checks still mandatory (defensive). Follow the same action model (3 actions per delegation entry). Use `-Silent` for consolidated reporting. Return plan object matching `Get-TierModelOuAclFd.ps1` output structure.
+- [x] T010 [P] [US1] [US3] Create `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` — plan Windows LAPS DACL delegations for full deployment mode using the merged config object from `Get-TierModelConfig`. Same logic as `Get-TierModelWinLapsAcl.ps1` but with lighter validation: assume OUs and groups will exist from earlier deployment phases, validate against configured state during planning, validate against live AD during apply. Schema + module + DFL + DC-exclusion checks still mandatory (defensive). Follow the same action model (3 actions per delegation entry). Use `-Silent` for consolidated reporting. Return plan object matching `Get-TierModelOuAclFd.ps1` output structure.
+  - ✅ Completed 2026-07-14: Lighter OU/group validation, DC-exclusion still enforced, Silent support.
   - **Files**: `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1`
   - **Satisfies**: FR-012, FR-008
 
@@ -136,11 +145,13 @@
 
 > Update module exports and Deploy-TierModel.ps1 for FullDeployment + `-IncludeWinLaps` integration. **These are existing file modifications — review separately.**
 
-- [ ] T011 [US1] Update `modules/TierModel/TierModel.psd1` — add `Get-TierModelWinLapsAclFd` to `FunctionsToExport`
+- [x] T011 [US1] Update `modules/TierModel/TierModel.psd1` — add `Get-TierModelWinLapsAclFd` to `FunctionsToExport`
+  - ✅ Completed 2026-07-14: FD variant exported.
   - **Files**: `modules/TierModel/TierModel.psd1`
   - **Satisfies**: FR-012
 
-- [ ] T012 [US1] [US3] Update `Deploy-TierModel.ps1` — add Phase 10 (Windows LAPS ACL Delegations) to the FullDeployment flow. This executes AFTER Phase 9 (dMSA) and is gated by `$standardDeployHadErrors`. Pre-compute `$winLapsFdPlan = Get-TierModelWinLapsAclFd` BEFORE the aggregate summary display (same pattern as MSA/gMSA/dMSA). Include WinLaps action counts in `Add-IncludeAclPhaseToDeploymentPlan` call (`PhaseNumber=10`, `PhaseName='Windows LAPS ACL Delegations'`). Execute via `New-TierModelWinLapsAcl -Plan $winLapsFdPlan` when `-ConfirmApply`. Add `$winLapsExecResult` to `$allResults` for consolidated totals. Order: MSA → gMSA → dMSA → WinLaps. Can run after any/all of msa/gmsa/dmsa without conflict.
+- [x] T012 [US1] [US3] Update `Deploy-TierModel.ps1` — add Phase 10 (Windows LAPS ACL Delegations) to the FullDeployment flow. This executes AFTER Phase 9 (dMSA) and is gated by `$standardDeployHadErrors`. Pre-compute `$winLapsFdPlan = Get-TierModelWinLapsAclFd` BEFORE the aggregate summary display (same pattern as MSA/gMSA/dMSA). Include WinLaps action counts in `Add-IncludeAclPhaseToDeploymentPlan` call (`PhaseNumber=10`, `PhaseName='Windows LAPS ACL Delegations'`). Execute via `New-TierModelWinLapsAcl -Plan $winLapsFdPlan` when `-ConfirmApply`. Add `$winLapsExecResult` to `$allResults` for consolidated totals. Order: MSA → gMSA → dMSA → WinLaps. Can run after any/all of msa/gmsa/dmsa without conflict.
+  - ✅ Completed 2026-07-14: Phase 10 precompute, execute, and consolidated results all wired.
   - **Files**: `Deploy-TierModel.ps1`
   - **Satisfies**: FR-012, SC-002, SC-007
 

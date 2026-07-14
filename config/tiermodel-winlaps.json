@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0.0",
+  "comment": "Windows LAPS DACL delegations for Tier Model. Optional add-on — loaded only when -IncludeWinLaps is specified.",
+  "winLapsDelegations": [
+    {
+      "ouDn": "OU=Domain Controllers,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Domain Admins",
+      "resetGroup": "Domain Admins",
+      "isDomainControllerOu": true
+    },
+    {
+      "ouDn": "OU=Tier 0 Member Servers,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Tier 0 Server Operators",
+      "resetGroup": "Tier 0 Server Operators"
+    },
+    {
+      "ouDn": "OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Tier 0 Admins",
+      "resetGroup": "Tier 0 Admins"
+    },
+    {
+      "ouDn": "OU=Tier 1 Member Servers,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Tier 1 Server Operators",
+      "resetGroup": "Tier 1 Server Operators"
+    },
+    {
+      "ouDn": "OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Tier 1 Admins",
+      "resetGroup": "Tier 1 Admins"
+    },
+    {
+      "ouDn": "OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": "Tier 2 Admins",
+      "resetGroup": "Tier 2 Admins"
+    },
+    {
+      "ouDn": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "computerSelfPermission": true,
+      "readGroup": ["Tier 2 Device Operators", "Tier 2 Help-desk Operators"],
+      "resetGroup": ["Tier 2 Device Operators", "Tier 2 Help-desk Operators"]
+    }
+  ]
+}

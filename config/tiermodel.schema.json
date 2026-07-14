@@ -96,6 +96,103 @@
         },
         "additionalProperties": false
       }
+    },
+    "admx": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fileName": {"type": "string"},
+          "hash": {"type": "string"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "msaAclDelegations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
+        "properties": {
+          "targetOUPath": {"type": "string"},
+          "identityreference": {"type": "string"},
+          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
+          "accesscontroltype": {"type": "string"},
+          "objecttype": {"type": "string"},
+          "activeDirectorysecurityinheritance": {"type": "string"},
+          "inheritedObjectType": {"type": "string"},
+          "resolveguid": {"type": "boolean"},
+          "tier": {"type": "integer"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "gmsaAclDelegations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
+        "properties": {
+          "targetOUPath": {"type": "string"},
+          "identityreference": {"type": "string"},
+          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
+          "accesscontroltype": {"type": "string"},
+          "objecttype": {"type": "string"},
+          "activeDirectorysecurityinheritance": {"type": "string"},
+          "inheritedObjectType": {"type": "string"},
+          "resolveguid": {"type": "boolean"},
+          "tier": {"type": "integer"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "dmsaAclDelegations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
+        "properties": {
+          "targetOUPath": {"type": "string"},
+          "identityreference": {"type": "string"},
+          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
+          "accesscontroltype": {"type": "string"},
+          "objecttype": {"type": "string"},
+          "activeDirectorysecurityinheritance": {"type": "string"},
+          "inheritedObjectType": {"type": "string"},
+          "resolveguid": {"type": "boolean"},
+          "tier": {"type": "integer"},
+          "comment": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "winLapsDelegations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ouDn", "computerSelfPermission", "readGroup", "resetGroup"],
+        "properties": {
+          "ouDn": {"type": "string"},
+          "computerSelfPermission": {"type": "boolean"},
+          "readGroup": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}, "minItems": 1}
+            ]
+          },
+          "resetGroup": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "array", "items": {"type": "string"}, "minItems": 1}
+            ]
+          },
+          "isDomainControllerOu": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false
