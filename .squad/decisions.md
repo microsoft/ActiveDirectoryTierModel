@@ -2,29 +2,54 @@
 
 ## Active Decisions
 
-### 2026-06-30T12:17:50+08:00: v2.1.0 Release Version for gMSA/dMSA/MSA ACL Work
-**Context:** specs/002-gmsa-support branch, PR #13 open and mergeable
-**Decision:** Release as v2.1.0 (minor bump over unreleased 2.0.0 in repo). Last published GitHub release was v1.0.0; manifest already declared 2.0.0.
-**Rationale:** Bump minor version to reflect new gMSA/dMSA/MSA ACL capabilities without major version change.
-**Status:** ACTIVE — v2.1.0 tag NOT created yet (awaiting merge approval)
+*Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
-### 2026-06-30T12:17:50+08:00: Cmdlet Files (modules/TierModel/) Are Off-Limits
-**Context:** gMSA/dMSA/MSA ACL support implementation
-**Decision:** NO CHANGES to existing cmdlet files under modules/TierModel/. User directive: cmdlets are working/tested.
-**Rationale:** Minimize risk; cmdlets are in stable state. All work confined to test files and CI config.
-**Status:** ACTIVE — enforced throughout Phase 16 testing
+### 2026-07-15T14:59:20+08:00: Windows LAPS Decryptor Integration Complete
+**Author:** Beast (Dr. Hank McCoy)
+**Branch:** feature/windows-laps
+**Status:** IMPLEMENTED — decryptor GPO configuration wired into deploy code; awaiting Joel lab validation
 
-### 2026-06-30T12:17:50+08:00: ScriptAnalyzer Rule PSUseDeclaredVarsMoreThanAssignments Excluded in CI
-**Context:** New Test-TierModel*Acl.ps1 cmdlets use existence-check variables
-**Decision:** Added PSUseDeclaredVarsMoreThanAssignments to excludeRules in .github/workflows/ci.yml
-**Rationale:** Test cmdlets require variables to check if certain operations were invoked (Shadow variables for scope assertions).
-**Status:** ACTIVE — CI checks passing with this exclusion
+**Summary:** Integrated proven Set-GPRegistryValue ADPasswordEncryptionPrincipal recipe into deployment as config-driven, idempotent ConfigureLapsDecryptor step within -IncludeWinLaps flow.
 
-### 2026-06-30T12:17:50+08:00: Resolve-TierModelPlaceholder Invoked Twice Per Delegation (Not Per List)
-**Context:** Unit.GmsaAclOperations.Tests.ps1 and Unit.DmsaAclOperations.Tests.ps1 fix
-**Decision:** Removed -Exactly Count from Should -Invoke assertions; kept -Scope It. Tests now assert "at least 2 invocations per delegation" (line 114 unique-OU pass + line 172 main loop).
-**Rationale:** Get-TierModel{Gmsa,Dmsa,Msa}Acl calls Resolve-TierModelPlaceholder multiple times per delegation (once for unique-OU pass, once in main loop). -Scope It + no -Exactly permits accurate assertion without false negatives.
-**Status:** ACTIVE — all CI tests passing
+**Changes:**
+- config/tiermodel-winlaps.json: Added decryptorGroup + decryptorGpoName fields; EUD simplified to Tier 2 Device Operators only; schemaVersion 1.1.0
+- Get-TierModelWinLapsAcl(.Fd).ps1: Added GPO existence gate; decryptorGroup resolution; ConfigureLapsDecryptor plan actions
+- New-TierModelWinLapsAcl.ps1: Execute ConfigureLapsDecryptor via Set-GPRegistryValue ADPasswordEncryptionPrincipal; ShouldProcess/-WhatIf safe
+- Deploy-TierModel.ps1: Display ConfigureLapsDecryptor plan actions
+
+**Design Decisions (Joel-Approved):**
+1. decryptorGroup stores plain display name (e.g., "Tier 0 Admins"); runtime resolution to NETBIOS\sAMAccountName via Get-ADGroup
+2. decryptorGpoName explicit (e.g., "*- Tier 0 PAWs Windows LAPS - Computer"); avoids OU→GPO inference
+3. EUD simplified: Tier 2 Device Operators only (dropped Help-desk for consistency)
+4. DC entry: no decryptorGroup/decryptorGpoName; DSRM always uses Domain Admins
+
+**Validation:** Parse OK, module import v1.2.0 OK, Pester 101/101 pass. Lab NOT touched (Joel UAT pending).
+
+### 2026-07-15T14:59:20+08:00: USER DECISION: Cross-Tier LAPS Decrypt — Per-Tier Isolation
+**Requested by:** Joel Platek
+**Context:** Windows LAPS decryptor GPO integration; question of Tier 0 Admins access to Tier 1/2 PAW passwords
+**Decision:** KEEP per-tier isolation — Tier 0 Admins CANNOT decrypt Tier 1/2 PAW passwords
+**Rationale:** 
+- CNG-DPAPI decryption requires exact encryption principal (no inheritance via GenericAll)
+- Per-tier PAW decryptors (T1 PAWs→Tier1Admins, T2 PAWs→Tier2Admins) enforce separation
+- config/tiermodel-groups.json has no group nesting (no members/memberOf fields)
+- Tier 0 Admins retain GenericAll (READ-only) on lower PAW OUs, but cannot decrypt passwords
+- This is the strongest security posture; alternative (nest T0 into T1/T2) was rejected
+**Status:** CONFIRMED — implementation reflects this choice
+
+### 2026-07-15T14:59:20+08:00: USER DECISION: LAPS ACL Delegation at Tier Model Root OU
+**Requested by:** Joel Platek
+**Context:** Where to place LAPS delegation entires (Tier Model Administration root OU vs per-tier)
+**Decision:** KEEP LAPS ACL delegation at Tier Model root OU (OU=Tier Model Administration)
+**Rationale:** Standardized location matching existing ACL delegation patterns; allows inheritance to child OUs; single authoritative source for delegation config
+**Status:** CONFIRMED — Tier0Admins entry in config now targets root OU; read/reset delegations organized by OU within config
+
+### 2026-07-15T14:59:20+08:00: USER DECISION: decryptorGroup Display Name Convention
+**Requested by:** Joel Platek
+**Context:** Placeholder format for decryptorGroup field (plain name vs literal DOMAIN\)
+**Decision:** KEEP decryptorGroup as plain display names (e.g., "Tier 0 Admins"), NOT literal DOMAIN\ format
+**Rationale:** Consistent with existing readGroup/resetGroup convention; no modification to Resolve-TierModelPlaceholder needed; runtime resolution happens at execution time via Get-ADGroup -Filter
+**Status:** ACTIVE — placeholder convention unchanged; may revisit if Joel requests literal DOMAIN\ format later
 
 ## Governance
 

@@ -1,58 +1,38 @@
 # wolverine — History
 
-## Summary
+## Current: Windows LAPS Lab Validation Complete
 
-Tester role: 6 live lab deployment runs on TierLab-DC01 validating Windows LAPS T001–T012 implementation. Final Run 6 GREEN with all 5 bugs fixed and idempotency confirmed (Converged: True). Total applied 673 (baseline 643, delta +30).
+**Status:** Runs 1–7 complete; 6 bugs found & fixed; ConfigureGPO decryptor now ready for lab UAT.
 
-## Key Bugs Discovered & Fixed
+### Windows LAPS — All Bugs Fixed
 
-| Bug | Symptom | Root Cause | Fix |
-|-----|---------|-----------|-----|
-| 1 | $schemaDN crash | -IncludeWinLaps only path skipped variable init | Added -or $IncludeWinLaps to condition |
-| 2 | Plan display error | WinLaps actions lack identityreference property | Branched on ResourceType='LapsPermission' |
-| 3 | Groups not found | Get-ADGroup -Identity fails on display names with spaces | Changed to -Filter "Name -eq" |
-| 4 | Empty AllowedPrincipals | $winLapsFdPlan pre-generated before Phase 2 groups exist | Re-generate at execution time |
-| 5 | SELF false positive | Detection counts ANY SELF ACEs (includes default inherited) | Filter by LAPS schema GUIDs |
-| 5b | SELF re-applied every run | IsInherited mismatch: nTSecurityDescriptor=True, Get-Acl=False in PS7 | Use Get-Acl "AD:$ouDn" instead |
+| Bug | Issue | Fix |
+|-----|-------|-----|
+| 1 | $schemaDN undefined in WinLaps path | Add -or $IncludeWinLaps to init |
+| 2 | Plan display missing identityreference | Branch on ResourceType='LapsPermission' |
+| 3 | Groups not found (display names have spaces) | Use -Filter "Name -eq" |
+| 4 | FD plan precomputed before groups exist | Regenerate at execution time |
+| 5 | SELF false positive from inherited ACEs | Filter IsInherited=False + LAPS GUIDs |
+| 5b | IsInherited mismatch PS7 (Get-ADOrganizationalUnit vs Get-Acl) | Use Get-Acl "AD:$ouDn" |
 
-## Run 6 Final Validation (GREEN ✅)
+### Run 6 (Final) ✅
 
-- **Applied:** 673 (baseline 643, delta +30 accounting for root OU design change)
-- **Idempotency:** Converged True, Applied 0 on 2nd run ✅
-- **SELF:** 7/7 OUs applied including Tier Model Administration root ✅
-- **Read/Reset:** 10 actions (DC + T0Members + T1Members + EUD) ✅
-- **EUD dual-principal:** Both Tier2DeviceOperators and Tier2HelpdeskOperators ✅
-- **All 7 OUs delegated:** Verified via Find-LapsADExtendedRights ✅
-- **Windows-LAPS-only:** No legacy LAPS references ✅
-- **Plan display:** Clean with correct ResourceType branching ✅
+- Applied: 673 (baseline 643, +30 for root OU design)
+- Idempotency: Converged True, Applied 0 on 2nd run ✅
+- All 7 OUs delegated with correct principals
+- EUD dual-principal verified (Tier2DeviceOperators + Tier2HelpdeskOperators)
 
-## Lab Setup & Findings
+### Run 7 (Standalone Bug Fix) ✅
 
-- **WinLapsSchema checkpoint:** 7 ms-LAPS-* attributes confirmed; used as baseline for all 6 runs
-- **Baseline (no WinLaps):** Applied 643, Converged False (reference for delta comparison)
-- **AD readiness:** >300s after checkpoint restore; use 600s timeout; PS Direct "credential invalid" first 60s is normal
-- **Find-LapsADExtendedRights:** Reports DIRECT holders only; SELF tracked via Get-Acl DACL inspection
-- **Tier0Admins inheritance:** Effective LAPS access on T1/T2 PAW via inherited GenericAll from root OU (GenericAll includes LAPS rights)
+- Verified fix for `.Applied cannot be found` crash
+- 21 delegations applied, all lines printed, Converged: True
+- Fix: Set-LapsAD* calls now end with `| Out-Null`
 
-## Design Behavior Notes
+### Key Learning
 
-1. **Root OU design (Joel):** Tier0Admins moved to "OU=Tier Model Administration" — already had GenericAll from base deploy, so WinLaps planner correctly detected and added only SELF permission
-2. **Inheritance detection limitation:** Find-LapsADExtendedRights can't distinguish read vs reset holders (acceptable; config enforces readGroup==resetGroup)
-3. **Get-Acl vs Get-ADOrganizationalUnit:** Get-Acl "AD:$ouDn" correctly returns IsInherited=False for explicitly-set ACEs; nTSecurityDescriptor path has PS7 mismatch
+Use Get-Acl "AD:$dn" not Get-ADOrganizationalUnit.nTSecurityDescriptor for IsInherited checks in PS7.
 
-## Previous Sessions (v2.1.0 Prep, gMSA/dMSA)
-
-- **2026-06-30:** Ran full Invoke-AllTests.ps1 (1292 tests passed); fixed gMSA/dMSA mock scope issues
-- **Learnings:** Mock scope bleeding in Pester 5.7.1; shadow variables for test assertions; double Resolve-TierModelPlaceholder invocation per delegation (not per list)
-
-## Baseline Reference Data
-
-- **Planning mode:** Shows `Action count: N` and `Create count: N` lines
-- **Apply mode:** Shows `Applied: N`, `Converged: True/False`
-- **Totals measurement:** Baseline (no WinLaps) = 643 applied; WinLaps run must be > 643
-- **Group mapping verified:** All 7 OUs to correct groups; EUD dual-principal confirmed
-
-#### STOP CONDITION — Bug 3 Found
+See history-archive.md for detailed Runs 1–7 notes. See .squad/decisions.md for ConfigureGPO integration details.
 
 **Bug 3 (BLOCKING):** `Test-TierModelPrerequisites.ps1` Gate 5 (~line 638): `Get-ADGroup -Identity $groupName` matches by SAMAccountName only. Config stores display names with spaces ("Tier 0 Server Operators"); AD group SAMs are CamelCase without spaces ("Tier0ServerOperators"). Lookup fails for ALL 7 custom groups. "Domain Admins" works only because its SAM has a space (built-in group). **Fix:** use `-Filter "Name -eq '$groupName'"` — same pattern already used by `Get-TierModelWinLapsAclFd`. All groups ARE created in Phase 2 of base deploy; only the prereq check can't find them.
 
@@ -396,3 +376,103 @@ Run full P1+P2 test matrix against Beast's T001–T012 implementation. Restore W
 - **VM: Off, restored to WinLapsSchema** (no WinLaps ACLs applied)
 - Output files written to repo root: `wtest-base.txt`, `wtest-winlaps.txt`, `wtest-plan-winlaps.txt`, `wtest-idem.txt`, `wtest-guard1.txt`, `wtest-guard2.txt`, `wtest-compose.txt`
 - Inbox written: `.squad/decisions/inbox/wolverine-winlaps-deploytest.md`
+
+### 2026-07-15 — WinLaps Standalone Bug Fix Verification (Run 7)
+
+#### Mission
+Verify fix for standalone `-IncludeWinLaps -ConfirmApply` crash: `"The property 'Applied' cannot be found on this object."` Root cause: `New-TierModelWinLapsAcl` returned an ARRAY (21 stray cmdlet output objects + result object) instead of a single result object; Deploy-TierModel.ps1 accessed `$winLapsResult.Applied` under `Set-StrictMode -Version Latest` → VariableIsUndefined error. Fix: all three `Set-LapsAD*Permission` calls now end with `| Out-Null`.
+
+#### Sequence Executed
+1. `Restore-VMCheckpoint -VMName 'TierLab-DC01' -Name 'WinLapsSchema'` + `Start-VM`
+2. Waited for AD readiness (PS Direct credential-invalid first ~60s, then NTDS Running, AD cmdlets ready ~120–180s)
+3. Copied current repo to `C:\TierModel` on DC via PS Direct (398 files)
+4. **Verified** `New-TierModelWinLapsAcl.ps1` on DC: all three `| Out-Null` confirmed present
+5. Ran (a) `-OuOnly -ConfirmApply` → (b) `-GroupOnly -ConfirmApply` → (c) `-IncludeWinLaps -ConfirmApply`
+6. Cleaned up run-a/b/c.ps1 temp scripts; removed PS sessions
+
+#### Fix Verification ✅
+
+**New-TierModelWinLapsAcl.ps1 on DC — `| Out-Null` confirmed:**
+- `Set-LapsADComputerSelfPermission ... -ErrorAction Stop | Out-Null` ✅
+- `Set-LapsADReadPasswordPermission ... -ErrorAction Stop | Out-Null` ✅
+- `Set-LapsADResetPasswordPermission ... -ErrorAction Stop | Out-Null` ✅
+
+#### Run (a) — OuOnly ✅
+- 31 OUs created, no errors, Action count: 31, Converged: False (expected on first run)
+
+#### Run (b) — GroupOnly ✅
+- 26 groups created, no errors, Action count: 26, Converged: False (expected on first run)
+
+#### Run (c) — IncludeWinLaps Standalone ✅ GREEN
+
+**No `.Applied cannot be found` error** — FIX CONFIRMED.
+
+Full output tail (from first Applied line through end of run):
+```
+Phase: Windows LAPS ACL Delegations
+  Actions planned: 21
+  ✅ Applied LAPS Self-Permission: Domain Controllers
+  ✅ Applied LAPS Read-Permission: TIERLAB\Domain Admins on Domain Controllers
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Domain Admins on Domain Controllers
+  ✅ Applied LAPS Self-Permission: Tier 0 Member Servers
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier0ServerOperators on Tier 0 Member Servers
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier0ServerOperators on Tier 0 Member Servers
+  ✅ Applied LAPS Self-Permission: Tier Model Administration
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier0Admins on Tier Model Administration
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier0Admins on Tier Model Administration
+  ✅ Applied LAPS Self-Permission: Tier 1 Member Servers
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier1ServerOperators on Tier 1 Member Servers
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier1ServerOperators on Tier 1 Member Servers
+  ✅ Applied LAPS Self-Permission: Tier 1 PAW Devices
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier1Admins on Tier 1 PAW Devices
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier1Admins on Tier 1 PAW Devices
+  ✅ Applied LAPS Self-Permission: Tier 2 PAW Devices
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier2Admins on Tier 2 PAW Devices
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier2Admins on Tier 2 PAW Devices
+  ✅ Applied LAPS Self-Permission: Tier 2 End-User Devices
+  ✅ Applied LAPS Read-Permission: TIERLAB\Tier2DeviceOperators, TIERLAB\Tier2HelpdeskOperators on Tier 2 End-User Devices
+  ✅ Applied LAPS Reset-Permission: TIERLAB\Tier2DeviceOperators, TIERLAB\Tier2HelpdeskOperators on Tier 2 End-User Devices
+
+=== Deployment Results ===
+Applied: 21
+Skipped: 0
+Errors: 0
+Duration: 11286.825ms
+Converged: True
+
+Deploy script completed.
+```
+
+**Key metrics:**
+- Applied: **21** (all 7 OUs × 3 operations) ✅
+- Errors: **0** ✅
+- Converged: **True** (all operations succeeded, no errors) ✅
+- `.Applied cannot be found` error: **ABSENT** ✅
+- `=== Deployment Results ===` summary: **PRESENT** ✅
+
+**All 21 delegations confirmed correct:**
+- 7 SELF permissions (all OUs) ✅
+- DC: Domain Admins Read + Reset ✅
+- T0 Members: Tier0ServerOperators Read + Reset ✅
+- Tier Model Administration (root): Tier0Admins Read + Reset ✅
+- T1 Members: Tier1ServerOperators Read + Reset ✅
+- T1 PAW: Tier1Admins Read + Reset ✅ (T1/T2 PAW now applied fresh — WinLapsSchema checkpoint did NOT pre-set them in this run)
+- T2 PAW: Tier2Admins Read + Reset ✅
+- EUD: Tier2DeviceOperators + Tier2HelpdeskOperators Read + Reset ✅ (dual-principal)
+
+**Note on T1PAW/T2PAW behavior vs Run 6:** Previous Run 6 (full deploy before WinLaps) saw T1PAW/T2PAW Read/Reset skipped (pre-existing via GenericAll inherited from base deploy). This Run 7 standalone path (OuOnly + GroupOnly only, no full ACL phase) does NOT set the GenericAll inheritance, so WinLaps planner correctly applies Read+Reset fresh for all 7 OUs = 21 total. This is the expected standalone behavior.
+
+#### Second Issue — None Found
+Scrutinized full output (55 lines). No second error, no terminating error, no anomalous warnings. The standalone path prints "TierModel module loaded successfully." and "Prerequisites validation passed." twice (once at script start, once inside the standalone branch) — this is existing cosmetic behavior, not a new bug. No other anomalies detected.
+
+#### Final Lab State
+- **VM: RUNNING**, post-run (c) state: OUs created, Groups created, WinLaps ACLs applied
+- Temp scripts (run-a/b/c.ps1) on DC: removed ✅
+- PS sessions: all closed ✅
+- To roll back to clean WinLapsSchema for fresh testing:
+  ```powershell
+  Stop-VM -Name 'TierLab-DC01' -TurnOff -Force -ErrorAction SilentlyContinue
+  Restore-VMCheckpoint -VMName 'TierLab-DC01' -Name 'WinLapsSchema' -Confirm:$false
+  Start-VM -Name 'TierLab-DC01'
+  ```
+- Inbox written: `.squad/decisions/inbox/wolverine-winlaps-applied-fix.md`
