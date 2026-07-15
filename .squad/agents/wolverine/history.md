@@ -1,8 +1,40 @@
 # wolverine — History
 
-## Current: Windows LAPS Lab Validation Complete
+## Current: Windows LAPS Decryptor End-to-End Validation PASSED
 
-**Status:** Runs 1–7 complete; 6 bugs found & fixed; ConfigureGPO decryptor now ready for lab UAT.
+**Status:** Run 8 (full deploy + decryptor) GREEN. 6/6 GPO decryptor values verified. Idempotency confirmed. No bugs.
+
+## Learnings
+
+### 2026-07-15 — Full Deploy Decryptor E2E Test (Run 8)
+
+**Mission:** Prove the new ConfigureLapsDecryptor code actually edits 6 non-DC LAPS GPOs during a -FullDeployment -IncludeWinLaps run on a clean WinLapsSchema baseline.
+
+**Result:** ✅ PASS — all 6 decryptor GPO registry values independently verified via Get-GPRegistryValue.
+
+**Key Findings:**
+- **Grand Total Applied:** 681 (baseline without WinLaps: 643; delta: +38)
+- **WinLaps Phase Actions:** 7 SELF + 6 Read + 6 Reset + 6 ConfigureLapsDecryptor = 25 actions fired
+- **Decryptor delta from Run 6 (no decryptor code):** 681 - 673 = +8 (6 decryptors + 2 additional R/R from EUD config simplification)
+- **Idempotency:** Applied 0, Converged True — decryptors NOT re-written on 2nd run ✅
+- **No errors:** Zero terminating errors, zero "property cannot be found" crashes, zero "cannot bind" failures
+- **DC GPO correctly left alone:** ADPasswordEncryptionPrincipal NOT SET on DC DSRM GPO ✅
+- **ADPasswordEncryptionEnabled preserved:** Still = 1 on all 6 GPOs (decryptor write did NOT clobber enable flag) ✅
+
+**GPO Verification Table (all 7):**
+| GPO | ADPasswordEncryptionPrincipal | Expected | Verdict |
+|-----|-------------------------------|----------|---------|
+| *- Tier 0 PAWs Windows LAPS - Computer | TIERLAB\Tier0Admins | TIERLAB\Tier0Admins | PASS |
+| *- Tier 0 Servers Windows LAPS - Computer | TIERLAB\Tier0ServerOperators | TIERLAB\Tier0ServerOperators | PASS |
+| *- Tier 1 PAWs Windows LAPS - Computer | TIERLAB\Tier1Admins | TIERLAB\Tier1Admins | PASS |
+| *- Tier 1 Servers Windows LAPS - Computer | TIERLAB\Tier1ServerOperators | TIERLAB\Tier1ServerOperators | PASS |
+| *- Tier 2 PAWs Windows LAPS - Computer | TIERLAB\Tier2Admins | TIERLAB\Tier2Admins | PASS |
+| *- Tier 2 EUD Windows LAPS - Computer | TIERLAB\Tier2DeviceOperators | TIERLAB\Tier2DeviceOperators | PASS |
+| *- Tier 0 DCs Windows LAPS - Computer | (NOT SET) | (NOT SET) | PASS |
+
+**Lab Config Note:** lab-config.json is at `.research/copilot-cli-hyperv-ad-lab/lab-config.json` (not in the scripts/ subdirectory). Password: LabPass123!.
+
+**Lab State:** VM restored to WinLapsSchema, AD responding, clean for Joel.
 
 ### Windows LAPS — All Bugs Fixed
 
