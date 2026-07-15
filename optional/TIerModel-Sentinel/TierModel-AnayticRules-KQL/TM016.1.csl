@@ -1,4 +1,4 @@
-//Analytic Rule = PROD (TM016.1) - OBJECT - Added to Well-Known or Tier Model Group
+//Analytic Rule = PROD (TM016.1) - GROUP - Added to Well-Known or Tier Model Group
 //Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
 //
 // Excluded Groups

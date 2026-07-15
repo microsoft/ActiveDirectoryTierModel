@@ -1,4 +1,4 @@
-//Analytic Rule = PROD (TM012.1) - GPO - Linked, Unlinked, or Enforced at the AD Site Level
+//Analytic Rule = PROD (TM014.1) - GPO - Linked, Unlinked, or Enforced at the AD Site Level
 //Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
 SecurityEvent 
 | where EventID == 5136 

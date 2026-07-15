@@ -1,4 +1,4 @@
-//Analytic Rule = PROD (TM010.1) - BITLOCKER - Add Bitlocker Recovery Key to Tier Level Computer Object
+//Analytic Rule = PROD (TM010.1) - BITLOCKER - Stored Bitlocker Recovery Key to Tier Level Computer Object
 //Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
 //Automation Rule = PROD (TM010) - BITLOCKER - Add Bitlocker Recovery Key to Tier Level Computer Object
 SecurityEvent

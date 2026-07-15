@@ -1,4 +1,4 @@
-//Analytic Rule = PROD (TM017.1) - OBJECT - Tier 0 object added to Allow RODC Password Replication Group
+//Analytic Rule = PROD (TM017.1) - GROUP - Tier 0 Added to Allow RODC Password Replication Group
 //Automation Rule = PROD (TM000) - TAGGING - Tier Model Incidents
 SecurityEvent 
 | where EventID == 5136
