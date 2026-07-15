@@ -4,6 +4,34 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+### 2026-07-15T07:37:12Z: Windows LAPS Decryptor — Full-Deployment Lab Validation PASS
+**Author:** Wolverine (Logan)  
+**Status:** ✅ VERIFIED — Lab-proven, no bugs, idempotent  
+**Significance:** Canonical milestone; decryptor code on disk, ready for Joel's manual UAT
+
+**Test Summary:**
+- Deployed `-FullDeployment -IncludeWinLaps -ConfirmApply` against clean WinLapsSchema baseline
+- All 6 non-DC GPO `ADPasswordEncryptionPrincipal` entries verified independently via `Get-GPRegistryValue`
+- Applied: 681 total (baseline 643, delta +38 including WinLaps acls + decryptor); decryptor contributed +6 actions
+- Idempotency: Re-run Applied 0, Converged True — all 6 decryptor actions correctly detected as converged
+- Errors: 0; Bugs: 0
+
+**Verified GPO Mappings (7/7 pass):**
+- Tier 0 PAWs → TIERLAB\Tier0Admins ✅
+- Tier 0 Servers → TIERLAB\Tier0ServerOperators ✅
+- Tier 1 PAWs → TIERLAB\Tier1Admins ✅
+- Tier 1 Servers → TIERLAB\Tier1ServerOperators ✅
+- Tier 2 PAWs → TIERLAB\Tier2Admins ✅
+- Tier 2 EUD → TIERLAB\Tier2DeviceOperators ✅
+- Tier 0 DCs → (NOT SET, DSRM=Domain Admins) ✅
+
+**Key Confirmations:**
+- `ADPasswordEncryptionEnabled=1` preserved on all 6 non-DC GPOs (no clobber)
+- Zero property/method errors
+- Design validated: decryptor decouples from main LAPS ACL flow; config-driven; integrates cleanly into Phase 10
+
+**Next Phase:** Joel's manual UAT (end-to-end `Get-LapsADPassword -AsPlainText` validation, prerequisites edge-cases)
+
 ### 2026-07-15T14:59:20+08:00: Windows LAPS Decryptor Integration Complete
 **Author:** Beast (Dr. Hank McCoy)
 **Branch:** feature/windows-laps
