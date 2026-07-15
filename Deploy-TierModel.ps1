@@ -1039,13 +1039,15 @@ function Write-IncludeAclPlanActions {
         if ($_.Action -eq 'CreateAcl') {
             $ouName = if ($_.Path -match '^OU=([^,]+)') { $matches[1] } else { 'Unknown OU' }
             if ($_.ResourceType -eq 'LapsPermission') {
-                $lapsOp = $_.Data.lapsOperation
-                $principals = if ($_.Data.PSObject.Properties['allowedPrincipals']) { $_.Data.allowedPrincipals -join ', ' } else { 'SELF' }
-                Write-Host "  ■ LAPS $lapsOp`: $principals on $ouName" -ForegroundColor Yellow
+                # Strip NetBIOS domain prefix for display parity with MSA/gMSA/dMSA (data keeps domain-qualified form for the Set-LapsAD* calls)
+                $principals = if ($_.Data.PSObject.Properties['allowedPrincipals']) { (@($_.Data.allowedPrincipals) | ForEach-Object { ($_ -split '\\')[-1] }) -join ', ' } else { 'SELF' }
+                Write-Host "  ■ Create ACL: $principals on $ouName" -ForegroundColor Yellow
             } else {
                 $principal = $_.Data.identityreference
                 Write-Host "  ■ Create ACL: $principal on $ouName" -ForegroundColor Yellow
             }
+        } elseif ($_.Action -eq 'ConfigureLapsDecryptor') {
+            Write-Host "  ■ Configure LAPS decryptor: $($_.Data.decryptorValue) on $($_.Data.gpoName)" -ForegroundColor Yellow
         }
     }
 }
@@ -2454,8 +2456,8 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
         Write-Host "`nPhase: Windows LAPS ACL Delegations" -ForegroundColor Cyan
         $winLapsPlan = Get-TierModelWinLapsAcl -Config $config -DomainController $PreferredDc
         if ($winLapsPlan.Errors -and $winLapsPlan.Errors.Count -gt 0) {
-            Write-Host "  ❌ Windows LAPS planning errors:" -ForegroundColor Red
-            $winLapsPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+            Write-Host "Dependency Errors:" -ForegroundColor Red
+            $winLapsPlan.Errors | ForEach-Object { Write-Host "  ❌ $($_.Message)" -ForegroundColor Red }
             $standaloneTotalErrors += $winLapsPlan.Errors.Count
         } else {
             Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 4 -PhaseName 'Windows LAPS ACL Delegations' -Plan $winLapsPlan

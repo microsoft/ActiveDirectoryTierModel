@@ -508,8 +508,6 @@ function Test-TierModelPrerequisites {
         if ($IncludeWinLaps) {
             $winLapsSchemaPresent = $false
             $lapsModulePresent = $false
-            $winLapsOUsExist = $true
-            $winLapsGroupsExist = $true
 
             # Ensure schema DN and DFL are available
             if ($null -eq $schemaDN) {
@@ -518,8 +516,8 @@ function Test-TierModelPrerequisites {
                     $schemaDN = $rootDSE.schemaNamingContext
                 } catch {
                     $result.Valid = $false
-                    $null = $result.Errors.Add("WINLAPS_SCHEMA_MISSING: Failed to query AD schema: $($_.Exception.Message)")
-                    $null = $result.Remediation.Add("The Windows LAPS schema is not present in this directory. The -IncludeWinLaps parameter requires the Windows LAPS schema to be extended first. Extend the schema using your organization's controlled schema-change process before running with -IncludeWinLaps. Alternatively, deploy the Tier Model now without -IncludeWinLaps and add Windows LAPS later (post-deployment) once the schema is extended. The Tier Model will NEVER extend the schema automatically.")
+                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message). Confirm connectivity to the domain controller, then re-attempt the Tier Model Windows LAPS deployment.")
+                    $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
                 }
             }
             if ($null -eq $dfl) {
@@ -542,16 +540,16 @@ function Test-TierModelPrerequisites {
                     if ($foundAttributes.Count -lt 5) {
                         $result.Valid = $false
                         $winLapsSchemaPresent = $false
-                        $null = $result.Errors.Add("WINLAPS_SCHEMA_MISSING: Windows LAPS schema attributes not found ($($foundAttributes.Count)/6 detected).")
-                        $null = $result.Remediation.Add("The Windows LAPS schema is not present in this directory. The -IncludeWinLaps parameter requires the Windows LAPS schema to be extended first. Extend the schema using your organization's controlled schema-change process before running with -IncludeWinLaps. Alternatively, deploy the Tier Model now without -IncludeWinLaps and add Windows LAPS later (post-deployment) once the schema is extended. The Tier Model will NEVER extend the schema automatically.")
+                        $null = $result.Errors.Add("The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.")
+                        $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
                     } else {
                         $winLapsSchemaPresent = $true
                     }
                 } catch {
                     $result.Valid = $false
                     $winLapsSchemaPresent = $false
-                    $null = $result.Errors.Add("WINLAPS_SCHEMA_MISSING: Failed to query LAPS schema attributes: $($_.Exception.Message)")
-                    $null = $result.Remediation.Add("The Windows LAPS schema is not present in this directory. The -IncludeWinLaps parameter requires the Windows LAPS schema to be extended first. Extend the schema using your organization's controlled schema-change process before running with -IncludeWinLaps. Alternatively, deploy the Tier Model now without -IncludeWinLaps and add Windows LAPS later (post-deployment) once the schema is extended. The Tier Model will NEVER extend the schema automatically.")
+                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message). Confirm connectivity to the domain controller, then re-attempt the Tier Model Windows LAPS deployment.")
+                    $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
                 }
             }
 
@@ -600,68 +598,10 @@ function Test-TierModelPrerequisites {
                 }
             }
 
-            # Gate 4: Target OUs exist + DC exclusion check
-            if ($winLapsSchemaPresent -and $lapsModulePresent) {
-                try {
-                    $winLapsConfig = Get-TierModelConfig
-                    if ($winLapsConfig.winLapsDelegations) {
-                        $domainDN = Resolve-TierModelDomainDN -DomainController $PreferredDc
-                        foreach ($delegation in @($winLapsConfig.winLapsDelegations)) {
-                            $resolvedOuDn = Resolve-TierModelPlaceholder -Path $delegation.ouDn -DomainDN $domainDN
-                            # Check OU exists
-                            try {
-                                Get-ADOrganizationalUnit -Identity $resolvedOuDn -Server $PreferredDc -ErrorAction Stop | Out-Null
-                            } catch {
-                                $result.Valid = $false
-                                $winLapsOUsExist = $false
-                                $null = $result.Errors.Add("WINLAPS_OU_MISSING: Target OU not found: '$resolvedOuDn'. Deploy OUs first with -OuOnly or -FullDeployment.")
-                                $null = $result.Remediation.Add("Deploy the Tier Model OUs first using -OuOnly or -FullDeployment before running with -IncludeWinLaps.")
-                                continue
-                            }
-                            # DC exclusion: unless isDomainControllerOu is true, check for DC objects
-                            $isDcOu = if ($delegation.PSObject.Properties['isDomainControllerOu']) { $delegation.isDomainControllerOu } else { $false }
-                            if (-not $isDcOu) {
-                                try {
-                                    $dcObjects = Get-ADComputer -Filter { PrimaryGroupID -eq 516 } -SearchBase $resolvedOuDn -Server $PreferredDc -ErrorAction SilentlyContinue
-                                    if ($dcObjects) {
-                                        $result.Valid = $false
-                                        $null = $result.Errors.Add("WINLAPS_DC_SCOPE_REJECTED: OU '$resolvedOuDn' contains Domain Controller objects. Set isDomainControllerOu=true in config to explicitly opt in, or remove DC objects from this OU.")
-                                        $null = $result.Remediation.Add("Either set isDomainControllerOu=true for this entry in tiermodel-winlaps.json (explicit DC opt-in) or move Domain Controller objects out of this OU.")
-                                    }
-                                } catch { }
-                            }
-                        }
-                    }
-                } catch { }
-            }
-
-            # Gate 5: Required groups exist
-            if ($winLapsSchemaPresent -and $lapsModulePresent) {
-                try {
-                    $winLapsConfig2 = Get-TierModelConfig
-                    if ($winLapsConfig2.winLapsDelegations) {
-                        $uniqueGroups = @($winLapsConfig2.winLapsDelegations | ForEach-Object { @($_.readGroup); @($_.resetGroup) } | Select-Object -Unique)
-                        foreach ($groupName in $uniqueGroups) {
-                            try {
-                                $escapedName = $groupName -replace "'", "''"
-                                $adGroup = Get-ADGroup -Filter "Name -eq '$escapedName'" -Server $PreferredDc -ErrorAction Stop
-                                if (-not $adGroup) { throw "Group not found" }
-                            } catch {
-                                $result.Valid = $false
-                                $winLapsGroupsExist = $false
-                                $null = $result.Errors.Add("WINLAPS_GROUP_MISSING: Required group '$groupName' not found in AD. Deploy groups first.")
-                                $null = $result.Remediation.Add("Deploy the Tier Model groups first using -GroupOnly or -FullDeployment before running with -IncludeWinLaps.")
-                            }
-                        }
-                    }
-                } catch { }
-            }
 
             # Add snapshot fields
             $result.EnvironmentSnapshot.WinLapsSchemaPresent = $winLapsSchemaPresent
             $result.EnvironmentSnapshot.LapsModulePresent = $lapsModulePresent
-            $result.EnvironmentSnapshot.WinLapsOUsExist = $winLapsOUsExist
-            $result.EnvironmentSnapshot.WinLapsGroupsExist = $winLapsGroupsExist
         }
         
         # Convert ArrayLists to regular arrays for consistent output

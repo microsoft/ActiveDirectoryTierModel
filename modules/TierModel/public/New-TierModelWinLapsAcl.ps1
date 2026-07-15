@@ -92,17 +92,17 @@ function New-TierModelWinLapsAcl {
                     if ($PSCmdlet.ShouldProcess($shouldProcessTarget, $shouldProcessAction)) {
                         switch ($lapsOp) {
                             'SetComputerSelfPermission' {
-                                Set-LapsADComputerSelfPermission -Identity $ouDn -DomainController $DomainController -ErrorAction Stop
+                                Set-LapsADComputerSelfPermission -Identity $ouDn -DomainController $DomainController -ErrorAction Stop | Out-Null
                                 Write-Host "  `u{2705} Applied LAPS Self-Permission: $ouName" -ForegroundColor Green
                             }
                             'SetReadPasswordPermission' {
                                 $principals = @($action.Data.allowedPrincipals)
-                                Set-LapsADReadPasswordPermission -Identity $ouDn -AllowedPrincipals $principals -DomainController $DomainController -ErrorAction Stop
+                                Set-LapsADReadPasswordPermission -Identity $ouDn -AllowedPrincipals $principals -DomainController $DomainController -ErrorAction Stop | Out-Null
                                 Write-Host "  `u{2705} Applied LAPS Read-Permission: $principalDisplay on $ouName" -ForegroundColor Green
                             }
                             'SetResetPasswordPermission' {
                                 $principals = @($action.Data.allowedPrincipals)
-                                Set-LapsADResetPasswordPermission -Identity $ouDn -AllowedPrincipals $principals -DomainController $DomainController -ErrorAction Stop
+                                Set-LapsADResetPasswordPermission -Identity $ouDn -AllowedPrincipals $principals -DomainController $DomainController -ErrorAction Stop | Out-Null
                                 Write-Host "  `u{2705} Applied LAPS Reset-Permission: $principalDisplay on $ouName" -ForegroundColor Green
                             }
                         }
@@ -149,6 +149,76 @@ function New-TierModelWinLapsAcl {
                             Action        = $action.Action
                             LapsOperation = $action.Data.lapsOperation
                             TargetOU      = $action.Data.ouDn
+                        }
+                    }
+                    $converged = $false
+                }
+            }
+        }
+
+        # Execute ConfigureLapsDecryptor actions (set ADPasswordEncryptionPrincipal on LAPS GPOs)
+        foreach ($action in $Plan.Actions) {
+            if ($action.Action -eq 'ConfigureLapsDecryptor' -and $action.ResourceType -eq 'LapsDecryptor') {
+                try {
+                    $gpoName = $action.Data.gpoName
+                    $decryptorValue = $action.Data.decryptorValue
+                    $lapsKey = 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\LAPS'
+
+                    Write-TierModelLog -Level Info -Message "Configuring LAPS decryptor" -Data @{
+                        GpoName          = $gpoName
+                        DecryptorValue   = $decryptorValue
+                        DomainController = $DomainController
+                        CorrelationId    = $CorrelationId
+                    } | Out-Null
+
+                    if ($PSCmdlet.ShouldProcess("GPO: $gpoName", "Set-GPRegistryValue ADPasswordEncryptionPrincipal = $decryptorValue")) {
+                        Set-GPRegistryValue -Name $gpoName `
+                            -Key $lapsKey `
+                            -ValueName 'ADPasswordEncryptionPrincipal' `
+                            -Type String `
+                            -Value $decryptorValue `
+                            -Server $DomainController | Out-Null
+
+                        Write-Host "  `u{2705} Configured LAPS decryptor: $decryptorValue on $gpoName" -ForegroundColor Green
+
+                        Write-TierModelLog -Level Info -Message "LAPS decryptor configured successfully" -Data @{
+                            GpoName          = $gpoName
+                            DecryptorValue   = $decryptorValue
+                            DomainController = $DomainController
+                            CorrelationId    = $CorrelationId
+                        } | Out-Null
+
+                        $applied += [PSCustomObject]@{
+                            Action         = 'ConfigureLapsDecryptor'
+                            LapsOperation  = 'SetDecryptorPrincipal'
+                            GpoName        = $gpoName
+                            DecryptorValue = $decryptorValue
+                        }
+                    } else {
+                        Write-Host "  [WhatIf] Would configure LAPS decryptor: $decryptorValue on $gpoName" -ForegroundColor DarkYellow
+                        $skipped += [PSCustomObject]@{
+                            Action    = 'ConfigureLapsDecryptor'
+                            GpoName   = $gpoName
+                            Reason    = if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }
+                        }
+                    }
+                } catch {
+                    Write-TierModelLog -Level Error -Message "Failed to configure LAPS decryptor" -Data @{
+                        GpoName        = $action.Data.gpoName
+                        DomainController = $DomainController
+                        Exception      = $_.Exception.Message
+                        CorrelationId  = $CorrelationId
+                    } | Out-Null
+
+                    Write-Host "  ERROR: Failed to configure LAPS decryptor on '$($action.Data.gpoName)' - $($_.Exception.Message)" -ForegroundColor Red
+                    $errors += @{
+                        Timestamp = Get-Date
+                        Category  = 'Execution'
+                        Code      = 'LapsDecryptorFailed'
+                        Message   = $_.Exception.Message
+                        Context   = @{
+                            Action   = $action.Action
+                            GpoName  = $action.Data.gpoName
                         }
                     }
                     $converged = $false

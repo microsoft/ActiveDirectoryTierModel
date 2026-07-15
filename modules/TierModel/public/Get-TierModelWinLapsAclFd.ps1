@@ -94,10 +94,10 @@ function Get-TierModelWinLapsAclFd {
             $schemaDN = $rootDSE.schemaNamingContext
             $lapsAttr = Get-ADObject -Filter "lDAPDisplayName -eq 'msLAPS-Password'" -SearchBase $schemaDN -Server $DomainController -ErrorAction SilentlyContinue
             if (-not $lapsAttr) {
-                $planErrors += @{ Timestamp = Get-Date; Category = 'Validation'; Code = 'WINLAPS_SCHEMA_MISSING'; Message = 'Windows LAPS schema attributes not found.'; Context = @{} }
+                $planErrors += @{ Timestamp = Get-Date; Category = 'Validation'; Code = 'WINLAPS_SCHEMA_MISSING'; Message = 'The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.'; Context = @{} }
             }
         } catch {
-            $planErrors += @{ Timestamp = Get-Date; Category = 'Validation'; Code = 'WINLAPS_SCHEMA_MISSING'; Message = "Schema query failed: $($_.Exception.Message)"; Context = @{} }
+            $planErrors += @{ Timestamp = Get-Date; Category = 'Validation'; Code = 'WINLAPS_SCHEMA_MISSING'; Message = "Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message). Confirm connectivity to the domain controller, then re-attempt the Tier Model Windows LAPS deployment."; Context = @{} }
         }
 
         try {
@@ -149,6 +149,9 @@ function Get-TierModelWinLapsAclFd {
         foreach ($delegation in $delegations) {
             $allGroupNames += @($delegation.readGroup)
             $allGroupNames += @($delegation.resetGroup)
+            if ($delegation.PSObject.Properties['decryptorGroup'] -and $delegation.decryptorGroup) {
+                $allGroupNames += @($delegation.decryptorGroup)
+            }
         }
         $uniqueGroups = @($allGroupNames | Select-Object -Unique)
         foreach ($group in $uniqueGroups) {
@@ -162,6 +165,49 @@ function Get-TierModelWinLapsAclFd {
                 # In FD mode, groups may not exist yet (created by earlier phases); use best-effort
                 $groupResolution[$group] = "$netBIOSDomain\$($group -replace ' ','')"
                 $warnings += "Group '$group' not found — using estimated sAMAccountName for plan."
+            }
+        }
+
+        # Validate LAPS GPOs exist (required for decryptor configuration)
+        $requiredLapsGpoNames = @()
+        if ($Config.PSObject.Properties['gpos'] -and $Config.gpos) {
+            foreach ($ouKey in $Config.gpos.PSObject.Properties.Name) {
+                $ouGpoData = $Config.gpos.$ouKey
+                foreach ($gpoArray in @('ImportOnlyGpo', 'PostConfigureGpo')) {
+                    if ($ouGpoData.PSObject.Properties[$gpoArray] -and $ouGpoData.$gpoArray) {
+                        foreach ($gpo in $ouGpoData.$gpoArray) {
+                            if ($gpo.name -like '*Windows LAPS*') {
+                                $requiredLapsGpoNames += $gpo.name
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        $requiredLapsGpoNames = @($requiredLapsGpoNames | Select-Object -Unique)
+
+        if ($requiredLapsGpoNames.Count -gt 0) {
+            foreach ($gpoName in $requiredLapsGpoNames) {
+                try {
+                    $existingGpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop
+                } catch {
+                    $planErrors += @{
+                        Timestamp = Get-Date
+                        Category  = 'Validation'
+                        Code      = 'RequiredGpoNotFound'
+                        Message   = "Required GPO '$gpoName' does not exist - create GPOs first"
+                        Context   = @{ GpoName = $gpoName }
+                    }
+                }
+            }
+        }
+
+        if ($planErrors.Count -gt 0) {
+            return [PSCustomObject]@{
+                Actions = @(); Summary = @{ TotalActions = 0; CreateActions = 0; ConfigureActions = 0; ExistingCount = 0; RiskAssessment = @{ LowRisk = 0; MediumRisk = 0; HighRisk = 0 } }
+                Analysis = @{ ConfiguredDelegations = $delegations.Count; ExistingPermissions = 0; ValidationErrors = $planErrors.Count }
+                Errors = $planErrors; Warnings = $warnings
+                DurationMs = ((Get-Date) - $startTime).TotalMilliseconds; CorrelationId = $CorrelationId
             }
         }
 
@@ -340,17 +386,66 @@ function Get-TierModelWinLapsAclFd {
             }
         }
 
+        # Plan LAPS Decryptor GPO configuration (for entries with decryptorGroup)
+        foreach ($delegation in $delegations) {
+            $isDcOu = if ($delegation.PSObject.Properties['isDomainControllerOu']) { $delegation.isDomainControllerOu } else { $false }
+            if ($isDcOu) { continue }
+            if (-not ($delegation.PSObject.Properties['decryptorGroup'] -and $delegation.decryptorGroup)) { continue }
+            if (-not ($delegation.PSObject.Properties['decryptorGpoName'] -and $delegation.decryptorGpoName)) { continue }
+
+            $decryptorGroupName = $delegation.decryptorGroup
+            $gpoName = $delegation.decryptorGpoName
+            $resolvedDecryptor = $groupResolution[$decryptorGroupName]
+            if (-not $resolvedDecryptor) { continue }
+
+            # Check if decryptor already set correctly on the GPO
+            $decryptorExists = $false
+            try {
+                $lapsKey = 'HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\LAPS'
+                $regValues = Get-GPRegistryValue -Name $gpoName -Key $lapsKey -Server $DomainController -ErrorAction Stop
+                $currentPrincipal = $regValues | Where-Object { $_.ValueName -eq 'ADPasswordEncryptionPrincipal' }
+                if ($currentPrincipal -and $currentPrincipal.Value -eq $resolvedDecryptor) {
+                    $decryptorExists = $true
+                }
+            } catch { }
+
+            if (-not $decryptorExists) {
+                $actions += [PSCustomObject]@{
+                    Action       = 'ConfigureLapsDecryptor'
+                    ResourceType = 'LapsDecryptor'
+                    Name         = "LAPS Decryptor: $resolvedDecryptor on $gpoName"
+                    Path         = $gpoName
+                    Data         = [PSCustomObject]@{
+                        lapsOperation   = 'SetDecryptorPrincipal'
+                        gpoName         = $gpoName
+                        decryptorValue  = $resolvedDecryptor
+                        decryptorGroup  = $decryptorGroupName
+                    }
+                    Dependencies = @()
+                    RiskLevel    = 'Low'
+                    Validation   = @{ GpoExists = $true; PrincipalResolvable = $true }
+                }
+            } else {
+                $existingCount++
+                if (-not $Silent) {
+                    Write-Host "  `u{2705} LAPS Decryptor Exists: $resolvedDecryptor on $gpoName" -ForegroundColor Green
+                }
+            }
+        }
+
         $createActions = @($actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
+        $configureActions = @($actions | Where-Object { $_.Action -eq 'ConfigureLapsDecryptor' }).Count
         $lowRiskActions = @($actions | Where-Object { $_.RiskLevel -eq 'Low' }).Count
         $durationMs = ((Get-Date) - $startTime).TotalMilliseconds
 
         $result = [PSCustomObject]@{
             Actions    = $actions
             Summary    = @{
-                TotalActions   = $actions.Count
-                CreateActions  = $createActions
-                ExistingCount  = $existingCount
-                RiskAssessment = @{ LowRisk = $lowRiskActions; MediumRisk = 0; HighRisk = 0 }
+                TotalActions      = $actions.Count
+                CreateActions     = $createActions
+                ConfigureActions  = $configureActions
+                ExistingCount     = $existingCount
+                RiskAssessment    = @{ LowRisk = $lowRiskActions; MediumRisk = 0; HighRisk = 0 }
             }
             Analysis   = @{
                 ConfiguredDelegations = $delegations.Count
@@ -364,11 +459,12 @@ function Get-TierModelWinLapsAclFd {
         }
 
         Write-TierModelLog -Level Info -Message "WinLapsAclFdPlanningComplete" -Data @{
-            TotalActions  = $actions.Count
-            CreateActions = $createActions
-            ExistingCount = $existingCount
-            DurationMs    = $durationMs
-            CorrelationId = $CorrelationId
+            TotalActions     = $actions.Count
+            CreateActions    = $createActions
+            ConfigureActions = $configureActions
+            ExistingCount    = $existingCount
+            DurationMs       = $durationMs
+            CorrelationId    = $CorrelationId
         } | Out-Null
 
         return $result
