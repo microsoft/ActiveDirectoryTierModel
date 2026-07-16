@@ -4,6 +4,39 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+### 2026-07-16T11:42:44Z: Interactive Console Mandatory-Parameter Test Anti-Pattern Fixed
+**Author:** Wolverine  
+**Status:** ✅ FIXED — tests/Unit.WinLapsAclOperations.Tests.ps1 lines 309–315 refactored  
+**Significance:** Reusable lesson: test mandatory parameters via Get-Command metadata, NOT by invoking with missing args (prompts in interactive hosts, hangs tests)
+
+**Problem:**  
+Two tests in Unit.WinLapsAclOperations.Tests.ps1 invoked Get-TierModelWinLapsAcl with missing mandatory parameters, expecting `Should -Throw`. Behaviour:
+- CI (non-interactive): PowerShell throws → test passes ✅
+- Interactive console: PowerShell prompts ("Supply values: Config:") → test hangs forever ❌
+
+This broke `Invoke-AllTests.ps1 -FailedOnly` when run interactively, blocking validation workflows.
+
+**Solution Applied:**  
+Both tests replaced with parameter-metadata assertions using Get-Command:
+```powershell
+It "Config parameter is mandatory" {
+    $attr = (Get-Command Get-TierModelWinLapsAcl).Parameters['Config'].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+    ($attr.Mandatory -contains $true) | Should -BeTrue
+}
+```
+Tests the same guarantee (params have `[Parameter(Mandatory)]`) with **zero cmdlet invocation**.
+
+**Verification:**
+- `Invoke-AllTests.ps1 -FailedOnly`: exit 0, no prompts ✅
+- Full suite: 1401/1401 pass ✅
+- Repo-wide scan: no other missing-mandatory-param anti-patterns found ✅
+
+**Recommendation:**  
+Use this pattern repo-wide for mandatory-parameter validation in future.
+
+---
+
 ### 2026-07-16T09:34:10Z: Windows LAPS Feature T001–T021 COMPLETE — Ready for UAT + Release
 **Author:** Scribe  
 **Status:** ✅ SHIPPED — All 21 tasks committed, tests green, docs complete  
