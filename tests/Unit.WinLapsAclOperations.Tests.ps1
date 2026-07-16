@@ -306,12 +306,16 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             $plan.Summary.ExistingCount | Should -BeGreaterThan 0
         }
 
-        It "Mandatory parameters enforced: missing -Config throws" {
-            { Get-TierModelWinLapsAcl -DomainController $script:TestDC } | Should -Throw
+        It "Config parameter is mandatory" {
+            $attr = (Get-Command Get-TierModelWinLapsAcl).Parameters['Config'].Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            ($attr.Mandatory -contains $true) | Should -BeTrue
         }
 
-        It "Mandatory parameters enforced: missing -DomainController throws" {
-            { Get-TierModelWinLapsAcl -Config $script:WinLapsConfig1 } | Should -Throw
+        It "DomainController parameter is mandatory" {
+            $attr = (Get-Command Get-TierModelWinLapsAcl).Parameters['DomainController'].Attributes |
+                    Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+            ($attr.Mandatory -contains $true) | Should -BeTrue
         }
 
         It "DC OU entry does not trigger DC scope rejection (isDomainControllerOu = true)" {
