@@ -40,6 +40,15 @@ Perform comprehensive audit of all TierModel components in dependency order:
 OUs -> Groups -> Users -> OU ACL Delegations -> GPOs -> ADMX.
 Provides consolidated reporting at completion.
 
+.PARAMETER IncludeWinLaps
+Audit Windows LAPS ACL delegations and GPO decryptor settings as an optional feature.
+Can be used standalone (without any scope parameter) or combined with -FullDeployment.
+When active, audits all configured winLapsDelegations for SELF/Read/Reset DACL
+compliance (via Test-TierModelWinLapsAcl) and verifies the ADPasswordEncryptionPrincipal
+registry policy on each non-DC LAPS GPO (via Test-TierModelWinLapsDecryptor).
+Requires Windows LAPS schema extended and LAPS PowerShell module installed.
+A plain -FullDeployment without -IncludeWinLaps does NOT audit LAPS.
+
 .PARAMETER OutputFormat
 Specifies the format for audit report output. Valid options:
 - Text: Human-readable text format
@@ -73,6 +82,15 @@ Perform full TierModel audit and save results as JSON in the C:\Reports director
 .\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -GposOnly -OutputFormat Html -OutputFileBase "GPO-Compliance"
 Audit only GPOs and generate an HTML report in the current directory.
 
+.EXAMPLE
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -IncludeWinLaps
+Standalone audit of Windows LAPS ACL delegations and GPO decryptor settings.
+Expects 0 drift when the tier model with WinLaps has been fully deployed.
+
+.EXAMPLE
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -IncludeWinLaps
+Full TierModel audit including Windows LAPS ACL delegations and decryptor GPO settings.
+
 .NOTES
 Version: 2.0
 Requires: TierModel PowerShell module, appropriate Active Directory permissions
@@ -93,6 +111,7 @@ param(
     [switch]$IncludeMsa,
     [switch]$IncludeGmsa,
     [switch]$IncludeDmsa,
+    [switch]$IncludeWinLaps,
     
     [Parameter()]
     [ValidateSet('Text', 'Json', 'Html', 'NUnitXml')]
@@ -115,17 +134,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one audit scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
-$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa)
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps)
 $activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
-    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa)." -ErrorAction Stop
+    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one audit scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
 }
 elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
-    Write-Error "-IncludeMsa, -IncludeGmsa, and -IncludeDmsa can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
+    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, and -IncludeWinLaps can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Audit TierModel orchestration starting." -ForegroundColor Cyan
@@ -532,7 +551,7 @@ if ($FullDeployment) {
     
     # === Optional Features: MSA/gMSA/dMSA ACL Audit ===
     if ($activeIncludeCount -gt 0) {
-        Write-Host "`n=== Optional Features: MSA/gMSA/dMSA ACL Audit ===" -ForegroundColor Magenta
+        Write-Host "`n=== Optional Features: MSA/gMSA/dMSA/WinLaps ACL & Decryptor Audit ===" -ForegroundColor Magenta
         
         if ($IncludeMsa) {
             try {
@@ -611,6 +630,53 @@ if ($FullDeployment) {
                 Write-Host "  Warning: dMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
+        
+        if ($IncludeWinLaps) {
+            try {
+                $winLapsAclAudit = Test-TierModelWinLapsAcl -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($winLapsAclAudit) {
+                    $winLapsAclWrapped = [PSCustomObject]@{
+                        EntityType = 'WinLaps ACL'
+                        Summary = @{
+                            TotalAcls = $winLapsAclAudit.TotalChecked
+                            Compliant = $winLapsAclAudit.Compliant
+                            Missing   = $winLapsAclAudit.Missing
+                            Mismatched = $winLapsAclAudit.Mismatched
+                            Errors    = $winLapsAclAudit.Errors
+                            Drift     = $winLapsAclAudit.Drift
+                        }
+                        Findings      = $winLapsAclAudit.Findings
+                        DurationMs    = $winLapsAclAudit.DurationMs
+                        CorrelationId = $winLapsAclAudit.CorrelationId
+                    }
+                    $auditResults += $winLapsAclWrapped
+                }
+            } catch {
+                Write-Host "  Warning: WinLaps ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+            try {
+                $winLapsDecryptorAudit = Test-TierModelWinLapsDecryptor -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($winLapsDecryptorAudit) {
+                    $winLapsDecryptorWrapped = [PSCustomObject]@{
+                        EntityType = 'WinLaps Decryptor'
+                        Summary = @{
+                            TotalAcls = $winLapsDecryptorAudit.TotalChecked
+                            Compliant = $winLapsDecryptorAudit.Compliant
+                            Missing   = $winLapsDecryptorAudit.Missing
+                            Mismatched = $winLapsDecryptorAudit.Mismatched
+                            Errors    = $winLapsDecryptorAudit.Errors
+                            Drift     = $winLapsDecryptorAudit.Drift
+                        }
+                        Findings      = $winLapsDecryptorAudit.Findings
+                        DurationMs    = $winLapsDecryptorAudit.DurationMs
+                        CorrelationId = $winLapsDecryptorAudit.CorrelationId
+                    }
+                    $auditResults += $winLapsDecryptorWrapped
+                }
+            } catch {
+                Write-Host "  Warning: WinLaps Decryptor audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
     }
     
     # Show consolidated audit report at the end
@@ -672,7 +738,7 @@ if ($FullDeployment) {
                 'OU ACL' { 
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor' } {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
                 default { 
@@ -718,7 +784,10 @@ if ($FullDeployment) {
         
         # Handle findings-based errors
         if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $errorFindings = $result.Findings | Where-Object { $_.Type -eq 'Error' }
+            $errorFindings = $result.Findings | Where-Object {
+                ($_.PSObject.Properties.Name -contains 'Type'   -and $_.Type   -eq 'Error') -or
+                ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')
+            }
             if ($errorFindings) { 
                 $totalErrors += if ($errorFindings -is [array]) { $errorFindings.Count } else { 1 }
             }
@@ -765,6 +834,8 @@ if ($FullDeployment) {
                 'MSA ACL' { 'MSA ACL' }
                 'gMSA ACL' { 'gMSA ACL' }
                 'dMSA ACL' { 'dMSA ACL' }
+                'WinLaps ACL' { 'WinLaps ACL' }
+                'WinLaps Decryptor' { 'WinLaps Decryptor' }
                 default { 'OU ACL' }
             }
         } elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0) { "OU" }
@@ -801,7 +872,7 @@ if ($FullDeployment) {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor' } {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
@@ -833,7 +904,10 @@ if ($FullDeployment) {
         
         # Handle findings-based errors safely
         if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $errorFindings = $result.Findings | Where-Object { $_.Type -eq 'Error' }
+            $errorFindings = $result.Findings | Where-Object {
+                ($_.PSObject.Properties.Name -contains 'Type'   -and $_.Type   -eq 'Error') -or
+                ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')
+            }
             if ($errorFindings) { 
                 $entityErrors += if ($errorFindings -is [array]) { $errorFindings.Count } else { 1 }
             }
@@ -851,7 +925,9 @@ if ($FullDeployment) {
             }
         }
         if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $driftFromFindings = $result.Findings | Where-Object { $_.Type -eq 'Drift' }
+            $driftFromFindings = $result.Findings | Where-Object {
+                ($_.PSObject.Properties.Name -contains 'Type') -and $_.Type -eq 'Drift'
+            }
             if ($driftFromFindings) { $driftFindings += $driftFromFindings }
         }
         
@@ -1019,7 +1095,14 @@ else {
 
 # === Standalone -Include* Audit Mode (no scope parameter) ===
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
-    Write-Host "`n=== Standalone MSA/gMSA/dMSA ACL Audit ===" -ForegroundColor Magenta
+    # Build a feature-aware label for headers
+    $featureLabel = @()
+    if ($IncludeMsa)      { $featureLabel += 'MSA' }
+    if ($IncludeGmsa)     { $featureLabel += 'gMSA' }
+    if ($IncludeDmsa)     { $featureLabel += 'dMSA' }
+    if ($IncludeWinLaps)  { $featureLabel += 'WinLaps' }
+    $standaloneLabelStr = $featureLabel -join '/'
+    Write-Host "`n=== Standalone $standaloneLabelStr ACL & Decryptor Audit ===" -ForegroundColor Magenta
     
     # Load config
     $config = Get-TierModelConfig
@@ -1031,6 +1114,7 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
     if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
     if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+    if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
     $prereqs = Test-TierModelPrerequisites @prereqSplat
     
     if (-not $prereqs.Valid) {
@@ -1083,7 +1167,30 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
         }
     }
     
-    Write-Host "`n=== MSA/gMSA/dMSA Audit Results ===" -ForegroundColor Magenta
+    if ($IncludeWinLaps) {
+        try {
+            $winLapsAclAudit = Test-TierModelWinLapsAcl -Config $config -DomainController $PreferredDc
+            if ($winLapsAclAudit) {
+                $standaloneTotalChecked += $winLapsAclAudit.TotalChecked
+                $standaloneTotalDrift   += $winLapsAclAudit.Drift
+                $standaloneTotalErrors  += $winLapsAclAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ WinLaps ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        try {
+            $winLapsDecryptorAudit = Test-TierModelWinLapsDecryptor -Config $config -DomainController $PreferredDc
+            if ($winLapsDecryptorAudit) {
+                $standaloneTotalChecked += $winLapsDecryptorAudit.TotalChecked
+                $standaloneTotalDrift   += $winLapsDecryptorAudit.Drift
+                $standaloneTotalErrors  += $winLapsDecryptorAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ WinLaps Decryptor audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+    
+    Write-Host "`n=== $standaloneLabelStr Audit Results ===" -ForegroundColor Magenta
     Write-Host "Overall Status: $(if ($standaloneTotalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $standaloneTotalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($standaloneTotalDrift -eq 0) { 'Green' } else { 'Red' })
     Write-Host "  Total Checked: $standaloneTotalChecked" -ForegroundColor White
     Write-Host "  Total Drift: $standaloneTotalDrift" -ForegroundColor $(if ($standaloneTotalDrift -gt 0) { 'Red' } else { 'Green' })

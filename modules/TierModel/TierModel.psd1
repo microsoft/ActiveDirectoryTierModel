@@ -68,6 +68,7 @@
         'Get-TierModelWinLapsAcl',
         'New-TierModelWinLapsAcl',
         'Test-TierModelWinLapsAcl',
+        'Test-TierModelWinLapsDecryptor',
         'Get-TierModelWinLapsAclFd',
         'Test-TierModelOuExists',
         'Test-TierModelPrerequisites',

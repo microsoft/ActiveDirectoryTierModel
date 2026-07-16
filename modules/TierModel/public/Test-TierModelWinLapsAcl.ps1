@@ -93,6 +93,25 @@ function Test-TierModelWinLapsAcl {
             } | Out-Null
         }
 
+        # Pre-compute LAPS attribute schema GUIDs for SELF ACE detection (mirrors Get-TierModelWinLapsAcl planner).
+        # When GUIDs cannot be resolved the filter falls back to any non-inherited SELF ACE, which is safe.
+        $lapsSchemaGUIDs = @()
+        try {
+            $rootDSE  = Get-ADRootDSE -Server $DomainController -ErrorAction Stop
+            $schemaDN = $rootDSE.schemaNamingContext
+            $lapsAttrNames = @(
+                'msLAPS-Password', 'msLAPS-EncryptedPassword', 'msLAPS-EncryptedPasswordHistory',
+                'msLAPS-PasswordExpirationTime', 'msLAPS-EncryptedDSRMPassword', 'msLAPS-EncryptedDSRMPasswordHistory'
+            )
+            foreach ($attrName in $lapsAttrNames) {
+                $attrObj = Get-ADObject -Filter "lDAPDisplayName -eq '$attrName'" -SearchBase $schemaDN `
+                               -Server $DomainController -Properties schemaIDGUID -ErrorAction SilentlyContinue
+                if ($attrObj -and $attrObj.schemaIDGUID) {
+                    $lapsSchemaGUIDs += [Guid]::new($attrObj.schemaIDGUID)
+                }
+            }
+        } catch { }
+
         if (-not $Silent) {
             Write-Host "Auditing Windows LAPS DACL delegations..." -ForegroundColor Cyan
         }
@@ -149,20 +168,31 @@ function Test-TierModelWinLapsAcl {
                 continue
             }
 
-            # Use Find-LapsADExtendedRights to check permissions
+            # SELF detection: use Get-Acl (AD: provider) with non-inherited + LAPS GUID filter.
+            # Find-LapsADExtendedRights does NOT surface the computer SELF-permission ACE in
+            # ExtendedRightHolders — detecting it that way always returns false. This method
+            # mirrors the proven idempotency logic in Get-TierModelWinLapsAcl.ps1 (planner).
             $selfOk = $false
             $readMissing = @()
             $resetMissing = @()
 
+            try {
+                $ouAcl    = Get-Acl -Path "AD:$resolvedOuDn" -ErrorAction Stop
+                $selfAces = @($ouAcl.Access | Where-Object {
+                    $_.IdentityReference.Value -eq 'NT AUTHORITY\SELF' -and
+                    -not $_.IsInherited -and
+                    ($lapsSchemaGUIDs.Count -eq 0 -or $_.ObjectType -in $lapsSchemaGUIDs)
+                })
+                if ($selfAces.Count -ge 1) { $selfOk = $true }
+            } catch { }
+
+            # Read/Reset detection: Find-LapsADExtendedRights correctly reports these holders
             try {
                 $extendedRights = Find-LapsADExtendedRights -Identity $resolvedOuDn -ErrorAction SilentlyContinue
                 if ($extendedRights) {
                     foreach ($right in @($extendedRights)) {
                         if ($right.PSObject.Properties['ExtendedRightHolders']) {
                             $holders = @($right.ExtendedRightHolders)
-                            if ($holders -contains 'NT AUTHORITY\SELF' -or $holders -like '*\SELF') {
-                                $selfOk = $true
-                            }
                             # Check each read principal is present
                             foreach ($sam in $readSamNames) {
                                 $found = $false

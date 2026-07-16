@@ -178,11 +178,28 @@ Verification procedure:
 
 ## Phase 9: WinLaps Audit Integration
 
-> Integrate Test-TierModelWinLapsAcl into the Audit orchestration script.
+> Integrate Test-TierModelWinLapsAcl and Test-TierModelWinLapsDecryptor into the Audit orchestration script.
 
-- [ ] T013 Update `Audit-TierModel.ps1` — add `-IncludeWinLaps` switch parameter to the param block. Update parameter validation to match `Deploy-TierModel.ps1` rules (standalone or with `-FullDeployment` only). Load merged optional config via `Get-TierModelConfig`, pass `-IncludeWinLaps` to `Test-TierModelPrerequisites`, and when `-IncludeWinLaps` is active call `Test-TierModelWinLapsAcl` for drift detection. Include WinLaps drift results in consolidated audit report. When running `-FullDeployment` with `-IncludeWinLaps`, audit WinLaps after standard audit scope. Only audit what was requested.
-  - **Files**: `Audit-TierModel.ps1`
+- [x] T013 Update `Audit-TierModel.ps1` and create `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1` — add `-IncludeWinLaps` switch parameter to the param block. Update parameter validation to match `Deploy-TierModel.ps1` rules (standalone or with `-FullDeployment` only). Load merged optional config via `Get-TierModelConfig`, pass `-IncludeWinLaps` to `Test-TierModelPrerequisites`, and when `-IncludeWinLaps` is active call `Test-TierModelWinLapsAcl` for DACL drift detection AND `Test-TierModelWinLapsDecryptor` for GPO `ADPasswordEncryptionPrincipal` drift detection. Include both WinLaps drift results in consolidated audit report. When running `-FullDeployment` with `-IncludeWinLaps`, audit both WinLaps checks after standard audit scope. Only audit what was requested — a plain `-FullDeployment` without `-IncludeWinLaps` does NOT check LAPS ACLs or decryptors.
+  - ✅ Completed 2026-07-16: -IncludeWinLaps added; ACL drift via Test-TierModelWinLapsAcl; NEW decryptor drift via Test-TierModelWinLapsDecryptor (audits ADPasswordEncryptionPrincipal on all 6 non-DC LAPS GPOs); wired standalone + FullDeployment; opt-in; no link check.
+  - **Files**: `Audit-TierModel.ps1`, `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1`, `modules/TierModel/TierModel.psd1`
   - **Satisfies**: Constitution V (Drift Detection)
+
+---
+
+## 🛑 STOP — MANUAL TEST GATE (Joel) — Audit
+
+**Windows LAPS audit integration is complete and independently testable in the lab.**
+
+Verification procedure:
+1. Restore `WinLapsSchema` checkpoint on VM `TierLab-DC01`, then deploy with `-FullDeployment -IncludeWinLaps -ConfirmApply` (as verified in the T012 STOP gate)
+2. Run `Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` → expect **0 drift**: all 7 OU ACL delegations COMPLIANT + all 6 non-DC GPO decryptors COMPLIANT
+3. Restore `WinLapsSchema` checkpoint again (clean baseline — no tier model deployed)
+4. Run `Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` → expect all ACL entries **MISSING** + all decryptors **MISSING**
+5. Run `Audit-TierModel.ps1 -PreferredDc DC01 -FullDeployment` (**without** `-IncludeWinLaps`) → confirm LAPS ACLs and decryptors are **NOT flagged** (opt-in verification)
+6. *(Optional)* Remove one LAPS ACE on a target OU **or** manually set an incorrect value on one GPO decryptor → rerun with `-IncludeWinLaps` → expect **DRIFT** reported
+
+**Do NOT proceed to T014 until Joel confirms audit manual testing passed.**
 
 ---
 
@@ -254,8 +271,8 @@ T013 → T014–T021 (all code working before deferred tests and docs)
 | After Task | Gate |
 |------------|------|
 | T009 | ⏸️ **Joel UAT**: Lab test standalone `-IncludeWinLaps` |
-| T012 | 🛑 **STOP — MANUAL TEST GATE**: Joel lab-tests deployment end-to-end (see above) |
-| T013 | ⏸️ **Joel UAT**: Lab test audit after deployment, audit after manual ACL removal |
+| T012 | 🛑 **STOP — MANUAL TEST GATE (Deploy)**: Joel lab-tests deployment end-to-end (see Phase 8 gate) |
+| T013 | 🛑 **STOP — MANUAL TEST GATE (Audit)**: Joel lab-tests `-IncludeWinLaps` audit (see Phase 9 gate) |
 | T021 | ⏸️ **Joel final review** |
 
 ---
@@ -269,10 +286,10 @@ T013 → T014–T021 (all code working before deferred tests and docs)
 | **Config/setup tasks** | 2 (T001–T002) |
 | **Shared foundation tasks** | 2 (T003–T004) |
 | **Existing file modifications** | 7 (T003, T004, T008, T009, T011, T012, T013) |
-| **New cmdlet tasks** | 4 (T005, T006, T007, T010) |
+| **New cmdlet tasks** | 5 (T005, T006, T007, T010, T013-decryptor) |
 | **Pester test tasks** | 7 (T014–T020) |
 | **Documentation tasks** | 1 (T021) |
-| **Approval gates** | 4 |
+| **Approval gates** | 5 |
 | **Parallelizable tasks** | 12 |
 
 ### Implementation Strategy
