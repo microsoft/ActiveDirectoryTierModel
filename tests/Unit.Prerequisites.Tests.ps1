@@ -352,6 +352,176 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             }
         }
     }
+
+    # ── T014: WinLaps Prerequisites ─────────────────────────────────────────────
+    Context "WinLaps Prerequisites (-IncludeWinLaps)" -Tag 'WinLapsPrereq', 'Prereq' {
+
+        BeforeEach {
+            # Shared schema/DFL block: Get-ADRootDSE -> schemaDN; Get-ADObject (schemaObj) -> version;
+            # Get-ADDomain -> DomainMode + NetBIOSName; Get-ADForest -> ForestMode
+            Mock Get-ADRootDSE -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    schemaNamingContext = "CN=Schema,CN=Configuration,DC=test,DC=local"
+                }
+            }
+
+            # Get-ADObject -Identity (schema objectVersion check) vs -Filter (LAPS attr checks)
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 88 }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                # Default: LAPS attributes present (schema OK)
+                return [PSCustomObject]@{ lDAPDisplayName = 'msLAPS-Password' }
+            }
+
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode        = 'Windows2016Domain'
+                    NetBIOSName       = 'TEST'
+                    DNSRoot           = 'test.local'
+                    DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADForest -ModuleName TierModel {
+                return [PSCustomObject]@{ ForestMode = 'Windows2016Forest'; RootDomain = 'test.local' }
+            }
+
+            # Import-Module LAPS -> succeeds; in-memory LAPS module already loaded by ADStubs
+            Mock Import-Module -ModuleName TierModel { } -ParameterFilter { $Name -eq 'LAPS' }
+
+            Mock Get-ADGroup -ModuleName TierModel { return $null }
+            Mock Get-ADGroupMember -ModuleName TierModel { return @() }
+        }
+
+        It "-IncludeWinLaps switch is accepted without error" {
+            { Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps } |
+                Should -Not -Throw
+        }
+
+        It "-IncludeWinLaps returns a valid result object with WinLaps snapshot keys" {
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+            $result | Should -Not -BeNullOrEmpty
+            $result.PSObject.Properties.Name | Should -Contain 'Valid'
+            $result.PSObject.Properties.Name | Should -Contain 'Errors'
+            $result.PSObject.Properties.Name | Should -Contain 'Remediation'
+            $result.PSObject.Properties.Name | Should -Contain 'EnvironmentSnapshot'
+            # EnvironmentSnapshot is a hashtable — use ContainsKey, not PSObject.Properties
+            $result.EnvironmentSnapshot.ContainsKey('WinLapsSchemaPresent') | Should -Be $true
+            $result.EnvironmentSnapshot.ContainsKey('LapsModulePresent')    | Should -Be $true
+        }
+
+        It "-IncludeWinLaps does not affect output when omitted (no-op isolation)" {
+            $resultBase = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+            $resultBase.EnvironmentSnapshot.ContainsKey('WinLapsSchemaPresent') | Should -Be $false
+            $resultBase.EnvironmentSnapshot.ContainsKey('LapsModulePresent')    | Should -Be $false
+        }
+
+        It "Gate 1: schema missing returns WINLAPS_SCHEMA_MISSING error and Valid=false" {
+            # Override: no LAPS attributes found in schema
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return $null
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Windows LAPS schema'
+            $result.EnvironmentSnapshot.WinLapsSchemaPresent | Should -Be $false
+        }
+
+        It "Gate 1: schema missing blocks Gate 2 (LapsModulePresent stays false)" {
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } { return $null }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.EnvironmentSnapshot.LapsModulePresent | Should -Be $false
+        }
+
+        It "Gate 2: LAPS module import failure returns WINLAPS_MODULE_MISSING error" {
+            # Schema present, but LAPS module cannot be imported
+            Mock Import-Module -ModuleName TierModel -ParameterFilter { $Name -eq 'LAPS' } {
+                throw "No module named 'LAPS' was found."
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'WINLAPS_MODULE_MISSING'
+            $result.EnvironmentSnapshot.LapsModulePresent | Should -Be $false
+        }
+
+        It "Gate 3: DFL below Windows2016Domain returns WINLAPS_DFL_INSUFFICIENT error" {
+            # Schema + module OK; domain functional level is 2012R2 (too old for LAPS encryption)
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode        = 'Windows2012R2Domain'
+                    NetBIOSName       = 'TEST'
+                    DNSRoot           = 'test.local'
+                    DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'WINLAPS_DFL_INSUFFICIENT'
+        }
+
+        It "All three WinLaps gates pass: WinLapsSchemaPresent=true, LapsModulePresent=true" {
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.EnvironmentSnapshot['WinLapsSchemaPresent'] | Should -Be $true
+            $result.EnvironmentSnapshot['LapsModulePresent']    | Should -Be $true
+        }
+
+        It "Gate 1 catch: Valid=false and WINLAPS_SCHEMA error when Get-ADObject throws during schema check" {
+            # ADObject throws during the LAPS attribute loop → catch sets winLapsSchemaPresent=false
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                throw "Schema query error"
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Windows LAPS schema'
+        }
+
+        It "WinLaps section schemaDN fallback: Valid=false when Get-ADRootDSE throws in shared block" {
+            # When Get-ADRootDSE throws, the shared block leaves $schemaDN=null
+            # The WinLaps section re-tries; if it throws again, schema validation error is raised
+            Mock Get-ADRootDSE -ModuleName TierModel { throw "DC unreachable" }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            # Error message about schema or connectivity
+            ($result.Errors -join ' ') | Should -Match 'LAPS schema|schema extensions|DC unreachable'
+        }
+
+        It "Gate 2 missing cmdlets: Valid=false when LAPS module loads but required cmdlets absent" {
+            # Import-Module LAPS succeeds, Get-Module returns module, but Get-Command returns null
+            Mock Get-Module -ModuleName TierModel -ParameterFilter { $Name -eq 'LAPS' } {
+                return [PSCustomObject]@{ Name = 'LAPS'; Version = '1.0.0' }
+            }
+            Mock Get-Command -ModuleName TierModel -ParameterFilter { $Module -eq 'LAPS' } {
+                return $null
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'WINLAPS_MODULE_MISSING'
+        }
+
+        It "Does not break existing prerequisite snapshot fields when combined with -IncludeWinLaps" {
+            $resultBase    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+            $resultWinLaps = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeWinLaps
+
+            $resultBase.EnvironmentSnapshot.PSObject.Properties.Name | ForEach-Object {
+                $resultWinLaps.EnvironmentSnapshot.PSObject.Properties.Name | Should -Contain $_
+            }
+        }
+    }
 }
 
 Describe "Get-TierModelConfig - Configuration Loading" -Tag "Unit", "Config" {

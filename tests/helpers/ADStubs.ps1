@@ -32,6 +32,7 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
     function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $ErrorAction) }
+    function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADRootDSE { param($Server) }
     function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
     function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $ErrorAction) }
@@ -48,6 +49,7 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
         function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $ErrorAction) }
+        function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADRootDSE { param($Server) }
         function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
         function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $ErrorAction) }
@@ -68,6 +70,8 @@ if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
     function Set-GPInheritance { param($Target, $IsBlocked, $Server, $Domain) }
     function Import-GPO { param($BackupGpoName, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded, $ErrorAction) }
     function New-GPO { param($Name, $Server, $Domain, $Comment, $ErrorAction) }
+    function Get-GPRegistryValue { param($Name, $Guid, $Key, $ValueName, $Server, $Domain, $ErrorAction) }
+    function Set-GPRegistryValue { param($Name, $Guid, $Key, $ValueName, $Value, $Type, $Server, $Domain, $ErrorAction) }
 
     # Register as in-memory module so Get-Module GroupPolicy returns a result
     New-Module -Name GroupPolicy -ScriptBlock {
@@ -78,6 +82,8 @@ if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
         function Set-GPInheritance { param($Target, $IsBlocked, $Server, $Domain) }
         function Import-GPO { param($BackupGpoName, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded, $ErrorAction) }
         function New-GPO { param($Name, $Server, $Domain, $Comment, $ErrorAction) }
+        function Get-GPRegistryValue { param($Name, $Guid, $Key, $ValueName, $Server, $Domain, $ErrorAction) }
+        function Set-GPRegistryValue { param($Name, $Guid, $Key, $ValueName, $Value, $Type, $Server, $Domain, $ErrorAction) }
         Export-ModuleMember -Function *
     } | Import-Module -Global -Force
 }
@@ -87,4 +93,22 @@ if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
     # Security cmdlet stubs
     function Get-Acl { param($Path, $ErrorAction) }
     function Set-Acl { param($Path, $AclObject, $ErrorAction) }
+}
+
+if (-not (Get-Command Find-LapsADExtendedRights -ErrorAction SilentlyContinue)) {
+
+    # Windows LAPS module stubs — required for WinLaps deployment/audit cmdlets
+    function Find-LapsADExtendedRights { param($Identity, $DomainController, $Credential, $ErrorAction) }
+    function Set-LapsADComputerSelfPermission { param($Identity, $DomainController, $Credential, $ErrorAction) }
+    function Set-LapsADReadPasswordPermission { param($Identity, $AllowedPrincipals, $DomainController, $Credential, $ErrorAction) }
+    function Set-LapsADResetPasswordPermission { param($Identity, $AllowedPrincipals, $DomainController, $Credential, $ErrorAction) }
+
+    # Register as in-memory module so Import-Module LAPS and Get-Module LAPS both succeed
+    New-Module -Name LAPS -ScriptBlock {
+        function Find-LapsADExtendedRights { param($Identity, $DomainController, $Credential, $ErrorAction) }
+        function Set-LapsADComputerSelfPermission { param($Identity, $DomainController, $Credential, $ErrorAction) }
+        function Set-LapsADReadPasswordPermission { param($Identity, $AllowedPrincipals, $DomainController, $Credential, $ErrorAction) }
+        function Set-LapsADResetPasswordPermission { param($Identity, $AllowedPrincipals, $DomainController, $Credential, $ErrorAction) }
+        Export-ModuleMember -Function *
+    } | Import-Module -Global -Force
 }

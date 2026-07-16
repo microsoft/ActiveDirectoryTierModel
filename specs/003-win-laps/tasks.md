@@ -207,31 +207,31 @@ Verification procedure:
 
 > Pester unit and integration tests — authored AFTER Joel's manual UAT confirms deployment works.
 
-- [ ] T014 [P] Write Pester unit tests for `Test-TierModelPrerequisites` WinLaps checks — add Context block for `-IncludeWinLaps` switch in `tests/Unit.Prerequisites.Tests.ps1`: schema hard-stop (`WINLAPS_SCHEMA_MISSING`), LAPS module missing, DFL insufficient; per Joel's scope constraints: actual pre-req failures against live AD are NOT tested in the automated suite (Joel tests manually)
+- [x] T014 [P] Write Pester unit tests for `Test-TierModelPrerequisites` WinLaps checks — add Context block for `-IncludeWinLaps` switch in `tests/Unit.Prerequisites.Tests.ps1`: schema hard-stop (`WINLAPS_SCHEMA_MISSING`), LAPS module missing, DFL insufficient; per Joel's scope constraints: actual pre-req failures against live AD are NOT tested in the automated suite (Joel tests manually)
   - **Files**: `tests/Unit.Prerequisites.Tests.ps1`
   - **Satisfies**: FR-003, FR-004, SC-004
 
-- [ ] T015 [P] Write Pester unit tests for `Get-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: plan generation (3 actions per delegation), fail-fast on missing OUs/groups, idempotency when all DACLs present (`Converged = True`, `TotalActions = 0`), parameter guard (`-IncludeWinLaps -OuOnly` throws)
+- [x] T015 [P] Write Pester unit tests for `Get-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: plan generation (3 actions per delegation), fail-fast on missing OUs/groups, idempotency when all DACLs present (`Converged = True`, `TotalActions = 0`), parameter guard (`-IncludeWinLaps -OuOnly` throws)
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-002, FR-003, FR-005, FR-011
 
-- [ ] T016 [P] Write Pester unit tests for `New-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: WhatIf zero-writes (`Applied = 0`), apply from plan (`Applied = N`), apply idempotency (`Applied = 0` on converged), `Converged`/`Skipped`/`Errors` result structure
+- [x] T016 [P] Write Pester unit tests for `New-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: WhatIf zero-writes (`Applied = 0`), apply from plan (`Applied = N`), apply idempotency (`Applied = 0` on converged), `Converged`/`Skipped`/`Errors` result structure
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-005, FR-006
 
-- [ ] T017 [P] Write Pester unit tests for `Get-TierModelWinLapsAclFd` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: lighter validation, `-Silent` support, plan output matches Fd structure, `ExistingCount` metadata
+- [x] T017 [P] Write Pester unit tests for `Get-TierModelWinLapsAclFd` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: lighter validation, `-Silent` support, plan output matches Fd structure, `ExistingCount` metadata
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-012, FR-008
 
-- [ ] T018 [P] Write Pester unit tests for `Test-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: `Compliant`/`MissingAcl`/`UnexpectedAcl` classifications, `-Silent`/`-SuppressSummary` support, drift detection accuracy
+- [x] T018 [P] Write Pester unit tests for `Test-TierModelWinLapsAcl` — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: `Compliant`/`MissingAcl`/`UnexpectedAcl` classifications, `-Silent`/`-SuppressSummary` support, drift detection accuracy
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-005, SC-001
 
-- [ ] T019 [P] Write Pester integration tests — in `tests/Integration.WinLapsDeployment.Tests.ps1`: totals increase with `-IncludeWinLaps` (plan + apply), idempotency convergence (second apply = 0), all four `-Include*` phase labels in stdout with WinLaps after dMSA
+- [x] T019 [P] Write Pester integration tests — in `tests/Integration.WinLapsDeployment.Tests.ps1`: totals increase with `-IncludeWinLaps` (plan + apply), idempotency convergence (second apply = 0), all four `-Include*` phase labels in stdout with WinLaps after dMSA
   - **Files**: `tests/Integration.WinLapsDeployment.Tests.ps1`
   - **Satisfies**: FR-008, SC-002, SC-007
 
-- [ ] T020 [P] Write Pester regression tests for Windows-LAPS-only invariant — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: every action `objectType` is `ms-LAPS-*`, NONE references `ms-Mcs-*` or `*AdmPwd*`, no `AdmPwd.PS` module calls. Guard against legacy LAPS leakage.
+- [x] T020 [P] Write Pester regression tests for Windows-LAPS-only invariant — in `tests/Unit.WinLapsAclOperations.Tests.ps1`: every action `objectType` is `ms-LAPS-*`, NONE references `ms-Mcs-*` or `*AdmPwd*`, no `AdmPwd.PS` module calls. Guard against legacy LAPS leakage.
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-010, SC-005
 
