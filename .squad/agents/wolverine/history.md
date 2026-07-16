@@ -1,5 +1,29 @@
 # wolverine — History
 
+## BUG FIX: Interactive-Prompt Hang in WinLaps Mandatory-Param Tests (2026-07-16)
+
+**Status:** ✅ FIXED — LOCAL only, no commit. Requested by Joel Platek.
+
+**Bug:** `tests\Invoke-AllTests.ps1 -FailedOnly` hung in an interactive console at the WinLaps test.  
+Root cause: two tests in `tests\Unit.WinLapsAclOperations.Tests.ps1` (lines 309–315) invoked  
+`Get-TierModelWinLapsAcl` with a missing mandatory param inside `Should -Throw`. In CI (non-interactive),  
+PowerShell throws → test passes. In an interactive host, PowerShell prompts → hangs forever.
+
+**Fix:** Replaced both invocation-based tests with command-metadata tests that check  
+`[System.Management.Automation.ParameterAttribute].Mandatory` directly — zero cmdlet invocation,  
+no host can ever prompt, same semantic guarantee. Pattern used:
+```powershell
+$attr = (Get-Command Get-TierModelWinLapsAcl).Parameters['Config'].Attributes |
+        Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] }
+($attr.Mandatory -contains $true) | Should -BeTrue
+```
+
+**Sibling scan:** All other WinLaps cmdlet calls in the 3 WinLaps test files supply all mandatory params. No other anti-patterns found in WinLaps files. Non-WinLaps `Should -Throw` calls in existing test files all supply mandatory params and test business logic (not missing-param detection) — no changes needed.
+
+**Verification:** Full suite 1401/0 (PASS/FAIL). `Invoke-AllTests.ps1 -FailedOnly` completed exit 0, no prompts.
+
+---
+
 ## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
 
 **Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
