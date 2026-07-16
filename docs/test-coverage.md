@@ -9,15 +9,15 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** June 4, 2026 (1,292 tests / 0 failed — Phase 16 MSA/gMSA/dMSA complete) | **Overall: 91.6%** (10,444/11,389) | **Target: 95%**
+**Last measured:** July 16, 2026 (1,401 tests / 0 failed — v1.2.0 Windows LAPS complete) | **Overall: 90.92%** | **Target: 95%**
 
-> ✅ **Phase 16 measured:** 12 new MSA/gMSA/dMSA cmdlets added with comprehensive test coverage. All new files at 90%+ (aggregate 93.2%). 3 new test files: Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1.
+> ✅ **v1.2.0 measured:** 5 new Windows LAPS cmdlets added with comprehensive test coverage. New files span 81.6–92.7%. 2 new test files: Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1.
 
 | Tier | Files | Count |
 |------|-------|-------|
 | ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink` | 12 |
-| 🟡 90-99% | `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Test-TierModelPrerequisites`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl` | 18 |
-| 🟠 80-89% | `Deploy-TierModel`, `New-Tier*`, `Get-TierModel*Fd` variants, `Audit-TierModel`, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1` | 16 |
+| 🟡 90-99% | `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Test-TierModelPrerequisites`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor` | 21 |
+| 🟠 80-89% | `Deploy-TierModel`, `New-Tier*`, `Get-TierModel*Fd` variants, `Audit-TierModel`, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd` | 18 |
 | 🔴 50-79% | **No files!** 🎉 | 0 |
 | 🚨 0-25% | **No critical gaps!** 🎉 | 0 |
 
@@ -83,7 +83,12 @@
 | `modules/TierModel/public/Test-TierModelGPOLink.ps1` | 222 | 0 | 222 | ✅ 100% |
 | `modules/TierModel/public/Test-TierModelOuExists.ps1` | 9 | 0 | 9 | ✅ 100% |
 | `modules/TierModel/public/Write-TierModelLog.ps1` | 37 | 0 | 37 | ✅ 100% |
-| **TOTAL (58 files)** | **10,444** | **945** | **11,389** | **91.6%** |
+| `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
+| `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | — | — | 485 | 🟠 84.5% |
+| `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
+| `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` | — | — | 329 | 🟡 91.8% |
+| `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
+| **TOTAL (63 files)** | — | — | **13,331** | **90.92%** |
 
 > **✦** = File has a documented structural barrier preventing full coverage without production code refactoring. See **Hard Coverage Limits** table below for details.
 
@@ -108,7 +113,7 @@
 | `Test-TierModelOuExists.ps1` | 9 | ✅ 100% |
 | `Write-TierModelLog.ps1` | 37 | ✅ 100% |
 
-### 🟡 Near Target: 90-99% Coverage (18 files)
+### 🟡 Near Target: 90-99% Coverage (21 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
@@ -130,8 +135,11 @@
 | `Get-TierModelGroupFd.ps1` | 110 | 1 | 111 | 99.1% ✦ |
 | `Test-TierModelGPOContent.ps1` | 228 | 2 | 230 | 99.1% |
 | `Get-TierModelOuAclFd.ps1` | 194 | 1 | 195 | 99.49% ✦ |
+| `New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
+| `Test-TierModelWinLapsAcl.ps1` | — | — | 329 | 🟡 91.8% |
+| `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
 
-### 🟠 Below Target: 80-89% Coverage (16 files)
+### 🟠 Below Target: 80-89% Coverage (18 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
@@ -150,6 +158,8 @@
 | `New-TierModelGroup.ps1` | 127 | 20 | 147 | 86.4% |
 | `Set-TierModelGpoTemplate.ps1` | 52 | 8 | 60 | 86.7% |
 | `Deploy-TierModel.ps1` | 1471 | 181 | 1652 | 89.0% ✦ |
+| `Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
+| `Get-TierModelWinLapsAclFd.ps1` | — | — | 485 | 🟠 84.5% |
 
 ### 🔴 Needs Work: 50-79% Coverage (0 files)
 
@@ -357,6 +367,20 @@ Files below 95% target, sorted by missed lines descending (most impactful work f
 
 ---
 
+### **Public Functions - Windows LAPS Operations (v1.2.0)**
+
+| Function | Has Tests? | Test File | Coverage Level | Notes |
+|----------|------------|-----------|----------------|-------|
+| `Get-TierModelWinLapsAcl.ps1` | ✅ Yes | Unit.WinLapsAclOperations.Tests.ps1 | **Good** 🟠 81.6% | Phase-specific planner — validates schema, LAPS module, DFL, OUs, groups, GPO existence; produces Self/Read/Reset CreateAcl + ConfigureLapsDecryptor actions. Complex error paths (schema gate, dependency errors) partially covered |
+| `Get-TierModelWinLapsAclFd.ps1` | ✅ Yes | Unit.WinLapsAclOperations.Tests.ps1 | **Good** 🟠 84.5% | Full deployment planner — lighter OU/group validation; schema/module/DFL checks still mandatory |
+| `New-TierModelWinLapsAcl.ps1` | ✅ Yes | Unit.WinLapsAclOperations.Tests.ps1 | **Excellent** 🟡 90.7% | Executor — applies Set-LapsADComputerSelfPermission, Set-LapsADReadPasswordPermission, Set-LapsADResetPasswordPermission; configures ADPasswordEncryptionPrincipal on LAPS GPOs via Set-GPRegistryValue; WhatIf-safe |
+| `Test-TierModelWinLapsAcl.ps1` | ✅ Yes | Unit.WinLapsAclOperations.Tests.ps1 | **Excellent** 🟡 91.8% | ACL drift auditor — SELF via Get-Acl AD: with LAPS schema GUID filter; Read/Reset via Find-LapsADExtendedRights; reports Compliant/MissingAcl |
+| `Test-TierModelWinLapsDecryptor.ps1` | ✅ Yes | Unit.WinLapsAclOperations.Tests.ps1 | **Excellent** 🟡 92.7% | GPO decryptor auditor — resolves GPO by display name pattern, reads ADPasswordEncryptionPrincipal, compares case-insensitively against NETBIOS\sAMAccountName; reports Compliant/Missing/Mismatched/Error; skips DC entries |
+
+**Integration test:** `Integration.WinLapsDeployment.Tests.ps1` — end-to-end Windows LAPS deployment, idempotency, and audit validation.
+
+---
+
 ### **Test Infrastructure & Helpers**
 
 | File | Purpose | Status |
@@ -383,7 +407,8 @@ Files below 95% target, sorted by missed lines descending (most impactful work f
 | **GPO Linking** | 4 | 4 | 0 | 0 | **100%** ✅ |
 | **GPO Templates** | 4 | 4 | 0 | 0 | **100%** ✅ |
 | **ADMX Operations** | 3 | 3 | 0 | 0 | **100%** ✅ |
-| **TOTAL PUBLIC** | 42 | 42 | 0 | 0 | **100%** ✅ |
+| **Windows LAPS Operations** | 5 | 5 | 0 | 0 | **100%** ✅ |
+| **TOTAL PUBLIC** | 47 | 47 | 0 | 0 | **100%** ✅ |
 
 ---
 

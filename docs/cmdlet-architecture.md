@@ -206,6 +206,61 @@ Two ACEs per dMSA delegation:
 1. CreateChild/DeleteChild scoped to msDS-DelegatedManagedServiceAccount class on the OU
 2. GenericAll on descendant objects of msDS-DelegatedManagedServiceAccount class
 
+## Phase 10: Windows LAPS ACL Delegation (Optional)
+
+Windows LAPS delegation is an optional feature enabled with `-IncludeWinLaps` switch. It deploys 7 ACL delegations (Self-permission, Read-permission, Reset-permission per OU) **and** configures the `ADPasswordEncryptionPrincipal` GPO registry value on the 6 non-DC Windows LAPS GPOs.
+
+> **Windows LAPS only** — this phase exclusively uses `ms-LAPS-*` schema attributes and the `LAPS` PowerShell module APIs. Legacy Microsoft LAPS (`ms-Mcs-AdmPwd*`, `AdmPwd.PS`) is never referenced.
+
+### Cmdlets
+
+- **Get-TierModelWinLapsAcl** — Plan Windows LAPS ACL delegations (phase-specific)
+  - Configuration + DomainController → validates schema, LAPS module, DFL, OUs, groups, GPO existence → plan
+  - Produces 3 `CreateAcl` actions per delegation (Self, Read, Reset) + `ConfigureLapsDecryptor` actions for non-DC entries
+  - **Hard stop on missing schema:** if `ms-LAPS-Password` is absent, returns a plan error and never extends the schema
+  - Parameters: `-Config`, `-DomainController`, `-IncludeDetails`
+
+- **Get-TierModelWinLapsAclFd** — Full deployment variant (lighter validation)
+  - Assumes OUs and groups will exist from earlier phases; schema/module/DFL checks still mandatory
+  - Parameters: `-Config`, `-DomainController`, `-IncludeDetails`, `-Silent`
+
+- **New-TierModelWinLapsAcl** — Apply Windows LAPS ACL delegations and decryptor configuration
+  - Plan + DomainController + Config → calls `Set-LapsADComputerSelfPermission`, `Set-LapsADReadPasswordPermission`, `Set-LapsADResetPasswordPermission` for ACL actions
+  - Calls `Set-GPRegistryValue ADPasswordEncryptionPrincipal` for `ConfigureLapsDecryptor` actions
+  - Supports `-WhatIf`
+  - Parameters: `-Plan`, `-DomainController`, `-Config`, `-WhatIf`
+
+- **Test-TierModelWinLapsAcl** — Audit Windows LAPS DACL delegations
+  - Configuration + DomainController → checks Self-permission (via `Get-Acl AD:` with LAPS schema GUID filter), Read-permission, Reset-permission (via `Find-LapsADExtendedRights`) on each target OU
+  - Returns: TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings
+  - Parameters: `-Config`, `-DomainController`, `-Silent`, `-SuppressSummary`
+
+- **Test-TierModelWinLapsDecryptor** — Audit Windows LAPS GPO decryptor configuration
+  - Configuration + DomainController → resolves each non-DC entry's `decryptorGpoName` pattern to an exact GPO, reads current `ADPasswordEncryptionPrincipal` value, compares case-insensitively against expected `NETBIOS\sAMAccountName`
+  - Reports Compliant / Missing / Mismatched / Error per GPO
+  - Domain Controllers OU (`isDomainControllerOu: true`) is skipped — DSRM always uses Domain Admins
+  - Read-only — never modifies GPO settings
+  - Returns: TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings (array of `{GpoName, Expected, Actual, Status}`)
+  - Parameters: `-Config`, `-DomainController`, `-Silent`, `-SuppressSummary`
+
+### Delegation Model
+
+Per-OU delegation (7 OUs from `config/tiermodel-winlaps.json`):
+
+| OU | Self | Read | Reset | Decryptor GPO |
+|----|------|------|-------|---------------|
+| Domain Controllers | ✅ Domain Admins | ✅ Domain Admins | ✅ Domain Admins | ❌ None (DSRM uses Domain Admins) |
+| Tier 0 Member Servers | ✅ SELF | ✅ Tier 0 Server Operators | ✅ Tier 0 Server Operators | Tier 0 Servers LAPS GPO |
+| Tier Model Administration (root) | ✅ SELF | ✅ Tier 0 Admins | ✅ Tier 0 Admins | Tier 0 PAWs LAPS GPO |
+| Tier 1 Member Servers | ✅ SELF | ✅ Tier 1 Server Operators | ✅ Tier 1 Server Operators | Tier 1 Servers LAPS GPO |
+| Tier 1 PAW Devices | ✅ SELF | ✅ Tier 1 Admins | ✅ Tier 1 Admins | Tier 1 PAWs LAPS GPO |
+| Tier 2 PAW Devices | ✅ SELF | ✅ Tier 2 Admins | ✅ Tier 2 Admins | Tier 2 PAWs LAPS GPO |
+| Tier 2 End-User Devices | ✅ SELF | ✅ Tier 2 Device Operators | ✅ Tier 2 Device Operators | Tier 2 EUD LAPS GPO |
+
+### Tier Isolation Note
+
+`ADPasswordEncryptionPrincipal` accepts a single principal per GPO. The configuration assigns each tier's GPO to that tier's admin/operator group. A Tier 0 admin holds `GenericAll` on lower-tier PAW OUs for management purposes but **cannot** use that to decrypt Tier 1 or Tier 2 PAW passwords — CNG-DPAPI decryption requires the exact encryption principal. This is the design intent.
+
 ## Related Documentation
 
 For additional documentation, see:

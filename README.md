@@ -1,6 +1,6 @@
 # 🏛️ Tier Model
 
-Declarative PowerShell framework to deploy and audit an Active Directory Tier Model (OUs, Groups, Users, ACL Delegations, GPOs, ADMX, MSA/gMSA/dMSA Permissions) from a single version-controlled JSON configuration file. Supports idempotent re-runs, drift detection, and reproducible builds via pinned dependency versions.
+Declarative PowerShell framework to deploy and audit an Active Directory Tier Model (OUs, Groups, Users, ACL Delegations, GPOs, ADMX, MSA/gMSA/dMSA Permissions, Windows LAPS Permissions) from a single version-controlled JSON configuration file. Supports idempotent re-runs, drift detection, and reproducible builds via pinned dependency versions.
 
 > 🏗️ **Built with the Specify Framework** - Test-driven development ensuring quality and reliability
 
@@ -38,22 +38,22 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ ALL TESTS PASSING** *(Last run: June 4, 2026)*
+**Current Test Status: ✅ ALL TESTS PASSING** *(Last run: July 16, 2026)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 15 files | 1,091 tests | ✅ 100% Pass | **91.6%** |
-| **Integration Tests** | 6 files | 201 tests | ✅ 100% Pass | **100%** |
+| **Unit Tests** | 17 files | 1,122 tests | ✅ 100% Pass | **90.92%** |
+| **Integration Tests** | 7 files | 279 tests | ✅ 100% Pass | **100%** |
 | **Manual Integration Tests** | 1 file | 331 tests | ✅ 100% Pass | **100%** |
-| **Total** | **22 files** | **1,603 tests** | ✅ **All Passing** | **91.6%** |
+| **Total** | **25 files** | **1,732 tests** | ✅ **All Passing** | **90.92%** |
 
 ### Test Coverage Highlights
-- ✅ **58/58** production files have comprehensive test coverage (12 new MSA/gMSA/dMSA cmdlets added in Phase 16)
-- ✅ **100%** of all automated 1,292 test cases passing
-- ✅ **100%** of all manual 311 test cases passing
-- ✅ **91.6%** overall line coverage (10,444 / 11,389 commands) — all files at 80%+, MSA/gMSA/dMSA at 90%+
+- ✅ **63/63** production files have comprehensive test coverage (5 new Windows LAPS cmdlets added in v1.2.0)
+- ✅ **100%** of all automated 1,401 test cases passing
+- ✅ **100%** of all manual 331 test cases passing
+- ✅ **90.92%** overall line coverage — all files at 80%+, MSA/gMSA/dMSA/WinLaps at 81%+
 - ✅ `Get-TierModelConditionalGroupNames` — new function with full test coverage (6 unit tests)
-- ✅ **New in Phase 16:** Unit test files for MSA/gMSA/dMSA ACL operations (Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1)
+- ✅ **New in v1.2.0:** Unit and integration test files for Windows LAPS (Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1)
 - ✅ Mock-based testing (no Active Directory connectivity required)
 - ✅ WhatIf support validation across all deployment operations
 
@@ -78,8 +78,8 @@ To get started with TierModel, please refer to our comprehensive documentation:
 ### Deployment Scripts
 | Script | Purpose | Optional Features |
 |--------|---------|-------------------|
-| `Deploy-TierModel.ps1` | 🚀 Deploy with scoped execution | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL delegation) |
-| `Audit-TierModel.ps1` | 📊 Audit and compliance checking | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL audit) |
+| `Deploy-TierModel.ps1` | 🚀 Deploy with scoped execution | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL delegation), `-IncludeWinLaps` (Windows LAPS ACL delegation + GPO decryptor) |
+| `Audit-TierModel.ps1` | 📊 Audit and compliance checking | `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` (Managed Service Account ACL audit), `-IncludeWinLaps` (Windows LAPS ACL + decryptor audit) |
 
 ## 🤝 Contributing
 
@@ -133,7 +133,7 @@ cd ActiveDirectoryTierModel
 
 ---
 
-**Version**: 1.1.0 | **License**: MIT | **Status**: ✅ Production Ready
+**Version**: 1.2.0 | **License**: MIT | **Status**: ✅ Production Ready
 
 ## 🚀 Releasing
 

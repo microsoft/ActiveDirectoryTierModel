@@ -13,10 +13,10 @@
 - Not a substitute for a full security architecture review
 
 ### What version of the Tier Model is this?
-- Current release is **v1.1.0** (released June 30, 2026)
+- Current release is **v1.2.0** (released July 16, 2026)
 - The initial automated release was **v1.0.0** (released February 27, 2026)
 - See the `CHANGELOG.md` file in the repository root for full release history
-- v1.1.0 is a **minor, backward-compatible** feature release (adds MSA/gMSA/dMSA ACL support); `2.x` is reserved for future breaking changes
+- v1.2.0 is a **minor, backward-compatible** feature release (adds Windows LAPS ACL delegation and GPO decryptor support); v1.1.0 added MSA/gMSA/dMSA ACL support; `2.x` is reserved for future breaking changes
 
 ---
 
@@ -128,8 +128,9 @@ The high-level migration path is:
 - Review the output carefully before committing to a full deployment
 
 ### What is the difference between `-FullDeployment` and component-specific switches?
-- `-FullDeployment` deploys all components in the correct order of precedence
+- `-FullDeployment` deploys all core components in the correct order of precedence
 - Component switches (`-OuOnly`, `-GroupOnly`, `-GposOnly`, etc.) deploy only that component
+- **Optional features** (`-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa`, `-IncludeWinLaps`) must be explicitly added to either `-FullDeployment` or a standalone run — they are never deployed automatically
 - Use component switches for targeted remediation or phased rollouts
 
 ### How long does a full deployment take?
@@ -210,6 +211,44 @@ The time and energy spent trying to minimize the Tier Model footprint would be f
 - Backup files for `createAndImport` GPOs must be placed in the `config/gpo/` directory
 - Validate changes against `tiermodel.schema.json` before deploying
 - However, 
+
+---
+
+## Windows LAPS (Optional Feature)
+
+### What does `-IncludeWinLaps` do?
+- Deploys 7 Windows LAPS ACL delegations (Self-permission, Read-permission, Reset-permission) to the configured target OUs using `Set-LapsADComputerSelfPermission`, `Set-LapsADReadPasswordPermission`, and `Set-LapsADResetPasswordPermission`
+- Configures the `ADPasswordEncryptionPrincipal` registry value on 6 non-DC Windows LAPS GPOs so the correct tier group can decrypt managed passwords
+- Domain Controllers OU receives Self + Read + Reset delegations but **no** decryptor configuration (DSRM always uses Domain Admins per Microsoft specification)
+- Deployment is idempotent — re-runs skip already-configured entries
+
+### Does this support legacy Microsoft LAPS (ms-Mcs-AdmPwd)?
+- **No.** This feature is **Windows LAPS only** (`ms-LAPS-*` attributes). Legacy Microsoft LAPS (`ms-Mcs-AdmPwd*`, `AdmPwd.PS`) is never referenced, modified, or documented.
+
+### What are the prerequisites for `-IncludeWinLaps`?
+- **Windows LAPS schema extension** must already be present (`ms-LAPS-Password` attribute class). If absent, the tool stops with a friendly error message and **never** extends the schema itself
+- All Tier Model OUs must exist (required for ACL delegation targets)
+- All Tier Model Groups must exist (required for Read/Reset permission principals)
+- All 7 Windows LAPS GPOs must exist (GPO existence only — links are not required)
+
+### What happens if the Windows LAPS schema is not extended?
+- The planner (`Get-TierModelWinLapsAcl`) immediately returns a plan error: `WinLapsSchemaNotPresent`
+- Deployment stops at the plan phase — no ACL or GPO changes are applied
+- The tool never extends the schema; this is a manual prerequisite that must be satisfied before deployment
+
+### Why can't Tier 0 Admins decrypt Tier 1 and Tier 2 PAW passwords?
+- `ADPasswordEncryptionPrincipal` accepts a single principal per GPO. The Tier Model assigns each tier's LAPS GPO to that tier's specific admin/operator group.
+- CNG-DPAPI decryption requires the **exact** encryption principal — having `GenericAll` on a lower-tier PAW OU does **not** grant decryption rights. This is an intentional security design: per-tier isolation ensures each tier's admins can only decrypt passwords in their own tier.
+- This is the strongest security posture and is confirmed as the design intent (see architecture decisions).
+
+### Can `-IncludeWinLaps` be used standalone (without `-FullDeployment`)?
+- Yes. Run `.\Deploy-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com` for a standalone plan, and add `-ConfirmApply` to execute.
+- The three prerequisites (OUs, Groups, GPOs) must already exist when running standalone. The planner validates all three and reports a dependency errors list if anything is missing.
+
+### How do I audit Windows LAPS compliance?
+- `.\Audit-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com`
+- This runs both `Test-TierModelWinLapsAcl` (ACL delegation drift) and `Test-TierModelWinLapsDecryptor` (GPO decryptor drift)
+- Adding `-IncludeWinLaps` to a `-FullDeployment` audit also includes Windows LAPS. A plain `-FullDeployment` without `-IncludeWinLaps` does **not** audit Windows LAPS.
 
 ---
 

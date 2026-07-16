@@ -69,6 +69,11 @@ This will deploy all Tier Model components in the correct dependency order:
 5. Group Policy Objects (GPOs)
 6. ADMX Administrative Templates
 
+> **Optional features** (MSA/gMSA/dMSA ACL delegations, Windows LAPS ACL delegations + GPO decryptor) are **not** included in a standard `-FullDeployment` — add the appropriate switches to enable them:
+> ```powershell
+> .\Deploy-TierModel.ps1 -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa -IncludeWinLaps -PreferredDc DC01.contoso.com -ConfirmApply
+> ```
+
 ### Step 3: Audit the Deployment
 After deployment completes, run a full audit to verify compliance and detect any drift:
 

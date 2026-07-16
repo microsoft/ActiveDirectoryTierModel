@@ -49,6 +49,7 @@ Ordering mirrors authoritative design (plan.md) to satisfy dependencies and enab
 7. **MSA ACL Delegations** (Optional) – Apply permissions on Managed Service Accounts (requires MSAs & groups; enable with `-IncludeMsa`)
 8. **gMSA ACL Delegations** (Optional) – Apply permissions on Group Managed Service Accounts (requires gMSAs & groups; enable with `-IncludeGmsa`)
 9. **dMSA ACL Delegations** (Optional) – Apply permissions on Delegated Managed Service Accounts (requires dMSAs & groups; enable with `-IncludeDmsa`)
+10. **Windows LAPS Delegations** (Optional) – Apply Windows LAPS ACL delegations (Self/Read/Reset) and configure `ADPasswordEncryptionPrincipal` on LAPS GPOs (requires OUs, Groups, and all 7 Windows LAPS GPOs; Windows LAPS schema required; enable with `-IncludeWinLaps`)
 
 ## Testing Strategy by Component
 
@@ -152,10 +153,10 @@ ForEach ($delegation in $model.ouDelegations) {
 
 ### Information Messages (INFO)
 - Object already exists (OU, Group, User, GPO, MSA, gMSA, dMSA)
-- Correct configuration found (ACL, GPO link order, MSA/gMSA/dMSA delegations)
+- Correct configuration found (ACL, GPO link order, MSA/gMSA/dMSA/WinLaps delegations)
 - Successful creation/configuration
 - File count validation success
-- MSA/gMSA/dMSA optional feature enabled
+- MSA/gMSA/dMSA/WinLaps optional feature enabled
 
 ### Warning Messages (WARN)  
 - GPO link order incorrect (manual fix required)
@@ -164,6 +165,8 @@ ForEach ($delegation in $model.ouDelegations) {
 - Missing declared ADML locale file
 - MSA/gMSA/dMSA optional feature switch not enabled but configuration present
 - MSA/gMSA/dMSA ACL application failure (permissions/lock issues)
+- WinLaps optional feature switch not enabled but configuration present
+- WinLaps schema not present (Windows LAPS not installed in forest)
 
 ### Error Messages (ERROR)
 - Object creation failure
@@ -278,6 +281,8 @@ The following table and function contract list define the canonical validation l
 | MSA ACL | OU + Group exist | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-ManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL | Apply two-ACE delegation |
 | gMSA ACL | OU + Group exist | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-GroupManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL | Apply two-ACE delegation |
 | dMSA ACL | OU + Group exist + Schema GUID resolved | Get-Acl / two-ACE model (CreateChild/DeleteChild + GenericAll on msDS-DelegatedManagedServiceAccount) | Both ACEs present for identity | N/A | Cannot read ACL / GUID resolution failure | Apply two-ACE delegation |
+| WinLaps ACL | OU + Group exist + LAPS schema present + LAPS GPOs exist | Get-Acl + Find-LapsADExtendedRights (SELF ACE via AD: provider; Read/Reset via extended rights) | Self-permission, Read-permission, Reset-permission all present | N/A | Schema absent / LAPS module unavailable | Apply Set-LapsADComputerSelfPermission, Set-LapsADReadPasswordPermission, Set-LapsADResetPasswordPermission |
+| WinLaps Decryptor | GPO exists + Group exists + LAPS schema present | Get-GPRegistryValue ADPasswordEncryptionPrincipal | Value present and matches NETBIOS\sAMAccountName of config group | N/A | GPO not found / group not found | Set-GPRegistryValue ADPasswordEncryptionPrincipal |
 
 ### Function Contracts
 
@@ -294,6 +299,11 @@ All test functions are pure (no side-effects) except when `-Apply` or Import cmd
 9. `Test-TierModelMsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
 10. `Test-TierModelGmsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
 11. `Test-TierModelDmsaAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+12. `Get-TierModelWinLapsAcl -Config <object> -DomainController <string> [-IncludeDetails]`
+13. `Get-TierModelWinLapsAclFd -Config <object> -DomainController <string> [-IncludeDetails] [-Silent]`
+14. `New-TierModelWinLapsAcl -Plan <object> -DomainController <string> -Config <object> [-WhatIf]`
+15. `Test-TierModelWinLapsAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+16. `Test-TierModelWinLapsDecryptor -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
 
 ### Result Object Shape (PowerShell PSCustomObject)
 ```
@@ -319,6 +329,7 @@ The TierModel includes comprehensive Pester test suites covering all deployment 
 - `Unit.MsaAclOperations.Tests.ps1` - MSA ACL delegation planning, execution, and audit
 - `Unit.GmsaAclOperations.Tests.ps1` - gMSA ACL delegation planning, execution, and audit
 - `Unit.DmsaAclOperations.Tests.ps1` - dMSA ACL delegation planning, execution, and audit
+- `Unit.WinLapsAclOperations.Tests.ps1` - Windows LAPS ACL delegation planning, execution, audit, and decryptor validation
 - `Unit.GpoOperations.Tests.ps1` - GPO creation and import
 - `Unit.GpoLinking.Tests.ps1` - GPO linking logic
 - `Unit.GpoTemplates.Tests.ps1` - GPO template generation (URA, Restricted Groups)
@@ -329,6 +340,7 @@ The TierModel includes comprehensive Pester test suites covering all deployment 
 - `Integration.Audit.Tests.ps1` - Audit functionality
 - `Integration.DriftDetection.Tests.ps1` - Drift detection
 - `Integration.Convergence.Tests.ps1` - Re-deployment idempotency
+- `Integration.WinLapsDeployment.Tests.ps1` - Windows LAPS end-to-end deployment and idempotency
 
 See `tests/TestCoverageRoadmap.md` in the repository for detailed test coverage analysis.
 

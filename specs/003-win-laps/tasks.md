@@ -235,7 +235,8 @@ Verification procedure:
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-010, SC-005
 
-- [ ] T021 [Storm] Update documentation in `docs/` and `README.md` — document `-IncludeWinLaps` switch for Deploy and Audit scripts, new cmdlets (`Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`), Windows LAPS schema prerequisite, deployment examples (standalone and full deployment), audit examples, deployment-scope boundary, and the Windows-LAPS-only invariant. Update `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, and `README.md` with consistent "Optional Feature" messaging matching the MSA/gMSA/dMSA documentation pattern.
+- [x] T021 [Storm] Update documentation in `docs/` and `README.md` — document `-IncludeWinLaps` switch for Deploy and Audit scripts, new cmdlets (`Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`), Windows LAPS schema prerequisite, deployment examples (standalone and full deployment), audit examples, deployment-scope boundary, and the Windows-LAPS-only invariant. Update `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, and `README.md` with consistent "Optional Feature" messaging matching the MSA/gMSA/dMSA documentation pattern.
+  - ✅ Completed 2026-07-16: README + 8 docs files updated (also cmdlet-architecture, drift-detection-details, faq, quick-deployment-guide, test-tag-matrix), plus `Test-TierModelWinLapsDecryptor` documented. Windows-LAPS-only + opt-in audit messaging aligned to MSA/gMSA/dMSA pattern.
   - **Files**: `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, `README.md`
   - **Owner**: Storm (DevRel & Documentation)
 

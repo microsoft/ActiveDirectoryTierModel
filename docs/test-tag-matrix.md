@@ -24,6 +24,8 @@ This document defines Pester tags used across all TierModel test suites.
 | MsaAcl | Managed Service Account ACL delegation operations |
 | GmsaAcl | Group Managed Service Account ACL delegation operations |
 | DmsaAcl | Delegated Managed Service Account ACL delegation operations |
+| WinLapsAcl | Windows LAPS ACL delegation operations |
+| WinLapsDecryptor | Windows LAPS GPO decryptor (ADPasswordEncryptionPrincipal) operations |
 | Resolution | Name resolution and placeholder expansion |
 | Manifest | Module manifest validation |
 | Module | Module loading and integration tests |
@@ -57,6 +59,7 @@ This document defines Pester tags used across all TierModel test suites.
 | MsaPrereq | MSA feature prerequisite checks |
 | GmsaPrereq | gMSA feature prerequisite checks |
 | DmsaPrereq | dMSA feature prerequisite checks |
+| WinLapsPrereq | Windows LAPS feature prerequisite checks (schema, module, DFL) |
 
 ## Test Type Tags
 
@@ -131,6 +134,13 @@ Invoke-Pester -Tag Structure
 
 - **Invoke-AllTests.ps1** - Runs complete test suite with coverage
 - **Invoke-PrerequisiteTests.ps1** - Runs prerequisite-specific tests with coverage
+
+## Test Files by Component
+
+| Test File | Tags | Component |
+|-----------|------|-----------|
+| `Unit.WinLapsAclOperations.Tests.ps1` | Unit, WinLapsAcl, WinLapsDecryptor, WinLapsPrereq | Windows LAPS ACL delegation + GPO decryptor |
+| `Integration.WinLapsDeployment.Tests.ps1` | Integration, WinLapsAcl, WinLapsDecryptor | Windows LAPS end-to-end deployment + idempotency |
 
 For additional documentation, see:
 - [Deployment Methodology](deployment-methodology.md) - Comprehensive testing strategy

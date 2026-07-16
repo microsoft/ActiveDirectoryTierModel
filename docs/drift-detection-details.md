@@ -12,7 +12,7 @@ This document provides detailed guidance for using the `Audit-TierModel.ps1` scr
 # Run comprehensive audit of all components
 .\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -FullDeployment
 
-.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa -IncludeWinLaps
 ```
 
 ### Scoped Audits
@@ -43,6 +43,9 @@ This document provides detailed guidance for using the `Audit-TierModel.ps1` scr
 
 # Audit only dMSA ACL delegations (optional feature)
 .\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -IncludeDmsa
+
+# Audit only Windows LAPS ACL delegations + GPO decryptor (optional feature)
+.\Audit-TierModel.ps1 -PreferredDc DC01.contoso.com -IncludeWinLaps
 ```
 
 ## Audit Output Structure
@@ -131,12 +134,15 @@ Each component audit displays:
 | Missing | ManagedServiceAccountACL | MSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeMsa (optional feature) |
 | Missing | GroupManagedServiceAccountACL | gMSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeGmsa (optional feature) |
 | Missing | DelegatedManagedServiceAccountACL | dMSA ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeDmsa (optional feature) |
+| Missing | LapsPermission | Windows LAPS ACL delegation not applied | Re-run Deploy-TierModel.ps1 with -IncludeWinLaps (optional feature); verify LAPS schema is extended |
+| Missing | LapsDecryptor | ADPasswordEncryptionPrincipal not set on LAPS GPO | Re-run Deploy-TierModel.ps1 with -IncludeWinLaps; ensure GPO exists before re-deploying |
 | Mismatch | Group | Membership differs from config | Manual remediation or update configuration |
 | Mismatch | User | User properties differ from config | Manual remediation or update configuration |
 | Mismatch | GPO | Link order incorrect | Manual GPO link order adjustment required |
 | Mismatch | ManagedServiceAccountACL | MSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeMsa |
 | Mismatch | GroupManagedServiceAccountACL | gMSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeGmsa |
 | Mismatch | DelegatedManagedServiceAccountACL | dMSA ACL permissions do not match config | Re-run Deploy-TierModel.ps1 with -IncludeDmsa |
+| Mismatched | LapsDecryptor | ADPasswordEncryptionPrincipal set to wrong principal | Re-run Deploy-TierModel.ps1 with -IncludeWinLaps to correct the GPO registry value |
 | HashMismatch | ADMXTemplate | Template file content differs | Re-run Deploy-TierModel.ps1 with -AdmxOnly to update |
 | ExtraProtection | OrganizationalUnit | Additional OU protection enabled | Manual review; may be intentional hardening |
 
@@ -225,12 +231,34 @@ See [CI/CD Documentation](ci-cd.md) for examples of integrating audit scripts in
   .\Audit-TierModel.ps1 -IncludeDmsa -PreferredDc DC01.contoso.com
   ```
 
+### Windows LAPS ACL Delegations (Optional)
+- **Checks**: Self-permission (computer writes own LAPS attributes), Read-permission, Reset-permission on each configured OU; AND `ADPasswordEncryptionPrincipal` registry value on each non-DC LAPS GPO
+- **Cmdlets**: `Test-TierModelWinLapsAcl` (ACL delegation audit), `Test-TierModelWinLapsDecryptor` (GPO decryptor audit)
+- **Enable with**: `-IncludeWinLaps` switch
+- **Prerequisites**: Windows LAPS schema extension (`ms-LAPS-Password` attribute) must be present; all 7 configured LAPS GPOs must exist
+- **Windows LAPS only** — legacy Microsoft LAPS (`ms-Mcs-AdmPwd*`, `AdmPwd.PS`) is never checked
+- **Opt-in**: `-FullDeployment` without `-IncludeWinLaps` does **not** audit Windows LAPS; the flag is required
+- **Drift types**:
+  - `MissingAcl` / `LapsPermission` — Self, Read, or Reset permission absent on a target OU
+  - `Missing` / `LapsDecryptor` — `ADPasswordEncryptionPrincipal` not set on a LAPS GPO
+  - `Mismatched` / `LapsDecryptor` — `ADPasswordEncryptionPrincipal` set to wrong principal (case-insensitive compare)
+  - `Error` — GPO pattern matched 0 or multiple GPOs, or group resolution failed
+- **Domain Controllers OU**: always skipped in decryptor audit — DSRM uses Domain Admins by Microsoft specification
+- **Examples**:
+  ```powershell
+  # Audit only Windows LAPS ACLs + decryptor
+  .\Audit-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com
+
+  # Full audit including Windows LAPS
+  .\Audit-TierModel.ps1 -FullDeployment -IncludeWinLaps -PreferredDc DC01.contoso.com
+  ```
+
 ## Notes
 - Drift detection is **read-only**; no changes are made to AD
 - Remediation is performed using `Deploy-TierModel.ps1` script
 - MD5 hash-based ADMX drift detection is fully implemented
 - MSA/gMSA/dMSA drift detection is optional and enabled via `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` switches
-- Individual cmdlets can be called directly for programmatic use
+- Windows LAPS drift detection is optional and enabled via `-IncludeWinLaps` switch; requires LAPS schema to be present
 
 ## Related Documentation
 

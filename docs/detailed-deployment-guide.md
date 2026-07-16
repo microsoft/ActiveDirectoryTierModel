@@ -397,7 +397,88 @@ Verify dMSA ACL delegation compliance:
 
 ---
 
-## Post-Deployment Verification
+## Step 10: Deploy Windows LAPS ACL Delegations (Optional)
+
+This step is optional and only required if you use Windows LAPS encrypted-password storage. It deploys 7 ACL delegations (Self, Read, and Reset permissions per target OU) **and** sets the `ADPasswordEncryptionPrincipal` registry value on the 6 non-DC LAPS GPOs so the correct tier group can decrypt managed passwords. Enable with `-IncludeWinLaps` switch.
+
+> ⚠️ **Windows LAPS only** — this feature exclusively uses the Windows LAPS APIs (`ms-LAPS-*` attributes). Legacy Microsoft LAPS (`ms-Mcs-AdmPwd*`, `AdmPwd.PS`) is never referenced or modified.
+
+### Prerequisites
+
+Before running this step, the following must already exist in Active Directory:
+
+| Dependency | Required by |
+|-----------|-------------|
+| All Tier Model OUs | ACL delegation targets |
+| All Tier Model Groups | Read/Reset permission principals |
+| All 7 Windows LAPS GPOs | Decryptor configuration (GPO existence only, not links) |
+| Windows LAPS schema extension (`ms-LAPS-Password` attribute class) | Schema gate — **tool stops with a friendly error if absent; it never extends the schema itself** |
+
+Missing OUs or groups produce a **Dependency Errors** listing and halt the plan. Missing GPOs are flagged per entry.
+
+### 10.1 Plan Windows LAPS ACL Deployment
+Review what delegations will be applied:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- 7 target OUs listed with their read/reset group assignments
+- 6 `ConfigureLapsDecryptor` actions showing GPO name → decryptor principal
+- Domain Controllers OU shows Self + Read/Reset for Domain Admins (no decryptor — DSRM always uses Domain Admins)
+- No changes applied to Active Directory
+
+### 10.2 Deploy Windows LAPS ACLs
+Execute the Windows LAPS ACL deployment:
+
+```powershell
+.\Deploy-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com -ConfirmApply
+```
+
+**Expected Output:**
+- 7 × Self-permission, Read-permission, Reset-permission delegations applied
+- 6 GPOs configured with `ADPasswordEncryptionPrincipal` (NETBIOS\sAMAccountName format)
+- Deployment is idempotent — re-runs skip already-configured delegations and decryptor entries
+- Deployment summary
+
+### 10.3 Audit Windows LAPS ACLs
+Verify Windows LAPS ACL and decryptor compliance:
+
+```powershell
+.\Audit-TierModel.ps1 -IncludeWinLaps -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- All 7 LAPS ACL delegations compliant (Self, Read, Reset present on each OU)
+- All 6 GPO decryptor values compliant (correct `ADPasswordEncryptionPrincipal` set)
+- No drift detected
+- Findings show `Compliant` for each delegation entry
+
+> **Note on tier isolation:** `ADPasswordEncryptionPrincipal` is a single principal per GPO. This means Tier 0 Admins can decrypt Tier 0 PAW passwords, but **cannot** decrypt Tier 1 or Tier 2 PAW passwords — each tier's admins decrypt only their own tier. This is intentional per-tier isolation enforced by CNG-DPAPI; GenericAll on a lower-tier PAW OU does not grant decryption.
+
+---
+
+## Deploying Windows LAPS as Part of Full Deployment
+
+`-IncludeWinLaps` composes cleanly with `-FullDeployment`. The Windows LAPS phase runs **after** MSA → gMSA → dMSA (Phase 10):
+
+```powershell
+# Plan full deployment including Windows LAPS
+.\Deploy-TierModel.ps1 -FullDeployment -IncludeWinLaps -PreferredDc DC01.contoso.com
+
+# Apply full deployment including Windows LAPS
+.\Deploy-TierModel.ps1 -FullDeployment -IncludeWinLaps -PreferredDc DC01.contoso.com -ConfirmApply
+
+# Audit everything including Windows LAPS
+.\Audit-TierModel.ps1 -FullDeployment -IncludeWinLaps -PreferredDc DC01.contoso.com
+```
+
+> **Opt-in:** A plain `-FullDeployment` (without `-IncludeWinLaps`) does **not** deploy or audit Windows LAPS. You must explicitly add `-IncludeWinLaps` to include it.
+
+---
+
+
 
 After completing all deployment steps, run a comprehensive audit to ensure the entire Tier Model is compliant:
 
@@ -421,6 +502,7 @@ If a deployment step fails, verify dependencies are in place:
 - **MSA ACLs** (Optional) require MSA objects and Groups to exist
 - **gMSA ACLs** (Optional) require gMSA objects and Groups to exist
 - **dMSA ACLs** (Optional) require dMSA objects and Groups to exist
+- **Windows LAPS ACLs** (Optional) require OUs, Groups, and all 7 Windows LAPS GPOs to exist; Windows LAPS schema extension (`ms-LAPS-Password`) must be present
 - **GPOs** require OUs to exist for linking
 
 ### Redeployment
