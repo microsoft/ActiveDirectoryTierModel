@@ -28,6 +28,47 @@ Archived on 2026-07-15T06-59-20Z. Detailed lab session notes archived for refere
 - **Baseline (no WinLaps)**: Applied 643
 - **Expected WinLaps delta**: +21 (7 OUs × 3 operations)
 - **Final Run 6 totals**: Applied 673 (baseline 643, delta +30 for root OU design)
+
+## T013 Audit Verification — Bugfix Re-Verify (2026-07-16)
+
+**Mission:** Confirm Beast's 2 T013 bugfixes (SELF detection + StrictMode .Type/.Status) live in lab.
+
+**Status:** ✅ PASS — Both bugs fixed, full audit 379 checks 100% compliant
+
+**Test Results:**
+- **Standalone -IncludeWinLaps:** ACL 7/7 compliant (Bug A fix), Decryptor 6/6 compliant, 0 drift, no errors
+- **Full -FullDeployment -IncludeWinLaps:** 379 checks (OU 31, Group 26, User 2, ACL 101, GPO 146, ADMX 60, WinLaps ACL 7, Decryptor 6), 100% compliant, 0 drift, 0 errors
+- **Idempotency:** 2nd run applied 0, Converged True
+- **Opt-in:** -FullDeployment without -IncludeWinLaps shows zero WinLaps content
+- **Drift detection:** Manually mismatched 1 decryptor → audit detected Mismatched → restored to compliant
+
+**Decryptor Status (all 7 GPOs):**
+| GPO | Expected | Actual | Status |
+|-----|----------|--------|--------|
+| Tier 0 PAWs | TIERLAB\Tier0Admins | TIERLAB\Tier0Admins | ✅ |
+| Tier 0 Servers | TIERLAB\Tier0ServerOperators | TIERLAB\Tier0ServerOperators | ✅ |
+| Tier 1 PAWs | TIERLAB\Tier1Admins | TIERLAB\Tier1Admins | ✅ |
+| Tier 1 Servers | TIERLAB\Tier1ServerOperators | TIERLAB\Tier1ServerOperators | ✅ |
+| Tier 2 PAWs | TIERLAB\Tier2Admins | TIERLAB\Tier2Admins | ✅ |
+| Tier 2 EUD | TIERLAB\Tier2DeviceOperators | TIERLAB\Tier2DeviceOperators | ✅ |
+| Tier 0 DCs | (skipped) | (not checked) | ✅ |
+
+**Lab State:** TierLab-DC01 running, deployed, compliant, AD-ready for Joel's UAT
+
+**Key Confirmation:**
+- Bug A (SELF detection): Now uses Get-Acl "AD:$ouDn" filtering for non-inherited LAPS ACEs (mirrors planner). All 7 OUs correctly report 7/7 compliant post-deploy.
+- Bug B (StrictMode .Type/.Status): Consolidated reporting guards property access before comparing. No more "property cannot be found" errors.
+- New Test-TierModelWinLapsDecryptor: Works flawlessly end-to-end. Integration into Audit-TierModel.ps1 structurally correct.
+- Opt-in behavior: Confirmed — feature requires explicit -IncludeWinLaps flag.
+
+**Learnings:**
+1. Get-Acl "AD:$dn" returns definitive IsInherited in PS7; Find-LapsADExtendedRights never surfaces SELF
+2. Mixed Findings schemas require property-existence guards under StrictMode
+3. Decryptor findings shape {GpoName, Expected, Actual, Status} differs from ACL but wrapper tolerates this
+4. FullDeployment wrapper only uses Summary.* for aggregation; per-finding detail unnecessary for decryptor
+5. Idempotency confirmed: Applied 0, Converged True on 2nd run after full deploy
+
+**Next:** Joel's UAT gate. Feature complete, lab-verified, ready for end-to-end manual testing (Get-LapsADPassword -AsPlainText, prerequisites edge-cases)
 - **Idempotency verification**: 2nd run = Applied 0, Converged True ✅
 
 ## Pre-existing LAPS Permissions (Checkpoint State)

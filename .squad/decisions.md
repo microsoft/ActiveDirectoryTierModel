@@ -85,6 +85,36 @@
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
 
+## 2026-07-16T04:24:38Z: Windows LAPS Audit Feature Complete — Test-TierModelWinLapsDecryptor Added
+**Status:** DELIVERED + LAB-VERIFIED — T013 done; all fixes applied; 379-check audit 100% compliant
+**Authors:** Beast (implementation + 2 bugfixes), Wolverine (6-step E2E smoke test + bugfix re-verify)
+
+**Summary:** Windows LAPS audit feature fully integrated into Audit-TierModel.ps1. New public cmdlet Test-TierModelWinLapsDecryptor added to verify ADPasswordEncryptionPrincipal GPO registry values on all 6 non-DC LAPS GPOs. Both WinLaps ACL audit (Test-TierModelWinLapsAcl) and decryptor audit are opt-in via -IncludeWinLaps switch. Wired into both standalone and FullDeployment audit flows.
+
+**Key Fixes (2026-07-16):**
+1. **Bug A (SELF detection):** Test-TierModelWinLapsAcl replaced Find-LapsADExtendedRights SELF check with Get-Acl "AD:$ouDn" filtering for non-inherited LAPS ACEs. SELF now correctly detects on all 7 OUs post-deploy (was 0/7 false negatives).
+2. **Bug B (.Type/.Status error):** Audit-TierModel.ps1 consolidated reporting now guards property access with PSObject.Properties.Name checks. StrictMode -Version Latest no longer throws on decryptor findings using .Status instead of .Type.
+
+**Features:**
+- Test-TierModelWinLapsDecryptor: Verifies GPO ADPasswordEncryptionPrincipal on 6 non-DC LAPS GPOs; reports Compliant/Missing/Mismatched/Error; skips DC DSRM; outputs {GpoName, Expected, Actual, Status}
+- Audit-TierModel.ps1: -IncludeWinLaps parameter added; opt-in (no WinLaps audit in -FullDeployment without flag); runs both cmdlets; aggregates into consolidated report
+- Module: TierModel v1.2.0 (same unreleased feature); Test-TierModelWinLapsDecryptor added to FunctionsToExport; no version bump
+
+**Lab Validation (Wolverine):**
+- Fresh deploy: 681 applied, 0 errors
+- Standalone -IncludeWinLaps audit: 7 ACL (7/7 compliant after Bug A fix), 6 decryptor (6/6 compliant)
+- Full -FullDeployment -IncludeWinLaps audit: 379 checks (OU 31, Group 26, User 2, ACL 101, GPO 146, ADMX 60, WinLaps ACL 7, Decryptor 6), 0 drift, 0 errors, 100% compliant
+- Idempotency: Applied 0, Converged True on 2nd run
+- Drift detection: Detected mismatched decryptor value, restored to compliant
+- Opt-in confirmed: -FullDeployment without -IncludeWinLaps shows zero WinLaps content
+
+**Next Phase:** Joel's manual UAT (end-to-end Get-LapsADPassword -AsPlainText validation; prerequisites edge-cases)
+
+**Decisions Preserved:**
+- Per-tier isolation: Tier 0 Admins cannot decrypt Tier 1/2 PAW passwords (separate principals)
+- Root OU placement: LAPS ACL delegation at Tier Model Administration root OU (OU=Tier Model Administration)
+- decryptorGroup format: Plain display names ("Tier 0 Admins"), runtime resolution via Get-ADGroup -Filter "Name -eq"
+
 ## Archived Inbox (merged from .squad/decisions/inbox/)
 
 ### Beast Decision: Precompute Optional MSA/gMSA/dMSA ACL Plans During Full-Deployment

@@ -1,10 +1,73 @@
 # wolverine — History
 
-## Current: Windows LAPS Decryptor End-to-End Validation PASSED
+## Current: T013 WinLaps Audit — PASS (bugfix re-verify GREEN)
 
-**Status:** Run 8 (full deploy + decryptor) GREEN. 6/6 GPO decryptor values verified. Idempotency confirmed. No bugs.
+**Status:** Both Beast bugfixes confirmed live. Full audit 379 checks, 100% compliant, 0 drift, 0 errors.
 
 ## Learnings
+
+### 2026-07-16 — T013 Bugfix Re-Verify (Bug A + Bug B)
+
+**Mission:** Confirm Beast's fixes for the two bugs found in the 6-step smoke test.
+
+**Result:** ✅ BOTH FIXED — zero regressions.
+
+| Test | Bug A (SELF detection) | Bug B (.Type error) | Overall |
+|------|------------------------|---------------------|---------|
+| Standalone -IncludeWinLaps | ✅ ACL 7/7 COMPLIANT (was 0/7) | ✅ No error | ✅ 0 drift |
+| Full -FullDeployment -IncludeWinLaps | ✅ ACL 7/7 COMPLIANT | ✅ No error | ✅ 379 checked, 100% compliant, 0 drift, 0 errors |
+
+**Full audit breakdown:** OU 31, Group 26, User 2, OU ACL 101, GPO 146, ADMX 60, WinLaps ACL 7, WinLaps Decryptor 6 = 379 total. All zero drift.
+
+**Lab state:** VM TierLab-DC01 running, deployed, compliant, AD-ready for Joel.
+
+### 2026-07-16 — T013 WinLaps Audit Smoke Test (6-Step E2E)
+
+**Mission:** Verify Beast's new WinLaps audit integration (T013) end-to-end against live lab — both Test-TierModelWinLapsAcl and NEW Test-TierModelWinLapsDecryptor, opt-in behavior, empty-box resilience, and drift detection.
+
+**Result:** CONDITIONAL PASS — Decryptor audit (NEW code) is PERFECT. Two bugs found (1 new T013, 1 pre-existing).
+
+#### Step Results
+
+| Step | Description | Result |
+|------|-------------|--------|
+| 1 | Audit Joel's current deployed state | ✅ Ran clean. Decryptor 6/6 compliant. ACL: 7 missing SELF (INFORMATIONAL — pre-existing detection bug) |
+| 2 | Empty-box "all missing" (WinLapsSchema, no tier model) | ✅ No crash. 7 ACL missing (6 OUs don't exist + DC missing perms). 6 decryptor "No GPO found" errors. Graceful handling. |
+| 3 | Fresh deploy -FullDeployment -IncludeWinLaps | ✅ Applied: 681, Errors: 0. All 6 decryptors configured correctly. |
+| 4a | Standalone -IncludeWinLaps audit | ⚠️ Decryptor 6/6 compliant. ACL: 7 missing SELF (Bug A — pre-existing). |
+| 4b | Full -FullDeployment -IncludeWinLaps audit | ⚠️ Both sections present. Decryptor 6/6 compliant. Bug B found (line 787 .Type error). |
+| 4c | Negative: -FullDeployment (no -IncludeWinLaps) | ✅ ZERO WinLaps/LAPS content in output. Opt-in confirmed. |
+| 5 | Drift detection + restore | ✅ Correctly detected 1 MISMATCHED (Tier 0 PAWs: expected Tier0Admins, actual Domain Admins). Restored to 6/6 compliant. |
+| 6 | Final state | ✅ VM running, AD responding, deployed + decryptors compliant. |
+
+#### Decryptor Compliant Table (Steps 4a/5-restored)
+
+| GPO | ADPasswordEncryptionPrincipal | Status |
+|-----|-------------------------------|--------|
+| *- Tier 0 PAWs Windows LAPS - Computer | TIERLAB\Tier0Admins | ✅ Compliant |
+| *- Tier 0 Servers Windows LAPS - Computer | TIERLAB\Tier0ServerOperators | ✅ Compliant |
+| *- Tier 1 PAWs Windows LAPS - Computer | TIERLAB\Tier1Admins | ✅ Compliant |
+| *- Tier 1 Servers Windows LAPS - Computer | TIERLAB\Tier1ServerOperators | ✅ Compliant |
+| *- Tier 2 PAWs Windows LAPS - Computer | TIERLAB\Tier2Admins | ✅ Compliant |
+| *- Tier 2 EUD Windows LAPS - Computer | TIERLAB\Tier2DeviceOperators | ✅ Compliant |
+| *- Tier 0 DCs Windows LAPS - Computer | (skipped — DC OU) | ✅ Correct |
+
+#### Bugs Found
+
+**Bug A (PRE-EXISTING, not T013):** `Test-TierModelWinLapsAcl` SELF detection uses `Find-LapsADExtendedRights` which does NOT include `NT AUTHORITY\SELF` in its `ExtendedRightHolders` output. The deploy planners correctly use `Get-Acl "AD:$ouDn"` (Bug 5b fix). The audit function was never updated. All 7 OUs falsely report ComputerSelfPermission as missing even though SELF was applied by deploy.
+- **File:** `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` line 163
+- **Repro:** Deploy -FullDeployment -IncludeWinLaps, then audit -IncludeWinLaps → 7 missing SELF
+- **Fix:** Use `Get-Acl "AD:$ouDn"` to check for NT AUTHORITY\SELF ACEs with LAPS GUIDs, same as the deploy planners
+
+**Bug B (NEW, T013):** `Audit-TierModel.ps1` line 787 accesses `.Type` on WinLaps Decryptor findings but those objects use `.Status` instead. The ACL audit findings have `.Type`; the decryptor findings have `.Status` (GpoName, Expected, Actual, Status). Non-terminating — audit continues and completes — but pollutes output with error text.
+- **File:** `Audit-TierModel.ps1` line 787
+- **Error text:** `The property 'Type' cannot be found on this object. Verify that the property exists.`
+- **Repro:** Run `.\Audit-TierModel.ps1 -PreferredDc DC01 -FullDeployment -IncludeWinLaps`
+- **Fix:** Guard the `.Type` filter with a property existence check, or normalize decryptor findings to include `.Type`
+
+#### Lab State
+- **VM:** TierLab-DC01 RUNNING, deployed + decryptors compliant, AD responding
+- **Ready for Joel's UAT immediately**
 
 ### 2026-07-15 — Full Deploy Decryptor E2E Test (Run 8)
 

@@ -26,3 +26,33 @@ Archived on 2026-07-15T06-59-20Z. Summary of earlier session learnings archived 
 - Lab NOT touched — ready for Joel's UAT
 
 Status: READY FOR LAB VALIDATION — see decisions.md for details
+
+## T013 Audit Integration + Bugfixes (2026-07-16)
+
+**Status:** DELIVERED + LAB-VERIFIED — 379-check audit 100% compliant
+
+**Summary:**
+- New cmdlet: Test-TierModelWinLapsDecryptor (verifies ADPasswordEncryptionPrincipal on 6 non-DC LAPS GPOs)
+- Integration: -IncludeWinLaps on Audit-TierModel.ps1; opt-in; both standalone + FullDeployment flows
+- Module: v1.2.0, Test-TierModelWinLapsDecryptor added to FunctionsToExport
+
+**Bugs Fixed (2 critical):**
+- **Bug A (SELF false negatives):** Test-TierModelWinLapsAcl SELF detection now uses Get-Acl "AD:$ouDn" filtering for non-inherited LAPS ACEs (mirrors planner logic). All 7 OUs: 7/7 compliant post-deploy (was 0/7).
+- **Bug B (StrictMode .Type/.Status):** Audit-TierModel.ps1 consolidated reporting guards property access with PSObject.Properties.Name checks before comparing. No more StrictMode errors.
+
+**Lab Validation (Wolverine):**
+- Standalone -IncludeWinLaps: 7 ACL (7/7 compliant), 6 decryptor (6/6 compliant), 0 drift
+- Full -FullDeployment -IncludeWinLaps: 379 checks, 100% compliant, 0 drift, 0 errors
+- Idempotency: 2nd run applied 0, Converged True
+- Drift detection: Detected mismatched value, restored to compliant
+- Opt-in confirmed: -FullDeployment without -IncludeWinLaps shows zero WinLaps content
+
+**Key Patterns (for future):**
+1. SELF detection: Get-Acl + non-inherited filter + LAPS GUID filter (Find-LapsADExtendedRights never returns SELF)
+2. Mixed Findings: Guard property access under StrictMode; don't assume all Findings objects have same shape
+3. Audit result envelope: { TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings, DurationMs, CorrelationId }
+4. Decryptor findings shape: {GpoName, Expected, Actual, Status} (differs from ACL shape; wrapper tolerates this)
+5. FullDeployment wrapper aggregation: Only uses Summary.* fields for consolidated totals
+6. Opt-in gates: $IncludeWinLaps in $includeParameters; both audit blocks guarded by if ($IncludeWinLaps) inside if ($activeIncludeCount -gt 0)
+
+**Handoff Status:** Ready for Joel's UAT gate. Feature complete + lab-verified. Next: T021 documentation updates.
