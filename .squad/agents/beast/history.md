@@ -1,5 +1,21 @@
 # beast — History
 
+## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
+
+**Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
+
+The Windows LAPS feature (T001–T021) is now complete and committed to feature/windows-laps branch:
+- Beast (T001–T013): Implementation + audit cmdlet ✅
+- Wolverine (T014–T020): Test suite (113 tests, 90.92% coverage, 1401/1401 green) ✅
+- Storm (T021): Documentation (8 files, README metrics) ✅
+
+Orchestration logs: 2026-07-16T09-34-10Z-wolverine.md and 2026-07-16T09-34-10Z-storm.md  
+Session log: 2026-07-16T09-34-10Z-winlaps-feature-complete.md
+
+Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
+
+---
+
 ## Current: Windows LAPS Audit Bugfix (T013) — 2026-07-16
 
 **✅ T013 BUG FIXES (Wolverine lab-confirmed defects):**

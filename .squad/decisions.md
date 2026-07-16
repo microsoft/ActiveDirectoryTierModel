@@ -4,6 +4,56 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+### 2026-07-16T09:34:10Z: Windows LAPS Feature T001–T021 COMPLETE — Ready for UAT + Release
+**Author:** Scribe  
+**Status:** ✅ SHIPPED — All 21 tasks committed, tests green, docs complete  
+**Significance:** Canonical milestone for Windows LAPS feature. Submitted to feature/windows-laps branch; ready for Joel's manual UAT, PR review, and v1.2.0 release.
+
+**Feature Summary:**  
+Windows LAPS (Local Admin Password Solution) support for Active Directory Tier Model. Enables automated ACL delegation for LAPS read/reset permissions across all tier levels, optional GPO-based password decryption principal configuration, and comprehensive audit capability.
+
+**Test Results:**  
+- Unit + Integration: 1,401 pass / 0 fail / 0 skip (100% green)
+- Coverage: 90.92% overall (above 80% CI floor); individual WinLaps cmdlets 81.6–92.7%
+- Regressions: 0
+- New tests: 113 (across Unit and Integration suites)
+
+**Work Breakdown:**
+
+| Phase | Lead | Tasks | Status |
+|-------|------|-------|--------|
+| T001–T003: Specification | Cyclops + Professor X | Charter, architecture, spec docs | ✅ APPROVED |
+| T004–T012: Implementation | Beast | 5 cmdlets, 1 audit cmdlet, config, decryptor integration | ✅ COMMITTED (4fcdfa3) |
+| T013: Audit Integration | Beast | Test-TierModelWinLapsAcl bugfix, Audit-TierModel.ps1 consolidation | ✅ COMMITTED |
+| T014–T020: Test Suite | Wolverine | 113 new tests, helpers, version fixes, BUG-004 documentation | ✅ COMMITTED (79741ff) |
+| T021: Documentation | Storm | README + 8 docs (deployment, architecture, coverage, FAQ, etc.) | ✅ COMMITTED (65e0166) |
+
+**Commits This Session:**
+- 79741ff: Wolverine T014–T020 (113 new Pester tests, version assertions, BUG-004 doc)
+- 65e0166: Storm T021 (8 docs, README metrics update to v1.2.0)
+- Prior: 4fcdfa3 (Beast T013 audit integration) + T001–T012 implementation
+
+**Known Issues (Documented):**
+- **BUG-004:** UnexpectedAcl classification documented in WinLaps cmdlet help but not implemented in code. MSA/gMSA/dMSA correctly implement it. Deferred for cross-cmdlet consistency review post-release. Severity: Low.
+- **Coverage Gaps (Accepted):** Outer `catch` catastrophic handlers (12–22 lines per cmdlet) untestable via mocking. Acceptable defensive code; no changes recommended.
+
+**Decision Points (Joel Approved):**
+1. Version bump 1.1.0 → 1.2.0 intentional (confirmed 2026-07-16) ✅
+2. UnexpectedAcl classification gap deferred (BUG-004) ✅
+3. Option 1 approach adopted: fix version tests, accept outer-catch + UnexpectedAcl gaps, log to known-bugs ✅
+
+**Next Milestone:**  
+Joel's manual UAT: End-to-end deployment (-IncludeWinLaps), prerequisites validation, decryptor group setup, Get-LapsADPassword validation. Then PR review, merge to main, tag v1.2.0.
+
+**Metrics:**  
+- Module version: 1.2.0
+- Production files: 63 (+5 WinLaps cmdlets)
+- Exported functions: 63 (+5)
+- Test files: 25 (17 unit, 7 integration, 1 manual)
+- Total tests: 1,732 (1,122 unit, 279 integration, 331 manual)
+
+---
+
 ### 2026-07-15T07:37:12Z: Windows LAPS Decryptor — Full-Deployment Lab Validation PASS
 **Author:** Wolverine (Logan)  
 **Status:** ✅ VERIFIED — Lab-proven, no bugs, idempotent  

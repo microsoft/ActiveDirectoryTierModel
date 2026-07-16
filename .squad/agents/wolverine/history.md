@@ -1,12 +1,93 @@
 # wolverine — History
 
-## Current: T013 WinLaps Audit — PASS (bugfix re-verify GREEN)
+## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
 
-**Status:** Both Beast bugfixes confirmed live. Full audit 379 checks, 100% compliant, 0 drift, 0 errors.
+**Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
+
+The Windows LAPS feature (T001–T021) is now complete and committed to feature/windows-laps branch:
+- Beast (T001–T013): Implementation + audit cmdlet ✅
+- Wolverine (T014–T020): Test suite (113 tests, 90.92% coverage, 1401/1401 green) ✅
+- Storm (T021): Documentation (8 files, README metrics) ✅
+
+Orchestration logs: 2026-07-16T09-34-10Z-wolverine.md and 2026-07-16T09-34-10Z-storm.md  
+Session log: 2026-07-16T09-34-10Z-winlaps-feature-complete.md
+
+Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
+
+---
+
+## Current: T014–T020 Follow-up Items — DONE (1401/1401 passing, 90.92%+ coverage)
+
+**Status:** All 7 tasks (T014–T020) complete + follow-up items complete. Full test suite 1401 pass / 0 fail / 0 skip. No regressions. Overall coverage 90.92%+ (above 80% CI floor).
+
+### 2026-07-16 — Follow-up: Version-Test Fixes + BUG-004 + Full-Green Confirmation
+
+**Items completed:**
+1. **Fixed 2 stale version-test assertions** (`1.1.0` → `1.2.0`):
+   - `tests/Unit.ModuleManifest.Tests.ps1` line 41-42: updated both test title `'Has current version 1.2.0'` and assertion `Should -Be '1.2.0'`
+   - `tests/Integration.Module.Tests.ps1` line ~35: `Should -Be '1.2.0'`
+   - These were pre-existing failures caused by the intentional 1.2.0 bump; now resolved.
+
+2. **UnexpectedAcl investigation + BUG-004:**
+   - `Test-TierModelMsaAcl.ps1` line 343: ✅ emits `Type = 'UnexpectedAcl'` in code
+   - `Test-TierModelGmsaAcl.ps1` line 343: ✅ emits `Type = 'UnexpectedAcl'` in code
+   - `Test-TierModelDmsaAcl.ps1` line 353: ✅ emits `Type = 'UnexpectedAcl'` in code
+   - `Test-TierModelWinLapsAcl.ps1` line 10: ❌ only in `.DESCRIPTION` doc-comment — code never emits it
+   - **BUG-004 added** to `.research/known-bugs.md` — WinLaps-specific gap; MSA/gMSA/dMSA are correct.
+
+3. **Full suite re-run:** 1401 pass / 0 fail / 0 skip — ✅ 100% green, no regressions.
+
+---
+
+## Previous: T014–T020 WinLaps Pester Tests — DONE (1399/1401 passing, 90.92% coverage)
+
+**Status:** All 7 tasks (T014–T020) complete. Full test suite 1399 pass / 2 fail (pre-existing module version failures, NOT mine). Overall coverage 90.92% (above 80% CI floor). No regressions.
 
 ## Learnings
 
-### 2026-07-16 — T013 Bugfix Re-Verify (Bug A + Bug B)
+### 2026-07-16 — T014–T020 WinLaps Pester Tests (Deferred Unit/Integration Suite)
+
+**Mission:** Author the full Windows LAPS unit and integration test suite (T014–T020) after Joel's manual UAT. All unit tests: mocked only, no live AD, CI-compatible.
+
+#### Files Created/Modified
+- **tests/helpers/ADStubs.ps1** — Added stubs: `Get-ADComputer` (AD block), `Get-GPRegistryValue`/`Set-GPRegistryValue` (GroupPolicy block), new LAPS block (`Find-LapsADExtendedRights`, `Set-LapsADComputerSelfPermission`, `Set-LapsADReadPasswordPermission`, `Set-LapsADResetPasswordPermission`) with in-memory LAPS module registration
+- **tests/Unit.Prerequisites.Tests.ps1** — Added `Context "WinLaps Prerequisites (-IncludeWinLaps)"` block (T014, 12 tests)
+- **tests/Unit.WinLapsAclOperations.Tests.ps1** — NEW file (T015–T018, T020, 84 tests)
+- **tests/Integration.WinLapsDeployment.Tests.ps1** — NEW file (T019, 17 tests)
+
+#### Final Coverage
+| File | Commands | Covered | Missed | % |
+|------|----------|---------|--------|---|
+| Get-TierModelWinLapsAcl.ps1 | 546 | 506 | 40 | 92.7% |
+| New-TierModelWinLapsAcl.ps1 | 187 | 162 | 25 | 86.6% |
+| Get-TierModelWinLapsAclFd.ps1 | 462 | 404 | 58 | 87.4% |
+| Test-TierModelWinLapsAcl.ps1 | 219 | 189 | 30 | 86.3% |
+| Test-TierModelWinLapsDecryptor.ps1 | 207 | 169 | 38 | 81.6% |
+| Test-TierModelPrerequisites.ps1 | 383 | 277 | 106 | 72.3% |
+| **Overall Module** | 12,305 | 11,184 | 1,121 | **90.92%** |
+
+#### Critical WinLaps Testing Knowledge
+
+**`EnvironmentSnapshot` is a hashtable, NOT a PSCustomObject.** In Test-TierModelPrerequisites.ps1, the result's `EnvironmentSnapshot` field is initialized with `@{}`. Use `.ContainsKey('WinLapsSchemaPresent')` — NOT `.PSObject.Properties.Name -contains 'WinLapsSchemaPresent'`.
+
+**`Find-LapsADExtendedRights` returning `$null` ≠ "permission missing".** Both planners/auditors check `if ($extendedRights)` before processing holders. When the mock returns `$null`, the code skips all read/reset checks entirely (no miss detected → result appears Compliant). To test "permission missing": mock to return `[PSCustomObject]@{ ExtendedRightHolders = @("SomeOtherGroup") }` — holders present but NOT the expected group.
+
+**Doc-string comments trigger invariant false positives.** WinLaps cmdlets contain `<# ... never legacy (ms-Mcs-AdmPwd*, AdmPwd.PS) ... #>` in help text. Regex `'AdmPwd\.PS'` matches these. T020 invariant tests must filter out comment lines (lines starting with `#`) or check only for `Import-Module.*AdmPwd` / actual cmdlet invocation patterns.
+
+**`Get-TierModelWinLapsAclFd` has no top-level `Converged` property.** Unlike the standalone planner, the FD variant returns `{Actions, Summary, Analysis, Errors, Warnings, DurationMs, CorrelationId}` — no `Converged`. Tests must not assert `.Converged` on FD results.
+
+**Gate ordering in `Get-TierModelWinLapsAcl`.** Gates 1-3 (schema, LAPS module, DFL) return early. OU/group validation, Gate 4a (GPO, only if `$Config.gpos` present), Gate 4b (DC exclusion) all accumulate errors. Single final early-return if errors > 0 after Gate 4b.
+
+**Outer `catch` blocks (catastrophic handlers) are unreachable via mocking.** All 5 cmdlets have a top-level `try { ... } catch { ... }` wrapping the entire function body. These handlers only trigger when an unexpected exception escapes ALL inner try/catch blocks. Cannot be exercised through mocking without modifying production code. Constitutes the primary source of the coverage gap (<100%).
+
+**`Test-TierModelWinLapsDecryptor` Drift = Missing + Mismatched + Errors.** Unlike `Test-TierModelWinLapsAcl` where Drift = Missing + Mismatched only, the Decryptor audit includes `$errorCount` in drift.
+
+**In-memory LAPS module stub is critical.** `Test-TierModelPrerequisites` does `Import-Module LAPS -EA Stop`, `Get-Module LAPS`, then `Get-Command $cmd -Module LAPS`. All three must succeed without real RSAT. ADStubs.ps1 now registers a `New-Module` in-memory LAPS module that exports all 3 required cmdlets.
+
+**T019 tests at cmdlet level, not Deploy-TierModel.ps1.** Deploy-TierModel.ps1 is not in the CI coverage path (`modules/TierModel/*.psm1` + `public/*.ps1` only). Integration tests validate plan+apply pipeline directly via `Get-TierModelWinLapsAcl → New-TierModelWinLapsAcl` + real config JSON structure verification.
+
+**Pre-existing module version failures.** `Integration.Module.Tests.ps1` and `Unit.ModuleManifest.Tests.ps1` expect module version `1.1.0` but actual is `1.2.0`. These are NOT from WinLaps work — need Beast to update version expectations or bump manifest.
+
 
 **Mission:** Confirm Beast's fixes for the two bugs found in the 6-step smoke test.
 
