@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-17
+
+### Added
+
+#### Windows LAPS Support
+- **Windows LAPS ACL Cmdlets**: `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `New-TierModelWinLapsAcl`, and `Test-TierModelWinLapsAcl` for deploying and auditing Windows LAPS DACL delegations (Self / Read / Reset permissions per target OU)
+- **Windows LAPS Decryptor Audit**: `Test-TierModelWinLapsDecryptor` verifies the `ADPasswordEncryptionPrincipal` GPO registry policy on each non-DC LAPS GPO
+- **`-IncludeWinLaps` switch**: added to `Deploy-TierModel.ps1` (standalone and full-deployment Phase 10, after MSA/gMSA/dMSA) and `Audit-TierModel.ps1` (opt-in ACL + decryptor drift detection)
+- **Configuration**: `config/tiermodel-winlaps.json` defining 7 LAPS ACL delegations plus per-OU decryptor group mapping
+- **GPO Decryptor Configuration**: deployment configures the authorized password decryptor (`ADPasswordEncryptionPrincipal`) on the 6 non-DC LAPS GPOs so the correct tier group can decrypt managed passwords (Domain Controllers retain the DSRM default of Domain Admins)
+- **Prerequisite Validation**: extended `Test-TierModelPrerequisites` with the Windows LAPS schema hard-stop and the OU / group / LAPS-GPO dependency checks
+- **Windows LAPS only**: uses `ms-LAPS-*` attributes exclusively — never legacy Microsoft LAPS (`ms-Mcs-AdmPwd*` / `AdmPwd.PS`)
+
+### Changed
+- Removed the superseded manual `optional/Deploy-WindowsLaps.ps1` (functionality replaced by `Deploy-TierModel.ps1 -IncludeWinLaps`)
+
+### Tests
+- Added `tests/Unit.WinLapsAclOperations.Tests.ps1` and `tests/Integration.WinLapsDeployment.Tests.ps1` (113 new tests) and extended prerequisite/manifest tests; added AD/GPO/LAPS stubs so the suite runs in CI without a domain controller
+- Full suite: 1,401 automated tests passing; 90.92% module code coverage
+
+### Documentation
+- Documented `-IncludeWinLaps` across `README.md` and `docs/` (detailed deployment guide, deployment methodology, cmdlet architecture, drift detection, FAQ, test coverage, test tag matrix), matching the existing MSA/gMSA/dMSA "Optional Feature" pattern
+
 ## [1.1.0] - 2026-06-30
 
 ### Added
