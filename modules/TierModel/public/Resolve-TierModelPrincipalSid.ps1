@@ -145,9 +145,44 @@ function Resolve-TierModelPrincipalSid {
             }
         }
         
+        # Try domain-relative well-known RIDs (language-independent).
+        # Groups like "Domain Admins" have localized names in non-English ADs
+        # (e.g. "Domänen-Admins" in German), but their RID is fixed. Resolving
+        # via <DomainSID>-<RID> works in every AD language and also protects
+        # against spoofed groups that reuse a well-known English name.
+        $ridSid = $null
+        try {
+            $ridSid = Get-WellKnownDomainRidSid -Principal $Principal -DomainController $DomainController
+        }
+        catch {
+            Write-Verbose "Domain RID resolution unavailable for '$Principal': $($_.Exception.Message) (CorrelationId: $CorrelationId)"
+        }
+        if ($ridSid) {
+            Write-Verbose "Resolved well-known domain RID SID for '$Principal': $ridSid (CorrelationId: $CorrelationId)"
+            $result = @{
+                Sid = $ridSid
+                Source = "WellKnownRid"
+                Success = $true
+                Error = $null
+            }
+
+            if ($UseCache) {
+                $script:SidCache[$Principal] = $result
+            }
+
+            return [PSCustomObject]@{
+                Principal = $Principal
+                Sid = $ridSid
+                Source = "WellKnownRid"
+                Cached = $false
+                Success = $true
+                Error = $null
+            }
+        }
+
         # Try AD resolution
         try {
-            $adResult = Resolve-ADPrincipalSid -Principal $Principal -CorrelationId $CorrelationId
+            $adResult = Resolve-ADPrincipalSid -Principal $Principal -DomainController $DomainController -CorrelationId $CorrelationId
             
             if ($adResult.Success) {
                 Write-Verbose "Resolved AD SID for '$Principal': $($adResult.Sid) (CorrelationId: $CorrelationId)"
@@ -261,12 +296,29 @@ function Get-WellKnownSid {
         "BUILTIN\Print Operators" = "S-1-5-32-550"
         "BUILTIN\Backup Operators" = "S-1-5-32-551"
         "BUILTIN\Replicator" = "S-1-5-32-552"
+        "BUILTIN\Pre-Windows 2000 Compatible Access" = "S-1-5-32-554"
+        "BUILTIN\Remote Desktop Users" = "S-1-5-32-555"
         "BUILTIN\Network Configuration Operators" = "S-1-5-32-556"
+        "BUILTIN\Incoming Forest Trust Builders" = "S-1-5-32-557"
         "BUILTIN\Performance Monitor Users" = "S-1-5-32-558"
         "BUILTIN\Performance Log Users" = "S-1-5-32-559"
+        "BUILTIN\Windows Authorization Access Group" = "S-1-5-32-560"
+        "BUILTIN\Terminal Server License Servers" = "S-1-5-32-561"
         "BUILTIN\Distributed COM Users" = "S-1-5-32-562"
         "BUILTIN\IIS_IUSRS" = "S-1-5-32-568"
+        "BUILTIN\Cryptographic Operators" = "S-1-5-32-569"
         "BUILTIN\Event Log Readers" = "S-1-5-32-573"
+        "BUILTIN\Certificate Service DCOM Access" = "S-1-5-32-574"
+        "BUILTIN\RDS Remote Access Servers" = "S-1-5-32-575"
+        "BUILTIN\RDS Endpoint Servers" = "S-1-5-32-576"
+        "BUILTIN\RDS Management Servers" = "S-1-5-32-577"
+        "BUILTIN\Hyper-V Administrators" = "S-1-5-32-578"
+        "BUILTIN\Access Control Assistance Operators" = "S-1-5-32-579"
+        "BUILTIN\Remote Management Users" = "S-1-5-32-580"
+        "BUILTIN\Storage Replica Administrators" = "S-1-5-32-582"
+        "BUILTIN\Device Owners" = "S-1-5-32-583"
+        "BUILTIN\User Mode Hardware Operators" = "S-1-5-32-584"
+        "BUILTIN\OpenSSH Users" = "S-1-5-32-585"
         
         # NT Authority
         "NT AUTHORITY\SYSTEM" = "S-1-5-18"
@@ -293,11 +345,41 @@ function Get-WellKnownSid {
         "Administrators" = "S-1-5-32-544"
         "Users" = "S-1-5-32-545"
         "Guests" = "S-1-5-32-546"
+        "Power Users" = "S-1-5-32-547"
+        "Account Operators" = "S-1-5-32-548"
+        "Server Operators" = "S-1-5-32-549"
+        "Print Operators" = "S-1-5-32-550"
+        "Backup Operators" = "S-1-5-32-551"
+        "Replicator" = "S-1-5-32-552"
+        "Pre-Windows 2000 Compatible Access" = "S-1-5-32-554"
+        "Remote Desktop Users" = "S-1-5-32-555"
+        "Network Configuration Operators" = "S-1-5-32-556"
+        "Incoming Forest Trust Builders" = "S-1-5-32-557"
+        "Performance Monitor Users" = "S-1-5-32-558"
+        "Performance Log Users" = "S-1-5-32-559"
+        "Windows Authorization Access Group" = "S-1-5-32-560"
+        "Terminal Server License Servers" = "S-1-5-32-561"
+        "Distributed COM Users" = "S-1-5-32-562"
+        "IIS_IUSRS" = "S-1-5-32-568"
+        "Cryptographic Operators" = "S-1-5-32-569"
+        "Event Log Readers" = "S-1-5-32-573"
+        "Certificate Service DCOM Access" = "S-1-5-32-574"
+        "RDS Remote Access Servers" = "S-1-5-32-575"
+        "RDS Endpoint Servers" = "S-1-5-32-576"
+        "RDS Management Servers" = "S-1-5-32-577"
+        "Hyper-V Administrators" = "S-1-5-32-578"
+        "Access Control Assistance Operators" = "S-1-5-32-579"
+        "Remote Management Users" = "S-1-5-32-580"
+        "Storage Replica Administrators" = "S-1-5-32-582"
+        "Device Owners" = "S-1-5-32-583"
+        "User Mode Hardware Operators" = "S-1-5-32-584"
+        "OpenSSH Users" = "S-1-5-32-585"
         "SYSTEM" = "S-1-5-18"
         "Authenticated Users" = "S-1-5-11"
         "ANONYMOUS LOGON" = "S-1-5-7"
         "Local account" = "S-1-5-113"
         "IUSR" = "S-1-5-17"
+        "ENTERPRISE DOMAIN CONTROLLERS" = "S-1-5-9"
     }
     
     # Try exact match first
@@ -314,6 +396,117 @@ function Get-WellKnownSid {
     return $null
 }
 
+function Get-TierModelDomainSid {
+    <#
+    .SYNOPSIS
+    Returns the domain SID (or forest root domain SID) for a domain controller, with caching
+
+    .DESCRIPTION
+    Queries the domain SID once per domain controller and caches it for the session.
+    With -ForestRoot, returns the SID of the forest root domain instead (needed for
+    forest-level groups such as Enterprise Admins and Schema Admins).
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$DomainController,
+
+        [switch]$ForestRoot
+    )
+
+    if (-not $script:DomainSidCache) {
+        $script:DomainSidCache = @{}
+    }
+
+    $cacheKey = "$DomainController|ForestRoot=$([bool]$ForestRoot)"
+    if ($script:DomainSidCache.ContainsKey($cacheKey)) {
+        return $script:DomainSidCache[$cacheKey]
+    }
+
+    $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
+
+    if ($ForestRoot) {
+        $forest = Get-ADForest -Server $DomainController -ErrorAction Stop
+        if ($forest.RootDomain -and $forest.RootDomain -ne $domain.DNSRoot) {
+            # Child domain: forest-level groups live in the forest root domain
+            $domain = Get-ADDomain -Identity $forest.RootDomain -ErrorAction Stop
+        }
+    }
+
+    $domainSid = $domain.DomainSID.Value
+    if (-not $domainSid) {
+        throw "Could not determine domain SID via domain controller '$DomainController'"
+    }
+
+    $script:DomainSidCache[$cacheKey] = $domainSid
+    return $domainSid
+}
+
+function Get-WellKnownDomainRidSid {
+    <#
+    .SYNOPSIS
+    Resolves well-known domain groups to their SID via fixed RIDs (language-independent)
+
+    .DESCRIPTION
+    Maps canonical (English) names of well-known domain groups to <DomainSID>-<RID>.
+    This makes resolution independent of the AD display language (e.g. "Domain Admins"
+    is "Domänen-Admins" in a German AD, but always <DomainSID>-512).
+    Forest-level groups (Enterprise Admins, Schema Admins, ...) are resolved against
+    the forest root domain SID.
+    Returns $null if the principal is not a well-known domain group.
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Principal,
+
+        [Parameter(Mandatory)]
+        [string]$DomainController
+    )
+
+    # Domain-relative well-known RIDs (hashtable literal keys are case-insensitive)
+    $domainRids = @{
+        "Guest"                         = 501
+        "krbtgt"                        = 502
+        "Domain Admins"                 = 512
+        "Domain Users"                  = 513
+        "Domain Guests"                 = 514
+        "Domain Computers"              = 515
+        "Domain Controllers"            = 516
+        "Cert Publishers"               = 517
+        "Group Policy Creator Owners"   = 520
+        "Read-only Domain Controllers"  = 521
+        "Cloneable Domain Controllers"  = 522
+        "Protected Users"               = 525
+        "Key Admins"                    = 526
+        "RAS and IAS Servers"           = 553
+        "Allowed RODC Password Replication Group" = 571
+        "Denied RODC Password Replication Group"  = 572
+    }
+
+    # Forest-root-relative well-known RIDs
+    $forestRootRids = @{
+        "Enterprise Read-only Domain Controllers" = 498
+        "Schema Admins"                           = 518
+        "Enterprise Admins"                       = 519
+        "Enterprise Key Admins"                   = 527
+    }
+
+    if ($domainRids.ContainsKey($Principal)) {
+        $domainSid = Get-TierModelDomainSid -DomainController $DomainController
+        return "$domainSid-$($domainRids[$Principal])"
+    }
+
+    if ($forestRootRids.ContainsKey($Principal)) {
+        $rootDomainSid = Get-TierModelDomainSid -DomainController $DomainController -ForestRoot
+        return "$rootDomainSid-$($forestRootRids[$Principal])"
+    }
+
+    return $null
+}
+
 function Resolve-ADPrincipalSid {
     <#
     .SYNOPSIS
@@ -327,10 +520,12 @@ function Resolve-ADPrincipalSid {
     param(
         [Parameter(Mandatory)]
         [string]$Principal,
-        
+
+        [string]$DomainController,
+
         [string]$CorrelationId
     )
-    
+
     try {
         # Load ActiveDirectory module if available
         if (-not (Get-Module -Name ActiveDirectory -ListAvailable)) {
@@ -461,5 +656,6 @@ function Get-TierModelConditionalGroupNames {
     return $resolvedNames
 }
 
-# Initialize module-level SID cache
+# Initialize module-level SID caches
 $script:SidCache = @{}
+$script:DomainSidCache = @{}

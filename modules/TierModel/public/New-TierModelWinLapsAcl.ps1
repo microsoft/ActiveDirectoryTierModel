@@ -81,6 +81,14 @@ function New-TierModelWinLapsAcl {
                         CorrelationId    = $CorrelationId
                     } | Out-Null
 
+                    # Guard: Read/Reset operations require at least one resolved principal.
+                    # An empty list means group resolution failed during planning (e.g.
+                    # localized AD where a well-known group name could not be resolved).
+                    if ($lapsOp -in @('SetReadPasswordPermission', 'SetResetPasswordPermission') -and
+                        @($action.Data.allowedPrincipals).Count -eq 0) {
+                        throw "No resolvable principals for $lapsOp on '$ouDn'. Verify the readGroup/resetGroup names in tiermodel-winlaps.json exist (well-known groups are resolved via SID; custom groups must exist before the WinLAPS phase)."
+                    }
+
                     $shouldProcessTarget = "OU: $ouDn"
                     $shouldProcessAction = switch ($lapsOp) {
                         'SetComputerSelfPermission'  { "Set-LapsADComputerSelfPermission -DomainController $DomainController" }

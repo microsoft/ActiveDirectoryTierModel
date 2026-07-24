@@ -1030,6 +1030,60 @@ function Invoke-GpoDeployment {
     }
 }
 
+function Invoke-TierModelOptionalPrereqSetup {
+    <#
+    .SYNOPSIS
+    Auto-provisions prerequisites for the optional -Include* features in execution mode.
+
+    .DESCRIPTION
+    - gMSA/dMSA: creates a KDS Root Key on the domain controller if none exists.
+      The key is created with an EffectiveTime backdated by 10 hours so it is
+      usable immediately (no 10-hour replication wait). In multi-DC environments
+      make sure AD replication has converged before creating gMSA/dMSA accounts.
+    - Windows LAPS: extends the AD schema via Update-LapsADSchema if the
+      msLAPS-* attributes are not present. Requires Schema Admins membership.
+    Failures are reported as warnings; the subsequent prerequisites check will
+    then fail with the standard remediation guidance.
+    #>
+    param(
+        [Parameter(Mandatory)] [string]$DomainController,
+        [switch]$NeedsKdsRootKey,
+        [switch]$NeedsWinLapsSchema
+    )
+
+    if ($NeedsKdsRootKey) {
+        try {
+            $kdsKeys = Invoke-Command -ComputerName $DomainController -ScriptBlock { Get-KdsRootKey } -ErrorAction Stop
+            if ($null -eq $kdsKeys -or @($kdsKeys).Count -eq 0) {
+                Write-Host "  No KDS Root Key found - creating one with backdated EffectiveTime (effective immediately)..." -ForegroundColor Yellow
+                Invoke-Command -ComputerName $DomainController -ScriptBlock {
+                    Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
+                } -ErrorAction Stop | Out-Null
+                Write-Host "  ✅ KDS Root Key created (EffectiveTime backdated 10 hours)" -ForegroundColor Green
+                Write-Host "     Note: in multi-DC environments, wait for AD replication before creating gMSA/dMSA accounts." -ForegroundColor DarkYellow
+            }
+        } catch {
+            Write-Host "  ⚠️  Could not auto-create KDS Root Key: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+
+    if ($NeedsWinLapsSchema) {
+        try {
+            $rootDSE = Get-ADRootDSE -Server $DomainController -ErrorAction Stop
+            $lapsAttr = Get-ADObject -Filter "lDAPDisplayName -eq 'msLAPS-EncryptedPassword'" -SearchBase $rootDSE.schemaNamingContext -Server $DomainController -ErrorAction SilentlyContinue
+            if (-not $lapsAttr) {
+                Write-Host "  Windows LAPS schema extensions not found - extending AD schema (Update-LapsADSchema)..." -ForegroundColor Yellow
+                Import-Module LAPS -ErrorAction Stop -Verbose:$false
+                Update-LapsADSchema -Confirm:$false -ErrorAction Stop
+                Write-Host "  ✅ Windows LAPS schema extended successfully" -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "  ⚠️  Could not extend Windows LAPS schema: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "     Update-LapsADSchema requires Schema Admins membership and the LAPS PowerShell module." -ForegroundColor DarkYellow
+        }
+    }
+}
+
 function Write-IncludeAclPlanActions {
     param(
         [Parameter(Mandatory)] [object[]]$Actions
@@ -1770,7 +1824,14 @@ if ($FullDeployment) {
         # === OPTIONAL FEATURES: MSA/gMSA/dMSA/WinLaps ACL Delegations ===
         if ($activeIncludeCount -gt 0 -and -not $standardDeployHadErrors) {
             Write-Host "`n=== Optional Features: MSA/gMSA/dMSA/WinLaps ACL Delegations ===" -ForegroundColor Magenta
-            
+
+            # Auto-provision optional prerequisites (KDS Root Key, Windows LAPS schema)
+            if ($ConfirmApply) {
+                Invoke-TierModelOptionalPrereqSetup -DomainController $PreferredDc `
+                    -NeedsKdsRootKey:($IncludeGmsa -or $IncludeDmsa) `
+                    -NeedsWinLapsSchema:$IncludeWinLaps
+            }
+
             # Pass Include switches to prerequisites
             $prereqSplat = @{ PreferredDc = $PreferredDc }
             if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
@@ -2333,6 +2394,13 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     $config = Get-TierModelConfig
     Write-Host "TierModel module loaded successfully." -ForegroundColor Green
     
+    # Auto-provision optional prerequisites (KDS Root Key, Windows LAPS schema)
+    if ($ConfirmApply) {
+        Invoke-TierModelOptionalPrereqSetup -DomainController $PreferredDc `
+            -NeedsKdsRootKey:($IncludeGmsa -or $IncludeDmsa) `
+            -NeedsWinLapsSchema:$IncludeWinLaps
+    }
+
     # Run prerequisites with Include switches
     Write-Host "Validating prerequisites..." -ForegroundColor Yellow
     $prereqSplat = @{ PreferredDc = $PreferredDc }

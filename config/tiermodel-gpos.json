@@ -776,8 +776,8 @@
               "*S-1-5-32-559__Members",
               "*S-1-5-32-558__Memberof",
               "*S-1-5-32-558__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
               "*S-1-5-32-550__Memberof",
               "*S-1-5-32-550__Members",
               "*S-1-5-32-576__Memberof",
@@ -793,8 +793,8 @@
               "*S-1-5-32-552__Members",
               "*S-1-5-32-582__Memberof",
               "*S-1-5-32-582__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -1323,10 +1323,10 @@
               "*S-1-5-32-552__Members",
               "*S-1-5-32-582__Memberof",
               "*S-1-5-32-582__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -1896,10 +1896,10 @@
               "*S-1-5-32-558__Members",
               "*S-1-5-32-580__Memberof",
               "*S-1-5-32-580__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -2407,10 +2407,10 @@
               "*S-1-5-32-583__Members",
               "*S-1-5-32-585__Memberof",
               "*S-1-5-32-585__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -3003,10 +3003,10 @@
               "*S-1-5-32-583__Members",
               "*S-1-5-32-585__Memberof",
               "*S-1-5-32-585__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -3585,10 +3585,10 @@
               "*S-1-5-32-583__Members",
               "*S-1-5-32-585__Memberof",
               "*S-1-5-32-585__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {
@@ -3785,10 +3785,10 @@
               "*S-1-5-32-558__Members",
               "*S-1-5-32-580__Memberof",
               "*S-1-5-32-580__Members",
-              "Power Users__Memberof",
-              "Power Users__Members",
-              "User Mode Hardware Operators__Memberof",
-              "User Mode Hardware Operators__Members"
+              "*S-1-5-32-547__Memberof",
+              "*S-1-5-32-547__Members",
+              "*S-1-5-32-584__Memberof",
+              "*S-1-5-32-584__Members"
             ],
             "membershipGroups": [
               {

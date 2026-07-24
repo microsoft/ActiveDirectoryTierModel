@@ -239,12 +239,43 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
     It "Should fail when current user not Domain Admin" -Tag 'Negative','DomainAdmin' {
             # Call the function to get result - with default mocks, Get-ADGroup returns null
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
-            
+
             $result.EnvironmentSnapshot.IsDomainAdmin | Should -Be $false
             $result.Valid | Should -Be $false
             $result.Errors | Should -Contain "Domain Admin membership required for deployment operations"
             # With Get-ADGroup returning null from BeforeEach, expect this remediation message
             $result.Remediation | Should -Contain "Ensure Domain Admins group exists and user is member of Domain Admins group"
+        }
+
+    It "Should find Domain Admins via well-known RID 512 in a localized (e.g. German) AD" -Tag 'Positive','DomainAdmin' {
+            # Simulate a German AD: no group is named "Domain Admins", but the
+            # well-known SID <DomainSID>-512 resolves to "Domänen-Admins"
+            Mock Get-ADDomain {
+                return [PSCustomObject]@{
+                    DNSRoot      = 'test.contoso.com'
+                    NetBIOSName  = 'TEST'
+                    DomainSID    = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' }
+                }
+            } -ModuleName TierModel
+            Mock Get-ADGroup {
+                if ($Identity -eq 'S-1-5-21-111-222-333-512') {
+                    return [PSCustomObject]@{
+                        Name              = 'Domänen-Admins'
+                        DistinguishedName = 'CN=Domänen-Admins,CN=Users,DC=test,DC=contoso,DC=com'
+                    }
+                }
+                return $null
+            } -ModuleName TierModel
+            Mock Get-ADGroupMember { return @() } -ModuleName TierModel
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
+
+            # Group was found via SID, so the membership check ran; the test user
+            # is not a member, which yields the "add user" remediation (not the
+            # "group not found" one)
+            $result.EnvironmentSnapshot.IsDomainAdmin | Should -Be $false
+            ($result.Remediation -join ' ') | Should -Match 'Add current user to Domain Admins'
+            $result.Remediation | Should -Not -Contain "Ensure Domain Admins group exists and user is member of Domain Admins group"
         }
     }
     

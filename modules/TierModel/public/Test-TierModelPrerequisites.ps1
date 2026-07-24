@@ -252,7 +252,23 @@ function Test-TierModelPrerequisites {
                 Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false | Out-Null
                 if (Get-Module ActiveDirectory) {
                     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
-                    $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+
+                    # Resolve Domain Admins via well-known RID 512 (language-independent:
+                    # the group is e.g. "Domänen-Admins" in a German AD)
+                    $domainAdmins = $null
+                    try {
+                        $domainInfo = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
+                        if ($domainInfo -and $domainInfo.PSObject.Properties['DomainSID'] -and $domainInfo.DomainSID) {
+                            $domainAdminsSid = "$($domainInfo.DomainSID.Value)-512"
+                            $domainAdmins = Get-ADGroup -Identity $domainAdminsSid -Server $PreferredDc -ErrorAction SilentlyContinue
+                        }
+                    }
+                    catch {
+                        # Fall back to name-based lookup below
+                    }
+                    if (-not $domainAdmins) {
+                        $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                    }
                     
                     if ($domainAdmins) {
                         $isDomainAdmin = Get-ADGroupMember -Identity $domainAdmins -Server $PreferredDc -Recursive -ErrorAction SilentlyContinue | 
@@ -328,7 +344,31 @@ function Test-TierModelPrerequisites {
                         
                         # Check for Enterprise Admins group (may not exist in child domains)
                         try {
-                            $enterpriseAdmins = Get-ADGroup -Identity "Enterprise Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                            # Resolve via well-known RID 519 on the forest root domain SID
+                            # (language-independent: e.g. "Organisations-Admins" in a German AD)
+                            $enterpriseAdmins = $null
+                            try {
+                                $rootDomainSid = $null
+                                if (-not $isChildDomain) {
+                                    if ($domain.PSObject.Properties['DomainSID'] -and $domain.DomainSID) {
+                                        $rootDomainSid = $domain.DomainSID.Value
+                                    }
+                                } else {
+                                    $rootDomain = Get-ADDomain -Identity $forest.RootDomain -ErrorAction SilentlyContinue
+                                    if ($rootDomain -and $rootDomain.PSObject.Properties['DomainSID'] -and $rootDomain.DomainSID) {
+                                        $rootDomainSid = $rootDomain.DomainSID.Value
+                                    }
+                                }
+                                if ($rootDomainSid) {
+                                    $enterpriseAdmins = Get-ADGroup -Identity "$rootDomainSid-519" -Server $PreferredDc -ErrorAction SilentlyContinue
+                                }
+                            }
+                            catch {
+                                # Fall back to name-based lookup below
+                            }
+                            if (-not $enterpriseAdmins) {
+                                $enterpriseAdmins = Get-ADGroup -Identity "Enterprise Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
+                            }
                             $result.EnvironmentSnapshot.HasEnterpriseAdmins = [bool]$enterpriseAdmins
                         }
                         catch {
@@ -442,7 +482,7 @@ function Test-TierModelPrerequisites {
                 if (-not $result.EnvironmentSnapshot.KdsRootKeyExists) {
                     $result.Valid = $false
                     $null = $result.Errors.Add("No KDS Root Key found. gMSA requires an effective KDS Root Key.")
-                    $null = $result.Remediation.Add("Create a KDS Root Key: Add-KdsRootKey -EffectiveImmediately (for lab) or Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) (for production). The Tier Model will NEVER create KDS keys automatically.")
+                    $null = $result.Remediation.Add("Create a KDS Root Key: Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)). Deploy-TierModel.ps1 creates this automatically in execution mode (-ConfirmApply); create it manually only if auto-provisioning failed.")
                 } else {
                     $latestKey = @($kdsKeys) | Sort-Object EffectiveTime -Descending | Select-Object -First 1
                     $result.EnvironmentSnapshot.KdsRootKeyEffective = ($latestKey.EffectiveTime -lt (Get-Date).AddHours(-10))

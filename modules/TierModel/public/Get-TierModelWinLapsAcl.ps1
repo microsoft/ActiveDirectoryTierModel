@@ -206,8 +206,27 @@ function Get-TierModelWinLapsAcl {
 
         foreach ($group in $uniqueGroups) {
             try {
-                $escapedName = $group -replace "'", "''"
-                $adGroup = Get-ADGroup -Filter "Name -eq '$escapedName'" -Server $DomainController -Properties sAMAccountName -ErrorAction Stop
+                $adGroup = $null
+
+                # Well-known groups (e.g. "Domain Admins") first via fixed SID/RID —
+                # their display names are localized in non-English ADs
+                $wellKnownSid = $null
+                try {
+                    $wellKnownSid = Get-WellKnownSid -Principal $group
+                    if (-not $wellKnownSid) {
+                        $wellKnownSid = Get-WellKnownDomainRidSid -Principal $group -DomainController $DomainController
+                    }
+                } catch { $wellKnownSid = $null }
+                if ($wellKnownSid) {
+                    try {
+                        $adGroup = Get-ADGroup -Identity $wellKnownSid -Server $DomainController -Properties sAMAccountName -ErrorAction Stop
+                    } catch { $adGroup = $null }
+                }
+
+                if (-not $adGroup) {
+                    $escapedName = $group -replace "'", "''"
+                    $adGroup = Get-ADGroup -Filter "Name -eq '$escapedName'" -Server $DomainController -Properties sAMAccountName -ErrorAction Stop
+                }
                 if ($adGroup) {
                     $groupResolution[$group] = "$netBIOSDomain\$($adGroup.sAMAccountName)"
                 } else {

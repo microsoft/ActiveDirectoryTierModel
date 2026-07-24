@@ -115,21 +115,26 @@ function New-TierModelGpo {
                                 # Get domain info for building ADSI path
                                 $domain = Get-ADDomain -Server $DomainController
                                 $domainDN = $domain.DistinguishedName
-                                $domainNetbios = $domain.NetBIOSName
-                                
+
                                 # Build ADSI path to GPO container (GPC) in AD
                                 $gpcAdsiPath = "LDAP://CN={$($newGPO.Id)},CN=Policies,CN=System,$domainDN"
                                 $gpc = [ADSI]$gpcAdsiPath
-                                
-                                # Resolve group identity to NTAccount
-                                $ntAccount = New-Object System.Security.Principal.NTAccount("$domainNetbios", $denyGroup)
-                                
+
+                                # Resolve group to SID (language-independent for well-known
+                                # groups like "Domain Controllers", which are localized in
+                                # non-English ADs)
+                                $sidResult = Resolve-TierModelPrincipalSid -Principal $denyGroup -DomainController $DomainController -CorrelationId $CorrelationId
+                                if (-not $sidResult.Success) {
+                                    throw "Could not resolve SID for deny group '$denyGroup': $($sidResult.Error)"
+                                }
+                                $denyIdentity = [System.Security.Principal.SecurityIdentifier]::new($sidResult.Sid)
+
                                 # Apply GPO extended right GUID (documented standard)
                                 $applyGpoGuid = [Guid]"edacfd8f-ffb3-11d1-b41d-00a0c968f939"
-                                
+
                                 # Build a Deny ACE for Apply GPO extended right
                                 $denyAce = New-Object System.DirectoryServices.ActiveDirectoryAccessRule `
-                                    ($ntAccount, "ExtendedRight", "Deny", $applyGpoGuid)
+                                    ($denyIdentity, "ExtendedRight", "Deny", $applyGpoGuid)
                                 
                                 # Add ACE and commit
                                 $acl = $gpc.ObjectSecurity

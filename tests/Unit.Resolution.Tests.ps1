@@ -897,9 +897,10 @@ Describe "Get-TierModelConditionalGroupNames" -Tag 'Unit', 'Resolution', 'Condit
 Describe "Resolve-TierModelPrincipalSid" -Tag 'Unit', 'Resolution', 'PrincipalSid' {
 
     BeforeEach {
-        # Clear the module-level SID cache before each test
+        # Clear the module-level SID caches before each test
         InModuleScope TierModel {
             $script:SidCache = @{}
+            $script:DomainSidCache = @{}
         }
         Mock Write-TierModelLog { } -ModuleName TierModel
         Mock Write-Warning      { } -ModuleName TierModel
@@ -1164,6 +1165,149 @@ Describe "Resolve-TierModelPrincipalSid" -Tag 'Unit', 'Resolution', 'PrincipalSi
             $result.Source  | Should -Be 'WellKnown'
             $result.Sid     | Should -Be 'S-1-5-20'
             $result.Success | Should -BeTrue
+        }
+    }
+
+    # ------------------------------------------------------------------
+    # Well-known domain RID resolution (language-independent)
+    # Groups like "Domain Admins" are localized in non-English ADs
+    # (e.g. "Domänen-Admins" in German) — resolution must use fixed RIDs
+    # ------------------------------------------------------------------
+    Context "Well-Known Domain RID Resolution" {
+
+        BeforeEach {
+            Mock Get-ADDomain {
+                [PSCustomObject]@{
+                    DNSRoot   = 'contoso.com'
+                    DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' }
+                }
+            } -ModuleName TierModel
+            Mock Get-ADForest {
+                [PSCustomObject]@{ RootDomain = 'contoso.com' }
+            } -ModuleName TierModel
+            Mock Get-ADGroup { throw 'Group should not be looked up by name' } -ModuleName TierModel
+        }
+
+        It "Should resolve Domain Admins via RID 512 without a name-based AD lookup" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Domain Admins' -DomainController 'dc01.contoso.com'
+            $result.Success | Should -BeTrue
+            $result.Source  | Should -Be 'WellKnownRid'
+            $result.Sid     | Should -Be 'S-1-5-21-111-222-333-512'
+            Should -Invoke Get-ADGroup -ModuleName TierModel -Times 0 -Exactly
+        }
+
+        It "Should resolve Domain Users via RID 513" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Domain Users' -DomainController 'dc01.contoso.com'
+            $result.Sid | Should -Be 'S-1-5-21-111-222-333-513'
+        }
+
+        It "Should resolve Domain Controllers via RID 516" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Domain Controllers' -DomainController 'dc01.contoso.com'
+            $result.Sid | Should -Be 'S-1-5-21-111-222-333-516'
+        }
+
+        It "Should resolve Protected Users via RID 525" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Protected Users' -DomainController 'dc01.contoso.com'
+            $result.Sid | Should -Be 'S-1-5-21-111-222-333-525'
+        }
+
+        It "Should resolve Cloneable Domain Controllers via RID 522" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Cloneable Domain Controllers' -DomainController 'dc01.contoso.com'
+            $result.Sid | Should -Be 'S-1-5-21-111-222-333-522'
+        }
+
+        It "Should resolve Guest via RID 501" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Guest' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'WellKnownRid'
+            $result.Sid    | Should -Be 'S-1-5-21-111-222-333-501'
+        }
+
+        It "Should resolve Allowed RODC Password Replication Group via RID 571" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Allowed RODC Password Replication Group' -DomainController 'dc01.contoso.com'
+            $result.Sid | Should -Be 'S-1-5-21-111-222-333-571'
+        }
+
+        It "Should resolve short-form Cryptographic Operators as well-known BUILTIN SID" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Cryptographic Operators' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'WellKnown'
+            $result.Sid    | Should -Be 'S-1-5-32-569'
+        }
+
+        It "Should resolve short-form Backup Operators as well-known BUILTIN SID" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Backup Operators' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'WellKnown'
+            $result.Sid    | Should -Be 'S-1-5-32-551'
+        }
+
+        It "Should resolve principal names case-insensitively" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'domain admins' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'WellKnownRid'
+            $result.Sid    | Should -Be 'S-1-5-21-111-222-333-512'
+        }
+
+        It "Should resolve Enterprise Admins via RID 519 on the current domain SID when it is the forest root" {
+            $result = Resolve-TierModelPrincipalSid -Principal 'Enterprise Admins' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'WellKnownRid'
+            $result.Sid    | Should -Be 'S-1-5-21-111-222-333-519'
+        }
+
+        It "Should resolve Schema Admins via RID 518 on the forest root domain SID in a child domain" {
+            Mock Get-ADDomain {
+                if ($Identity) {
+                    # Forest root domain lookup
+                    [PSCustomObject]@{
+                        DNSRoot   = 'contoso.com'
+                        DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-999-888-777' }
+                    }
+                } else {
+                    # Current (child) domain
+                    [PSCustomObject]@{
+                        DNSRoot   = 'child.contoso.com'
+                        DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' }
+                    }
+                }
+            } -ModuleName TierModel
+            Mock Get-ADForest {
+                [PSCustomObject]@{ RootDomain = 'contoso.com' }
+            } -ModuleName TierModel
+
+            $result = Resolve-TierModelPrincipalSid -Principal 'Schema Admins' -DomainController 'dc01.child.contoso.com'
+            $result.Source | Should -Be 'WellKnownRid'
+            $result.Sid    | Should -Be 'S-1-5-21-999-888-777-518'
+        }
+
+        It "Should query the domain SID only once for multiple RID resolutions (cache)" {
+            $null = Resolve-TierModelPrincipalSid -Principal 'Domain Admins' -DomainController 'dc01.contoso.com'
+            $null = Resolve-TierModelPrincipalSid -Principal 'Domain Users' -DomainController 'dc01.contoso.com'
+            Should -Invoke Get-ADDomain -ModuleName TierModel -Times 1 -Exactly
+        }
+
+        It "Should fall back to AD resolution when the domain SID cannot be determined" {
+            Mock Get-ADDomain { throw 'DC unreachable' } -ModuleName TierModel
+            Mock Resolve-ADPrincipalSid {
+                @{ Sid = 'S-1-5-21-444-555-666-512'; Source = 'ADGroup'; Success = $true; Error = $null }
+            } -ModuleName TierModel
+
+            $result = Resolve-TierModelPrincipalSid -Principal 'Domain Admins' -DomainController 'dc01.contoso.com'
+            $result.Success | Should -BeTrue
+            $result.Source  | Should -Be 'ADGroup'
+            Should -Invoke Resolve-ADPrincipalSid -ModuleName TierModel -Times 1 -Exactly
+        }
+
+        It "Should not treat non-well-known groups as domain RIDs" {
+            Mock Resolve-ADPrincipalSid {
+                @{ Sid = 'S-1-5-21-111-222-333-1105'; Source = 'ADGroup'; Success = $true; Error = $null }
+            } -ModuleName TierModel
+
+            $result = Resolve-TierModelPrincipalSid -Principal 'Tier 0 Admins' -DomainController 'dc01.contoso.com'
+            $result.Source | Should -Be 'ADGroup'
+        }
+
+        It "Should cache RID-resolved SIDs and return Cached = true on second call" {
+            $null = Resolve-TierModelPrincipalSid -Principal 'Domain Admins' -DomainController 'dc01.contoso.com'
+            $result = Resolve-TierModelPrincipalSid -Principal 'Domain Admins' -DomainController 'dc01.contoso.com'
+            $result.Cached | Should -BeTrue
+            $result.Sid    | Should -Be 'S-1-5-21-111-222-333-512'
         }
     }
 
