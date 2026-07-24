@@ -429,8 +429,10 @@ function Get-TierModelDomainSid {
     if ($ForestRoot) {
         $forest = Get-ADForest -Server $DomainController -ErrorAction Stop
         if ($forest.RootDomain -and $forest.RootDomain -ne $domain.DNSRoot) {
-            # Child domain: forest-level groups live in the forest root domain
-            $domain = Get-ADDomain -Identity $forest.RootDomain -ErrorAction Stop
+            # Child domain: forest-level groups live in the forest root domain.
+            # Target the root domain by name so the AD module locates a DC of
+            # that domain within the forest we are already talking to.
+            $domain = Get-ADDomain -Identity $forest.RootDomain -Server $forest.RootDomain -ErrorAction Stop
         }
     }
 

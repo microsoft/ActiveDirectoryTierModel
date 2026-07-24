@@ -218,6 +218,18 @@ function Get-TierModelWinLapsAcl {
                     }
                 } catch { $wellKnownSid = $null }
                 if ($wellKnownSid) {
+                    # Translate the SID locally first — this yields the correct
+                    # domain prefix even for forest-root groups (e.g. Enterprise
+                    # Admins) when running from a child domain
+                    try {
+                        $ntAccount = ([System.Security.Principal.SecurityIdentifier]::new($wellKnownSid)).Translate([System.Security.Principal.NTAccount]).Value
+                        if ($ntAccount) {
+                            $groupResolution[$group] = $ntAccount
+                            continue
+                        }
+                    } catch {
+                        # Translation unavailable — fall back to AD lookup by SID
+                    }
                     try {
                         $adGroup = Get-ADGroup -Identity $wellKnownSid -Server $DomainController -Properties sAMAccountName -ErrorAction Stop
                     } catch { $adGroup = $null }

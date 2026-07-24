@@ -349,18 +349,23 @@ function Test-TierModelPrerequisites {
                             $enterpriseAdmins = $null
                             try {
                                 $rootDomainSid = $null
+                                # Enterprise Admins lives in the forest root domain, so both the
+                                # SID lookup and the group query must target a root-domain DC
+                                # when running from a child domain
+                                $eaServer = $PreferredDc
                                 if (-not $isChildDomain) {
                                     if ($domain.PSObject.Properties['DomainSID'] -and $domain.DomainSID) {
                                         $rootDomainSid = $domain.DomainSID.Value
                                     }
                                 } else {
-                                    $rootDomain = Get-ADDomain -Identity $forest.RootDomain -ErrorAction SilentlyContinue
+                                    $rootDomain = Get-ADDomain -Identity $forest.RootDomain -Server $forest.RootDomain -ErrorAction SilentlyContinue
                                     if ($rootDomain -and $rootDomain.PSObject.Properties['DomainSID'] -and $rootDomain.DomainSID) {
                                         $rootDomainSid = $rootDomain.DomainSID.Value
+                                        $eaServer = $forest.RootDomain
                                     }
                                 }
                                 if ($rootDomainSid) {
-                                    $enterpriseAdmins = Get-ADGroup -Identity "$rootDomainSid-519" -Server $PreferredDc -ErrorAction SilentlyContinue
+                                    $enterpriseAdmins = Get-ADGroup -Identity "$rootDomainSid-519" -Server $eaServer -ErrorAction SilentlyContinue
                                 }
                             }
                             catch {
