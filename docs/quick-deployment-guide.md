@@ -14,12 +14,12 @@ Before deploying the Tier Model, ensure the following requirements are met:
 ### Required PowerShell Modules
 - `ActiveDirectory` (version 1.0.1.0 or later)
 - `GroupPolicy` (version 1.0 or later)
-- `Pester` (version 5.7.1 or later) - Must be obtained from public sources (PowerShell Gallery)
+- `Pester` (any 5.x release; Pester 6.x is not yet supported) - Must be obtained from public sources (PowerShell Gallery)
 
 ### Installation
 Install Pester from the PowerShell Gallery:
 ```powershell
-Install-Module -Name Pester -MinimumVersion 5.7.1 -Force -SkipPublisherCheck
+Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force -SkipPublisherCheck
 ```
 
 ### Obtain TierModel

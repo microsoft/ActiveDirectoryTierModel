@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Pester version gate loosened to any 5.x, with side-by-side 6.x support**: CI and `Test-TierModelPrerequisites` previously pinned Pester to the exact reference version (`5.7.1`), which blocked otherwise-valid 5.x releases from running or deploying. The gate now accepts any Pester **5.x** release (major-version match) while still blocking **6.x**, whose breaking changes (new mock engine / `Should-*` assertions) broke 44 test cases.
+  - CI installs Pester with `-MinimumVersion 5.0.0 -MaximumVersion 5.99.99`; `config/dependencies.json` keeps `5.7.1` as the tested reference version.
+  - `Test-TierModelPrerequisites` now accepts a supported 5.x release even when an unsupported newer major (e.g. 6.x) is installed **side-by-side** — this does not block deployment. It emits a non-blocking note that PowerShell auto-loads the highest version, so the 5.x line must be imported explicitly (`Import-Module Pester -MaximumVersion 5.99.99`). It fails only when no 5.x release is present.
+  - `tests/Invoke-AllTests.ps1` now selects and explicitly imports the highest installed Pester 5.x so local/lab test runs use the supported version even when 6.x is installed alongside it.
+
 ## [1.2.0] - 2026-07-17
 
 ### Added

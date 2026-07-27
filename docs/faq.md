@@ -110,7 +110,7 @@ The high-level migration path is:
 ### What PowerShell modules must be installed?
 - `ActiveDirectory` (v1.0.1.0 or later)
 - `GroupPolicy` (v1.0 or later)
-- `Pester` (v5.7.1 or later) — install from PowerShell Gallery
+- `Pester` (any 5.x release; Pester 6.x is not yet supported) — install from PowerShell Gallery
 - Notes on air-gapped environments and offline module installation
 
 ### Do I need to run this from a Domain Controller?

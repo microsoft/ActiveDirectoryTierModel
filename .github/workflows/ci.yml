@@ -36,7 +36,7 @@ jobs:
       run: |
         Set-PSRepository PSGallery -InstallationPolicy Trusted
         Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-        Install-Module -Name Pester -Force -Scope CurrentUser -RequiredVersion 5.7.1
+        Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.99.99
         Write-Host "Installed PowerShell modules successfully"
         
     - name: Run ScriptAnalyzer
@@ -90,7 +90,7 @@ jobs:
       shell: pwsh
       run: |
         Set-PSRepository PSGallery -InstallationPolicy Trusted
-        Install-Module -Name Pester -Force -Scope CurrentUser -RequiredVersion 5.7.1
+        Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.99.99
         Write-Host "PowerShell version: $($PSVersionTable.PSVersion)"
         Write-Host "Pester version: $((Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1).Version)"
         

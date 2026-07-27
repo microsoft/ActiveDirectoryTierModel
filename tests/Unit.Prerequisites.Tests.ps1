@@ -738,15 +738,45 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
         ($result.Remediation -join ' ')      | Should -Match 'Install-Module.*Pester'
     }
 
-    It "Should report Pester version mismatch when installed version differs from deps (lines 143-146)" {
+    It "Should report a Pester version mismatch when only a non-5.x major is installed (lines 147-165)" {
         InModuleScope TierModel {
-            Mock Get-Module { return [PSCustomObject]@{ Version = [version]'5.0.0' } } `
+            Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'6.0.0' } } `
                 -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
         }
-        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
         $result.Valid | Should -Be $false
-        ($result.Errors -join ' ') | Should -Match 'Pester version mismatch'
-        ($result.Remediation -join ' ') | Should -Match 'Install-Module.*Pester.*5\.7\.1'
+        ($result.Errors -join ' ') | Should -Match 'No supported Pester 5\.x release found'
+        ($result.Errors -join ' ') | Should -Match 'Pester 6\.x has breaking changes'
+        ($result.Remediation -join ' ') | Should -Match 'Install-Module.*Pester.*5\.0\.0'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '6.0.0'
+    }
+
+    It "Should accept any Pester 5.x version, not only the reference version (loosened gate)" {
+        InModuleScope TierModel {
+            Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.8.0' } } `
+                -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
+        }
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
+        ($result.Errors -join ' ') | Should -Not -Match 'Pester version mismatch'
+        ($result.Errors -join ' ') | Should -Not -Match 'No supported Pester'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.8.0'
+    }
+
+    It "Should accept a supported 5.x installed side-by-side with an unsupported 6.x (non-blocking warning)" {
+        InModuleScope TierModel {
+            Mock Get-Module {
+                return @(
+                    [PSCustomObject]@{ Name = 'Pester'; Version = [version]'6.0.0' },
+                    [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.9.0' }
+                )
+            } -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
+        }
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
+        ($result.Errors -join ' ') | Should -Not -Match 'No supported Pester'
+        ($result.Errors -join ' ') | Should -Not -Match 'Pester module is not installed'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.9.0'
+        ($result.Remediation -join ' ') | Should -Match 'installed side-by-side'
+        ($result.Remediation -join ' ') | Should -Match 'Import-Module Pester -MaximumVersion 5\.99\.99'
     }
 
     It "Should report RSAT-AD remediation when ActiveDirectory module is missing (line 209)" {

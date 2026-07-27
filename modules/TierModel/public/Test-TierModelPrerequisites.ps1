@@ -136,21 +136,42 @@ function Test-TierModelPrerequisites {
         }
         
         # Test required modules and versions (dependencies already parsed at start)
-        # Check Pester version
-        $pesterModule = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
-        if (-not $pesterModule) {
+        # Check Pester version. Any Pester 5.x release is supported; Pester 6.x introduces
+        # breaking changes (new mock engine / Should-* assertions) that are not yet tested,
+        # so only the tested major line is accepted. $dependencies.pester is the reference
+        # version for that 5.x line. Pester versions install side-by-side, so a supported
+        # 5.x release alongside a newer unsupported major (e.g. 6.x) is allowed and does not
+        # block deployment; but PowerShell auto-loads the highest version, so we warn the
+        # operator to import the supported line explicitly before running tests.
+        $supportedPesterMajor = ([version]$dependencies.pester).Major
+        $installedPester = @(Get-Module -ListAvailable -Name Pester | Where-Object { $null -ne $_ })
+        $supportedPester = $installedPester |
+            Where-Object { ([version]$_.Version).Major -eq $supportedPesterMajor } |
+            Sort-Object { [version]$_.Version } -Descending | Select-Object -First 1
+        $highestPester = $installedPester |
+            Sort-Object { [version]$_.Version } -Descending | Select-Object -First 1
+        if (-not $installedPester) {
             $result.Valid = $false
             $null = $result.Errors.Add("Pester module is not installed.")
-            $null = $result.Remediation.Add("Install Pester: Install-Module -Name Pester -RequiredVersion $($dependencies.pester) -Force")
+            $null = $result.Remediation.Add("Install Pester $supportedPesterMajor.x: Install-Module -Name Pester -MinimumVersion $supportedPesterMajor.0.0 -MaximumVersion $supportedPesterMajor.99.99 -Force")
             $null = $result.Remediation.Add("For installation help, see Pester documentation: https://github.com/pester/Pester")
         }
-        elseif ($pesterModule.Version -ne [version]$dependencies.pester) {
+        elseif (-not $supportedPester) {
+            # Pester is installed, but no supported 5.x release is present (e.g. only 6.x).
+            $unsupportedMajor = ([version]$highestPester.Version).Major
             $result.Valid = $false
-            $null = $result.Errors.Add("Pester version mismatch. Required: $($dependencies.pester), Found: $($pesterModule.Version)")
-            $null = $result.Remediation.Add("Install correct Pester version: Install-Module -Name Pester -RequiredVersion $($dependencies.pester) -Force")
+            $null = $result.Errors.Add("No supported Pester $supportedPesterMajor.x release found (reference $($dependencies.pester)). Highest installed: $([version]$highestPester.Version). Pester $unsupportedMajor.x has breaking changes that are not yet supported.")
+            $null = $result.Remediation.Add("Install a supported Pester $supportedPesterMajor.x release (it installs side-by-side with newer versions): Install-Module -Name Pester -MinimumVersion $supportedPesterMajor.0.0 -MaximumVersion $supportedPesterMajor.99.99 -Force")
             $null = $result.Remediation.Add("For installation help, see Pester documentation: https://github.com/pester/Pester")
         }
-        $result.EnvironmentSnapshot.PesterVersion = if ($pesterModule) { $pesterModule.Version.ToString() } else { 'Not installed' }
+        elseif (([version]$highestPester.Version).Major -ne $supportedPesterMajor) {
+            # A supported 5.x is present, but a newer unsupported major is installed alongside it.
+            # Non-blocking: side-by-side versions coexist without impact on deployment. Warn that
+            # PowerShell auto-loads the highest version, so the supported line must be imported explicitly.
+            $unsupportedMajor = ([version]$highestPester.Version).Major
+            $null = $result.Remediation.Add("Pester $([version]$highestPester.Version) is installed side-by-side with the supported $([version]$supportedPester.Version); Pester $unsupportedMajor.x has breaking changes that are not yet supported. This does not block deployment, but PowerShell auto-loads the highest version - explicitly import the supported line before running tests: Import-Module Pester -MaximumVersion $supportedPesterMajor.99.99")
+        }
+        $result.EnvironmentSnapshot.PesterVersion = if ($supportedPester) { ([version]$supportedPester.Version).ToString() } elseif ($highestPester) { ([version]$highestPester.Version).ToString() } else { 'Not installed' }
         
         # Check other required modules
         try {
