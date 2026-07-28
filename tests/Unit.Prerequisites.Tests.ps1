@@ -107,12 +107,20 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
     Context "Module Version Validation" -Tag 'Modules','Prereq' {
     It "Should check Pester module availability" -Tag 'Positive','Modules' {
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
-            
+
             $result.EnvironmentSnapshot.PesterVersion | Should -Not -BeNullOrEmpty
-            
-            $pesterModule = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
-            if ($pesterModule) {
-                $result.EnvironmentSnapshot.PesterVersion | Should -Be $pesterModule.Version.ToString()
+
+            $installedPester = @(Get-Module -ListAvailable -Name Pester)
+            # The snapshot reports the highest supported 5.x release (Pester 6.x is not yet
+            # supported and installs side-by-side), falling back to the highest installed
+            # version only when no 5.x is present.
+            $expectedPester = $installedPester | Where-Object { $_.Version.Major -eq 5 } |
+                Sort-Object Version -Descending | Select-Object -First 1
+            if (-not $expectedPester) {
+                $expectedPester = $installedPester | Sort-Object Version -Descending | Select-Object -First 1
+            }
+            if ($expectedPester) {
+                $result.EnvironmentSnapshot.PesterVersion | Should -Be $expectedPester.Version.ToString()
             } else {
                 $result.EnvironmentSnapshot.PesterVersion | Should -Be 'Not installed'
                 $result.Valid | Should -Be $false
