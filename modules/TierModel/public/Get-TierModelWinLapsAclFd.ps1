@@ -191,15 +191,13 @@ function Get-TierModelWinLapsAclFd {
                 try {
                     $existingGpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop
                 } catch {
-                    # FullDeployment planning: the LAPS GPOs are created by the earlier GPO
-                    # phase at apply time, so during preview they legitimately do not exist yet.
-                    # Treat a missing GPO as a non-blocking warning (not a hard planError) so the
-                    # plan shows yellow "will configure" instead of red errors, mirroring the
-                    # non-blocking OU/group handling in this FD planner. The decryptor step below
-                    # plans a ConfigureLapsDecryptor action when the GPO/registry value is absent.
-                    # The standalone -IncludeWinLaps path (Get-TierModelWinLapsAcl) keeps the
-                    # strict pre-existence requirement, since earlier phases do not run there.
-                    $warnings += "LAPS GPO '$gpoName' not found - assuming it will be created by the GPO phase during FullDeployment."
+                    # FullDeployment planning: the LAPS GPOs are created by the earlier GPO phase
+                    # at apply time, so a missing GPO during preview is expected and non-blocking —
+                    # no planError and no user-facing warning. The decryptor step below plans a
+                    # "Configure" action per GPO regardless of current existence, rendered as a
+                    # yellow "■ Configure : <gpoName>" line. The standalone -IncludeWinLaps path
+                    # (Get-TierModelWinLapsAcl) keeps the strict pre-existence requirement.
+                    Write-TierModelLog -Level Debug -Message "LAPS GPO not present during FD planning (expected; created by GPO phase)" -Data @{ GpoName = $gpoName; CorrelationId = $CorrelationId } | Out-Null
                 }
             }
         }

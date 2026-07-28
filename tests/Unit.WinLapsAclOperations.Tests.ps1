@@ -732,7 +732,7 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             @($plan.Errors | Where-Object { $_.Code -eq 'DOMAIN_RESOLUTION_FAILED' }).Count | Should -BeGreaterThan 0
         }
 
-        It "Gate 4a (FD): missing LAPS GPO is a non-blocking warning (created by GPO phase), not a hard error" {
+        It "Gate 4a (FD): missing LAPS GPO is non-blocking (created by GPO phase) - no error, no warning" {
             $fdConfigWithGpos = [PSCustomObject]@{
                 winLapsDelegations = @(
                     [PSCustomObject]@{
@@ -755,10 +755,11 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             $plan = Get-TierModelWinLapsAclFd -Config $fdConfigWithGpos -DomainController $script:TestDC
 
             # BUG-005: in FullDeployment the LAPS GPOs are created by the earlier GPO phase, so a
-            # missing GPO during planning must NOT emit a blocking RequiredGpoNotFound error (which
-            # rendered red). It is a non-blocking warning instead, so the plan previews yellow.
+            # missing GPO during planning is non-blocking: no RequiredGpoNotFound error (which
+            # rendered red) AND no "not found" warning. The plan renders the decryptor step as a
+            # yellow "■ Configure : <gpoName>" line instead.
             @($plan.Errors | Where-Object { $_.Code -eq 'RequiredGpoNotFound' }).Count | Should -Be 0
-            @($plan.Warnings | Where-Object { $_ -match "LAPS GPO .* not found" }).Count | Should -BeGreaterThan 0
+            @($plan.Warnings | Where-Object { $_ -match "not found" }).Count | Should -Be 0
         }
     }
 

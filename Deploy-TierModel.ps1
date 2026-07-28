@@ -1045,7 +1045,7 @@ function Write-IncludeAclPlanActions {
                 Write-Host "  ■ Create ACL: $principal on $ouName" -ForegroundColor Yellow
             }
         } elseif ($_.Action -eq 'ConfigureLapsDecryptor') {
-            Write-Host "  ■ Configure LAPS decryptor: $($_.Data.decryptorValue) on $($_.Data.gpoName)" -ForegroundColor Yellow
+            Write-Host "  ■ Configure : $($_.Data.gpoName)" -ForegroundColor Yellow
         }
     }
 }
@@ -1641,9 +1641,6 @@ if ($FullDeployment) {
             } else {
                 Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 10 -PhaseName 'Windows LAPS ACL Delegations' -Plan $winLapsFdPlan
                 if (-not $ConfirmApply) {
-                    if ($winLapsFdPlan.Warnings -and $winLapsFdPlan.Warnings.Count -gt 0) {
-                        $winLapsFdPlan.Warnings | ForEach-Object { Write-Host "  ⚠ $_" -ForegroundColor Yellow }
-                    }
                     if ($winLapsFdPlan.Summary.TotalActions -gt 0) {
                         Write-Host "  Actions planned: $($winLapsFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
                         Write-IncludeAclPlanActions -Actions $winLapsFdPlan.Actions
