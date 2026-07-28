@@ -1643,6 +1643,9 @@ if ($FullDeployment) {
             } else {
                 Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 10 -PhaseName 'Windows LAPS ACL Delegations' -Plan $winLapsFdPlan
                 if (-not $ConfirmApply) {
+                    if ($winLapsFdPlan.Warnings -and $winLapsFdPlan.Warnings.Count -gt 0) {
+                        $winLapsFdPlan.Warnings | ForEach-Object { Write-Host "  ⚠ $_" -ForegroundColor Yellow }
+                    }
                     if ($winLapsFdPlan.Summary.TotalActions -gt 0) {
                         Write-Host "  Actions planned: $($winLapsFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
                         Write-IncludeAclPlanActions -Actions $winLapsFdPlan.Actions
@@ -2035,6 +2038,13 @@ else {
             $hasErrors = $userResult.PSObject.Properties.Name -contains 'Errors' -and $userResult.Errors -and @($userResult.Errors).Count -gt 0
             
             if ($hasErrors) {
+                # List the specific missing OUs/Groups so -UserOnly matches the other scope
+                # parameters (-GroupOnly, -GposOnly, etc.). The -UserOnly path calls
+                # Invoke-UserDeployment with -Silent (to avoid duplicate plan output), which
+                # suppresses that function's own dependency-error listing, so surface it here.
+                Write-Host "Dependency Errors:" -ForegroundColor Red
+                $uniqueUserErrors = $userResult.Errors | Group-Object -Property Message | ForEach-Object { $_.Group[0] }
+                $uniqueUserErrors | Sort-Object Message | ForEach-Object { Write-Host "  ❌ $($_.Message)" -ForegroundColor Red }
                 Write-Host "Resolve all dependency errors before proceeding with User deployment" -ForegroundColor Red
             } else {
                 # Only show detailed counts when there are no dependency errors

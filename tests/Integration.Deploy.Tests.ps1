@@ -1770,6 +1770,12 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Dependency Errors'
+        # BUG-002: -UserOnly must list the SPECIFIC missing OU/Group messages, like the other
+        # scope parameters. It calls Invoke-UserDeployment with -Silent (to avoid duplicate plan
+        # output), which suppressed that function's own error listing, so the outer -UserOnly
+        # block must surface the messages itself. Previously only the generic "Resolve all
+        # dependency errors" line was shown and this specific message was missing.
+        $output | Should -Match 'Test error'
     }
 
     It 'Should display Update count for UpdateUserMembership actions in outer plan summary' {

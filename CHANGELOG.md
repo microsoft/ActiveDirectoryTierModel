@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`-UserOnly` now lists missing OU/Group dependencies (BUG-002)**: running `Deploy-TierModel.ps1 -UserOnly` against a domain without the Tier Model OUs/Groups now prints the specific `Dependency Errors:` block (each missing OU/Group), matching `-GroupOnly`, `-GposOnly`, and the other scope parameters. Previously the `-UserOnly` path called `Invoke-UserDeployment -Silent` (to avoid duplicate plan output), which suppressed the dependency-error listing, so only a generic "Resolve all dependency errors" line was shown.
+- **Windows LAPS FullDeployment planning no longer shows red "missing GPO" errors (BUG-005)**: during `-FullDeployment ... -IncludeWinLaps` preview (without `-ConfirmApply`) against an unprepared domain, missing LAPS GPOs are now a non-blocking yellow warning ("will be created by the GPO phase") instead of red `Required GPO ... does not exist` errors, consistent with the yellow "will create" convention and with the non-blocking OU/group handling in the same planner. The standalone `-IncludeWinLaps` path keeps the strict GPO pre-existence requirement (earlier phases do not run there).
+
 ## [1.2.0] - 2026-07-17
 
 ### Added
