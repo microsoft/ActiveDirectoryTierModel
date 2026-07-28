@@ -1,6 +1,30 @@
 # wolverine — History
 
-## BUG FIX: Interactive-Prompt Hang in WinLaps Mandatory-Param Tests (2026-07-16)
+## Learnings
+
+### Lab Validation: UI Bugs BUG-002 & BUG-005 (2026-07-28)
+
+**Deploy-Preview Validation Workflow on Hyper-V AD Lab:**
+- Transport: PowerShell Direct via `New-PSSession -VMName TierLab-DC01 -Credential $cred` (VMBus, no network needed).
+- Each PS Direct session runs WinPS 5.1 — always spawn `C:\Program Files\PowerShell\7\pwsh.exe` as a child process to run the TierModel module (requires PS7).
+- Session state does NOT persist between separate PS tool calls; create and use sessions within a single invocation.
+- Copy working tree host→guest with `Copy-Item -ToSession` then verify with SHA256 hash comparison; guest disk state persists between calls.
+- Prerequisites gate: `Test-TierModelPrerequisites` picks the highest available Pester version (`Sort-Object Version -Descending | Select-Object -First 1`). Lab VM had Pester 6.0.0 installed; had to remove 6.0.0 & 5.9.0 from guest so 5.7.1 wins — deploy prereq then passed.
+
+**⚠-vs-❌ Glyph/Label Technique for Proving Color Across Redirected Output:**
+- ANSI color codes are stripped when PS output is captured/redirected. Color is provable only via the GLYPH+LABEL combo in source: `⚠` is emitted with `-ForegroundColor Yellow`; `❌` is emitted with `-ForegroundColor Red`.
+- Set `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` in the WinPS 5.1 PS Direct session before spawning the child pwsh.exe so ⚠/❌ Unicode glyphs are captured faithfully (not mojibake).
+- Save transcript to guest file with `-Encoding utf8`; read back with `Get-Content -Encoding UTF8`.
+- In BUG-005: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase` confirmed Yellow-warning behavior. Zero `❌` LAPS errors confirmed Red-error was suppressed/removed.
+- In BUG-002: 4× `❌ Required group/OU ... does not exist - create X first` confirmed the specific per-dependency errors are now emitted (were previously suppressed by the `-Silent` call).
+
+**PASS/FAIL Outcomes:**
+- **BUG-002 (UserOnly dependency errors) — PASS** (commit 32b748f, 2026-07-28): specific ❌ dependency items appear.
+- **BUG-005 (WinLaps preview GPO warning) — PASS** (commit 32b748f, 2026-07-28): Phase 10 emits ⚠ not ❌ for missing GPOs.
+
+---
+
+**Older history archived to history-archive.md (2026-07-28).**
 
 **Status:** ✅ FIXED — LOCAL only, no commit. Requested by Joel Platek.
 

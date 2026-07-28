@@ -4,6 +4,60 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+### 2026-07-28T12:10:15Z: UI Bugs BUG-002 + BUG-005 Lab Validation Verdict — APPROVED
+**Reviewer:** Cyclops  
+**Date:** 2026-07-28  
+**Branch:** fix/ui-bugs-002-005 (HEAD 32b748f)  
+**Tester:** Wolverine  
+**Requested by:** Joel Platek  
+**Status:** ✅ APPROVED
+
+---
+
+## Lab Validation Details
+
+Both UI bug fixes validated on live Hyper-V AD lab (TierLab-DC01, checkpoint: WinLapsSchema).
+
+### BUG-002 (`-UserOnly` preview) — PASS
+
+Wolverine verified that specific per-dependency ❌ messages now appear under `Dependency Errors:` header:
+- `Dependency Errors:` header ✓
+- 4× specific `  ❌ ` lines naming missing OUs/Groups ✓
+- `Resolve all dependency errors before proceeding with User deployment` ✓
+
+Cyclops reviewed Deploy-TierModel.ps1 lines 2034–2044 source code and confirmed glyph→color rendering logic is sound (hardcoded -ForegroundColor Red for ❌ glyphs).
+
+**Verdict: BUG-002 PASS**
+
+### BUG-005 (`-FullDeployment -IncludeWinLaps` preview, Phase 10) — PASS
+
+Wolverine verified that GPO-missing warnings (not errors) appear as 7× yellow `⚠` warnings:
+- 7× yellow `⚠ LAPS GPO '...' not found - assuming it will be created by the GPO phase` ✓
+- `Actions planned: 21` — ACL delegations queued, zero red ❌ errors ✓
+
+Cyclops reviewed Get-TierModelWinLapsAclFd.ps1 line ~201 and Deploy-TierModel.ps1 lines 1638–1650. Confirmed:
+- Warnings pushed to plan warnings array, not plan errors
+- Gate correctly allows planner to complete
+- Render logic correctly branches on ResourceType='LapsPermission' (line 1647) → displays as yellow `⚠`
+
+**Verdict: BUG-005 PASS**
+
+### Lab State
+- VM TierLab-DC01: Running (not reset, not checkpointed)
+- Both runs PREVIEW-only (no `-ConfirmApply`); zero AD changes made
+- Pester version swap (5.7.1 installed; 6.0.0/5.9.0 removed) cleared prerequisite gate only; zero impact on tested deployment logic
+
+### Cyclops Verdict: ✅ APPROVED
+- Criteria match: 4/4 pass
+- Glyph-based color inference: Reliable (hardcoded Write-Host calls)
+- Pester swap impact: None (test-runner tool only, no deployment logic affected)
+- Gaps: None material
+- Caveats: Partial verbatim capture of ⚠ warnings (2 of 7 shown, count verified); full verbatim would be marginally better, does not change verdict
+
+**Both BUG-002 and BUG-005 are safe to merge.**
+
+---
+
 ### 2026-07-16T11:42:44Z: Interactive Console Mandatory-Parameter Test Anti-Pattern Fixed
 **Author:** Wolverine  
 **Status:** ✅ FIXED — tests/Unit.WinLapsAclOperations.Tests.ps1 lines 309–315 refactored  

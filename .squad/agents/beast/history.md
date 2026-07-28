@@ -1,52 +1,30 @@
 # beast — History
 
-## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
+## Current: Windows LAPS Implementation Complete (2026-07-16)
 
-**Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
+**Status:** ✅ SHIPPED — All T001–T021 tasks complete, committed to feature/windows-laps branch, ready for Joel's UAT + release.
 
-The Windows LAPS feature (T001–T021) is now complete and committed to feature/windows-laps branch:
-- Beast (T001–T013): Implementation + audit cmdlet ✅
-- Wolverine (T014–T020): Test suite (113 tests, 90.92% coverage, 1401/1401 green) ✅
-- Storm (T021): Documentation (8 files, README metrics) ✅
+**Implementation Summary:**
+- T001–T013: Implementation + audit cmdlet (5 new public functions, config, decryptor integration)
+- T014–T020: Test suite (113 new Pester tests, 90.92% coverage, 1401/1401 green)
+- T021: Documentation (8 files, README metrics updated to v1.2.0)
 
-Orchestration logs: 2026-07-16T09-34-10Z-wolverine.md and 2026-07-16T09-34-10Z-storm.md  
-Session log: 2026-07-16T09-34-10Z-winlaps-feature-complete.md
+**Latest Fixes (2026-07-16):**
+1. **SELF ACE Detection (Bug A):** Replaced `Find-LapsADExtendedRights` SELF check with `Get-Acl "AD:$ouDn"` filtering for non-inherited LAPS ACEs. SELF now correctly detected on all 7 OUs post-deploy.
+2. **Mixed Findings Shapes (Bug B):** Consolidated audit reporting now guards `.Type` / `.Status` property access with `PSObject.Properties.Name` checks to work with both WinLaps ACL and Decryptor findings shapes.
 
-Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
+**Essential Patterns for Future Work:**
+- SELF ACE detection: Use `Get-Acl "AD:$ouDn"` + non-inherited filter + LAPS GUID filter (never `Find-LapsADExtendedRights` for SELF)
+- Pre-compute LAPS schema GUIDs once before loop, not inside it
+- Mixed audit findings: Guard property access with `$_.PSObject.Properties.Name -contains 'Type'`
+- Decryptor audit pattern: Get-GPO → Get-GPRegistryValue ADPasswordEncryptionPrincipal → compare -ieq expected value
+- Opt-in enforcement: WinLaps audit gated by `if ($IncludeWinLaps)` inside optional feature block
+
+**Next Phase:** Joel's manual UAT, then PR merge, v1.2.0 release.
 
 ---
 
-## Current: Windows LAPS Audit Bugfix (T013) — 2026-07-16
-
-**✅ T013 BUG FIXES (Wolverine lab-confirmed defects):**
-
-**Bug A (SELF false-positive):** `Test-TierModelWinLapsAcl` SELF detection replaced. The original `Find-LapsADExtendedRights | ExtendedRightHolders -contains 'NT AUTHORITY\SELF'` never returns true (LAPS doesn't surface SELF in ExtendedRightHolders). Fix: pre-compute `$lapsSchemaGUIDs` from schema NC before the delegation loop, then detect SELF via `Get-Acl "AD:$resolvedOuDn"` filtering for non-inherited ACEs whose IdentityReference = 'NT AUTHORITY\SELF' and ObjectType ∈ lapsSchemaGUIDs. Read/Reset detection via `Find-LapsADExtendedRights` is unchanged. Mirrors planner logic (Get-TierModelWinLapsAcl) exactly.
-
-**Bug B (StrictMode .Type on Decryptor findings):** `Audit-TierModel.ps1` consolidated reporting had 3 `$_.Type` accesses in `Where-Object` on `$result.Findings`. WinLaps Decryptor findings use `.Status` (not `.Type`), so StrictMode -Version Latest threw PropertyNotFoundException. Fixed all 3: error-findings filters now check `($_.PSObject.Properties.Name -contains 'Type' -and $_.Type -eq 'Error') -or ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')`; drift-findings filter guards with `($_.PSObject.Properties.Name -contains 'Type') -and $_.Type -eq 'Drift'`.
-
-Parse OK, 101/101 Pester, Enable-TierModelAuditing.ps1 intact.
-
-**Essential Patterns (for future work):**
-1. **SELF ACE detection:** `Find-LapsADExtendedRights` NEVER surfaces NT AUTHORITY\SELF in ExtendedRightHolders. Always use `Get-Acl "AD:$ouDn"` + non-inherited filter + LAPS GUID filter. Pre-compute GUIDs from schema NC once before the loop — never inside it.
-2. **Mixed Findings shapes:** When multiple audit cmdlets with different Findings schemas feed the same consolidated reporter, always guard `.Type` / `.Status` etc. with `$_.PSObject.Properties.Name -contains 'Type'` before comparing. StrictMode -Version Latest throws on any missing property access, even in Where-Object scriptblocks.
-3. **Audit result shape:** { TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings, DurationMs, CorrelationId }. For Decryptor, Findings use {GpoName, Expected, Actual, Status} (not the ACL shape). Drift = Missing+Mismatched+Errors for decryptor (errors = GPO not found / group not found = also drift).
-4. **FullDeployment wrapper shape:** EntityType + Summary@{TotalAcls, Compliant, Missing, Mismatched, Errors, Drift} + Findings + DurationMs + CorrelationId. TotalAcls = TotalChecked for Optional Feature cmdlets.
-5. **Consolidated reporting switch:** Both the `totalChecked` switch (before summary) and `entityChecked` switch (per-entity breakdown) must include new EntityTypes; adding `'WinLaps ACL', 'WinLaps Decryptor'` to the `$_ -in` set for TotalAcls handling.
-4. **Dynamic standalone header:** Build `$standaloneLabelStr` from active Include flags at top of standalone block; reuse at results header. Keeps "MSA/gMSA/dMSA" hardcoding out of WinLaps-only runs.
-5. **Decryptor audit pattern:** Get-GPO -All | Where-Object DisplayName -like $pattern → must match exactly 1 → Get-GPRegistryValue for ADPasswordEncryptionPrincipal → compare -ieq expected "NETBIOS\sAMAccountName". Missing = not set or empty; Mismatched = set but wrong; Compliant = matches.
-6. **Opt-in enforcement:** WinLaps audit blocks are gated by `if ($IncludeWinLaps)` inside `if ($activeIncludeCount -gt 0)`. $includeParameters includes $IncludeWinLaps so it increments activeIncludeCount correctly. Plain -FullDeployment without -IncludeWinLaps never enters WinLaps blocks.
-
-## Learnings — 2026-07-16
-
-- **T013 Audit Integration:** Test-TierModelWinLapsDecryptor is NEW (not a modification of Test-TierModelWinLapsAcl). Both cmdlets have the same flat output shape but different Findings sub-shapes: ACL uses {Type, ResourceType, Identifier, Property, ExpectedValue, ActualValue, Details}; Decryptor uses {GpoName, Expected, Actual, Status}. Different shapes are fine — the FullDeployment wrapper only uses Summary.* for consolidated totals; per-finding detail display in the per-entity breakdown relies on Findings[].Type='Drift' which neither WinLaps cmdlet uses, so sub-item detail is correctly absent in FD mode (same as MSA/gMSA/dMSA).
-- **Module version:** Stayed at 1.2.0 (same unreleased WinLaps feature). Test-TierModelWinLapsDecryptor added to FunctionsToExport without a version bump per Joel's direction.
-- **Decryptor Drift formula:** Drift = Missing + Mismatched + Errors. Errors (GPO not found, ambiguous match, group resolution failure) count as drift because they represent unverifiable state that could be masking real drift.
-
-## Previous: Windows LAPS Decryptor — Lab-Proven (2026-07-15)
-
-**✅ Wolverine FD Validation:** 681 applied (643 baseline, +38 delta), all 6 non-DC GPO ADPasswordEncryptionPrincipal entries validated, idempotent converged. Ready for Joel UAT.
-
-**Implementation:** ConfigureLapsDecryptor Phase 10 via Set-GPRegistryValue HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\LAPS→ADPasswordEncryptionPrincipal. Module v1.2.0, 101 Pester pass.
+**Earlier history archived to history-archive.md (2026-07-28).**
 
 **Essential Patterns (for future work):**
 1. **StrictMode scoping:** Shared variables resolve BEFORE conditionals, not inside branches.
