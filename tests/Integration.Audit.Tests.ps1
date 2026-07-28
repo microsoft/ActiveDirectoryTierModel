@@ -357,9 +357,13 @@ Describe 'Audit-TierModel.ps1 - Prerequisites Integration' -Tag 'Integration', '
             
             $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly *>&1 | Out-String
             
-            $output | Should -Match 'Prerequisites not met'
             $output | Should -Match 'Domain Admin membership required'
             $output | Should -Match 'Add user to Domain Admins group'
+            $output | Should -Match 'Remediation steps:'
+            $output | Should -Match 'Audit script completed'
+            # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+            $output | Should -Not -Match 'Prerequisites not met'
+            $output | Should -Not -Match 'ERROR:'
         }
         
         It 'Should handle array results from Test-TierModelPrerequisites' {

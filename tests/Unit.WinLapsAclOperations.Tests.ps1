@@ -818,6 +818,54 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             @($result.Findings)[0].Type | Should -Be 'Compliant'
         }
 
+        It "UnexpectedAcl finding when an extra principal holds LAPS rights (drift)" {
+            # SELF present + configured read/reset group present (compliant baseline),
+            # PLUS an extra rogue principal holding LAPS extended rights → UnexpectedAcl.
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\RogueGroup") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $result.Missing    | Should -Be 0
+            $result.Mismatched | Should -Be 1
+            $result.Drift      | Should -Be 1
+            $unexpected = @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' })
+            $unexpected.Count           | Should -Be 1
+            $unexpected[0].ResourceType | Should -Be 'LapsPermission'
+            $unexpected[0].Details      | Should -Match 'RogueGroup'
+        }
+
+        It "Well-known principals (Domain Admins) holding LAPS rights are not flagged as unexpected" {
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\Domain Admins") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $result.Compliant  | Should -Be 1
+            $result.Mismatched | Should -Be 0
+            @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' }).Count | Should -Be 0
+        }
+
         It "MissingAcl finding when SELF ACE absent" {
             # SELF ACE not present (default Get-Acl mock returns empty Access)
             Mock Find-LapsADExtendedRights -ModuleName TierModel {

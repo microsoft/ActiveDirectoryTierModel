@@ -2788,3 +2788,95 @@ Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {
         $output | Should -Match 'No ACL delegations configured'
     }
 }
+
+Describe "Deploy-TierModel Prerequisite Splat Invariants" -Tag "Integration", "Deploy", "Prereq" {
+    BeforeAll {
+        $script:DeployScriptPath = Join-Path $PSScriptRoot '..\Deploy-TierModel.ps1'
+        $script:DeploySource     = Get-Content $script:DeployScriptPath -Raw
+    }
+
+    It "BUG-008: every `$prereqSplat initializer passes DependenciesPath so prerequisites resolve from any working directory" {
+        # A splat that omits DependenciesPath falls back to Test-TierModelPrerequisites' cwd-relative
+        # default ('config/dependencies.json') and fails with "Dependencies file not found" when the
+        # script is invoked from a directory other than the deploy root.
+        $inits = [regex]::Matches($script:DeploySource, '\$prereqSplat\s*=\s*@\{[^}]*\}')
+        @($inits).Count | Should -BeGreaterThan 0 -Because 'Deploy-TierModel.ps1 builds prerequisite splats for the optional-features and include-only paths'
+        foreach ($m in $inits) {
+            $m.Value | Should -Match 'DependenciesPath' -Because 'each prerequisite splat must pass an absolute DependenciesPath so prereqs work regardless of the current directory'
+        }
+    }
+}
+
+Describe "Deploy-TierModel - Feature Prerequisite Fail-Fast (BUG-003)" -Tag "Integration", "Deploy", "Prereq" {
+    BeforeEach {
+        Mock Read-Host { return 'N' }
+    }
+
+    It "dMSA: -IncludeDmsa fails fast with a clean v5-style message when Domain Functional Level < 2025 (before any phases)" {
+        # dMSA critical pre-flight gate reads the DFL directly and exits cleanly, like the PS-version gate.
+        Mock Get-ADDomain {
+            return [PSCustomObject]@{
+                DomainMode = 'Windows2016Domain'; DNSRoot = 'test.local'
+                NetBIOSName = 'TEST'; DistinguishedName = 'DC=test,DC=local'
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeDmsa -ErrorAction Stop 6>&1 | Out-String
+
+        $output | Should -Match 'requires a Domain Functional Level of Windows Server 2025'
+        $output | Should -Match 'Current Domain Functional Level: Windows Server 2016'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Ensure all Domain Controllers'
+        $output | Should -Match 'Deploy script completed'
+        # Fails BEFORE any deployment phases / planning run — no ugly downstream planner error
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
+        $output | Should -Not -Match 'dMSA ACL Delegations'
+    }
+
+    It "gMSA: -FullDeployment -IncludeGmsa fails fast (before phases) when the KDS Root Key prerequisite is missing" {
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid               = $false
+                Errors              = @('No KDS Root Key found. gMSA requires an effective KDS Root Key.')
+                Remediation         = @('Create a KDS Root Key: Add-KdsRootKey -EffectiveImmediately (for lab).')
+                EnvironmentSnapshot = @{}
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeGmsa 6>&1 | Out-String
+
+        $output | Should -Match 'No KDS Root Key found'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Deploy script completed'
+        # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+        $output | Should -Not -Match 'Prerequisites not met'
+        $output | Should -Not -Match 'ERROR:'
+        # Fails BEFORE any deployment phases run
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
+    }
+
+    It "WinLaps: -FullDeployment -IncludeWinLaps fails fast (before phases) when the Windows LAPS schema is missing" {
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid               = $false
+                Errors              = @('The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.')
+                Remediation         = @('Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.')
+                EnvironmentSnapshot = @{}
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeWinLaps 6>&1 | Out-String
+
+        $output | Should -Match 'Windows LAPS schema'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Deploy script completed'
+        # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+        $output | Should -Not -Match 'Prerequisites not met'
+        $output | Should -Not -Match 'ERROR:'
+        # Fails BEFORE any deployment phases run
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
+    }
+}

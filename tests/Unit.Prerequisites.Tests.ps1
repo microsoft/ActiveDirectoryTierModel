@@ -361,6 +361,63 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         }
     }
 
+    # ── BUG-003: dMSA functional-level messaging (DFL-only, no FFL check) ────────
+    Context "dMSA Prerequisites — DFL / schema messaging (BUG-003)" -Tag 'DmsaPrereq', 'Prereq' {
+
+        BeforeEach {
+            Mock Get-ADRootDSE -ModuleName TierModel {
+                return [PSCustomObject]@{ schemaNamingContext = "CN=Schema,CN=Configuration,DC=test,DC=local" }
+            }
+            # Schema objectVersion below 91 by default — would trigger the schema gate if not suppressed
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 88 }
+            }
+            # dMSA class lookup present
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2016Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADForest -ModuleName TierModel {
+                return [PSCustomObject]@{ ForestMode = 'Windows2016Forest'; RootDomain = 'test.local' }
+            }
+        }
+
+        It "Insufficient DFL yields the friendly 2025 guidance and suppresses the redundant schema-version error" {
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+
+            $result.Valid | Should -Be $false
+            $errorText    | Should -Match 'Domain Functional Level of 2025'
+            # Schema-version error is suppressed when the DFL is the blocking issue (raising DFL implies schema >= 91)
+            $errorText    | Should -Not -Match 'schema version >= 91'
+            # DFL-only: no Forest Functional Level requirement is enforced (OQ-4 — dMSA needs FFL 2025 only cross-forest)
+            $errorText    | Should -Not -Match 'Forest Functional Level'
+        }
+
+        It "Sufficient DFL (Windows2025Domain, schema 91) passes the dMSA functional-level gate" {
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+
+            $errorText | Should -Not -Match 'Domain Functional Level of 2025'
+            $errorText | Should -Not -Match 'schema version >= 91'
+        }
+    }
+
     # ── T014: WinLaps Prerequisites ─────────────────────────────────────────────
     Context "WinLaps Prerequisites (-IncludeWinLaps)" -Tag 'WinLapsPrereq', 'Prereq' {
 

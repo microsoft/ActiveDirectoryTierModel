@@ -482,15 +482,23 @@ function Test-TierModelPrerequisites {
         }
         
         if ($IncludeDmsa -and $null -ne $schemaDN) {
-            # dMSA requires schema version >= 91 (Windows Server 2025)
-            if ($schemaVersion -lt 91) {
-                $result.Valid = $false
-                $null = $result.Errors.Add("dMSA requires schema version >= 91 (Windows Server 2025). Current: $schemaVersion")
-            }
-            # dMSA requires DFL = Windows2025Domain
+            # dMSA requires a Domain Functional Level of Windows Server 2025. Raising the DFL to
+            # 2025 requires every DC in the domain to be WS2025 (schema objectVersion >= 91), so
+            # when the DFL is insufficient we surface only the DFL guidance and suppress the
+            # redundant schema-version error to avoid duplicate/contradictory remediation.
+            # Forest Functional Level 2025 is intentionally NOT checked: dMSA only requires
+            # Forest FL 2025 for cross-domain/cross-forest use, which the Tier Model never performs
+            # (single-domain). Ref: Microsoft Learn dMSA prerequisites; OQ-4 resolution 2026-07-28.
             if ($dfl -ne 'Windows2025Domain') {
                 $result.Valid = $false
-                $null = $result.Errors.Add("dMSA requires Domain Functional Level = Windows2025Domain. Current: $dfl")
+                $null = $result.Errors.Add("dMSA requires a Domain Functional Level of 2025 for this feature to be supported. Please follow Microsoft Doc guidance on planning to raise the Domain Functional Level.")
+                $null = $result.Remediation.Add("Ensure all Domain Controllers in this forest are Server 2025 OS, then increase the DFL to 2025, follow all Microsoft guidance.")
+            }
+            elseif ($schemaVersion -lt 91) {
+                # DFL is 2025 but schema is somehow below 91 — surface the schema gap directly.
+                $result.Valid = $false
+                $null = $result.Errors.Add("dMSA requires schema version >= 91 (Windows Server 2025). Current: $schemaVersion")
+                $null = $result.Remediation.Add("Upgrade the AD schema to Windows Server 2025 (schema version 91) by running adprep with a Windows Server 2025 domain controller.")
             }
             # Verify msDS-DelegatedManagedServiceAccount class exists
             try {
@@ -500,6 +508,7 @@ function Test-TierModelPrerequisites {
                 $result.Valid = $false
                 $result.EnvironmentSnapshot.DmsaSchemaClassExists = $false
                 $null = $result.Errors.Add("msDS-DelegatedManagedServiceAccount class not found in schema")
+                $null = $result.Remediation.Add("Ensure the domain schema includes the msDS-DelegatedManagedServiceAccount class (schema version >= 91).")
             }
             # KDS Root Key check for dMSA (only if not already checked by gMSA)
             if (-not $result.EnvironmentSnapshot.ContainsKey('KdsRootKeyExists')) {
@@ -509,18 +518,21 @@ function Test-TierModelPrerequisites {
                     if (-not $result.EnvironmentSnapshot.KdsRootKeyExists) {
                         $result.Valid = $false
                         $null = $result.Errors.Add("No KDS Root Key found. dMSA requires an effective KDS Root Key.")
+                        $null = $result.Remediation.Add("Create a KDS Root Key: Add-KdsRootKey -EffectiveImmediately (for lab) or Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10)) (for production). The Tier Model will NEVER create KDS keys automatically.")
                     } else {
                         $latestKey = @($kdsKeys) | Sort-Object EffectiveTime -Descending | Select-Object -First 1
                         $result.EnvironmentSnapshot.KdsRootKeyEffective = ($latestKey.EffectiveTime -lt (Get-Date).AddHours(-10))
                         if (-not $result.EnvironmentSnapshot.KdsRootKeyEffective) {
                             $result.Valid = $false
                             $null = $result.Errors.Add("KDS Root Key exists but is not yet effective for dMSA (must be older than 10 hours). Effective time: $($latestKey.EffectiveTime)")
+                            $null = $result.Remediation.Add("Wait until the KDS Root Key effective time has passed (10-hour replication window). Key effective at: $($latestKey.EffectiveTime)")
                         }
                     }
                 } catch {
                     $result.Valid = $false
                     $result.EnvironmentSnapshot.KdsRootKeyExists = $false
                     $null = $result.Errors.Add("Failed to check KDS Root Key via Invoke-Command on $PreferredDc`: $($_.Exception.Message)")
+                    $null = $result.Remediation.Add("Ensure WinRM is enabled on $PreferredDc and you have remote execution permissions. Create a KDS Root Key manually if needed.")
                 }
             }
         }
@@ -537,8 +549,8 @@ function Test-TierModelPrerequisites {
                     $schemaDN = $rootDSE.schemaNamingContext
                 } catch {
                     $result.Valid = $false
-                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message). Confirm connectivity to the domain controller, then re-attempt the Tier Model Windows LAPS deployment.")
-                    $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
+                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message)")
+                    $null = $result.Remediation.Add("Confirm connectivity to the domain controller and that AD Web Services are running, then re-run with -IncludeWinLaps.")
                 }
             }
             if ($null -eq $dfl) {
@@ -561,7 +573,7 @@ function Test-TierModelPrerequisites {
                     if ($foundAttributes.Count -lt 5) {
                         $result.Valid = $false
                         $winLapsSchemaPresent = $false
-                        $null = $result.Errors.Add("The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.")
+                        $null = $result.Errors.Add("The current Domain does not contain the Windows LAPS schema extensions.")
                         $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
                     } else {
                         $winLapsSchemaPresent = $true
@@ -569,8 +581,8 @@ function Test-TierModelPrerequisites {
                 } catch {
                     $result.Valid = $false
                     $winLapsSchemaPresent = $false
-                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message). Confirm connectivity to the domain controller, then re-attempt the Tier Model Windows LAPS deployment.")
-                    $null = $result.Remediation.Add("Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.")
+                    $null = $result.Errors.Add("Could not verify the Windows LAPS schema extensions on the domain: $($_.Exception.Message)")
+                    $null = $result.Remediation.Add("Confirm connectivity to the domain controller and that AD Web Services are running, then re-run with -IncludeWinLaps.")
                 }
             }
 

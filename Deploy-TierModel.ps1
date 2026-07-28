@@ -166,12 +166,39 @@ if ($Logging) {
 }
 
 # Check PowerShell version before importing the module
-if ($PSVersionTable.PSVersion.Major -lt 7) {
+function Write-TierModelFailFast {
+    <#
+    .SYNOPSIS
+    Renders a consistent fail-fast prerequisite message and closing line.
+    .DESCRIPTION
+    Produces the standard fail-fast layout used by every up-front gate: a blank line, the
+    indented message line(s) in red, an optional "Remediation steps:" block in yellow
+    (blank-line separated), and the closing "Deploy script completed." line — so all
+    fail-fast paths (PowerShell version, dMSA DFL, and the general prerequisite check) look
+    identical.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Message,
+        [AllowEmptyCollection()][string[]]$Remediation = @()
+    )
     Write-Host ""
-    Write-Host "  Deploying and Auditing of the Tier Model requires PowerShell 7.x or later." -ForegroundColor Red
-    Write-Host "  Current version: PowerShell $($PSVersionTable.PSVersion)" -ForegroundColor Red
+    foreach ($line in $Message) { Write-Host "  $line" -ForegroundColor Red }
+    if (@($Remediation).Count -gt 0) {
+        Write-Host ""
+        Write-Host "Remediation steps:" -ForegroundColor Yellow
+        foreach ($line in $Remediation) { Write-Host "  - $line" -ForegroundColor Yellow }
+    }
     Write-Host ""
     Write-Host "Deploy script completed." -ForegroundColor Green
+}
+
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-TierModelFailFast -Message @(
+        "Deploying and Auditing of the Tier Model requires PowerShell 7.x or later.",
+        "Current version: PowerShell $($PSVersionTable.PSVersion)"
+    ) -Remediation @(
+        "Run the Tier Model from a PowerShell 7 (pwsh) console. If PowerShell 7 is not installed, obtain it from https://aka.ms/powershell."
+    )
     return
 }
 
@@ -179,6 +206,34 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false
 
 Write-Host "TierModel module loaded successfully." -ForegroundColor Green
+
+# ── Critical pre-flight gate: dMSA Domain Functional Level ───────────────────────
+# dMSA delegation (-IncludeDmsa) has a hard dependency on a Domain Functional Level of
+# Windows Server 2025 — the dMSA schema attributes do not exist below DFL 2025. Like the
+# PowerShell-version gate above, fail fast here with a clean message BEFORE running any
+# further prerequisite sub-checks or deployment phases, rather than letting the dMSA ACL
+# planner surface a confusing "attribute not found in schema" error deep in the run.
+# Only gate on a DFL we actually read; if the query fails (e.g. DC unreachable) fall through
+# to the standard prerequisite validation below, which reports connectivity problems properly.
+if ($IncludeDmsa) {
+    $dmsaDfl = $null
+    try {
+        $dmsaDomain = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
+        if ($dmsaDomain -and $dmsaDomain.PSObject.Properties['DomainMode']) {
+            $dmsaDfl = [string]$dmsaDomain.DomainMode
+        }
+    } catch { }
+    if ($dmsaDfl -and $dmsaDfl -ne 'Windows2025Domain') {
+        $dmsaDflFriendly = (($dmsaDfl -replace 'Windows(\d{4})(R2)?Domain', 'Windows Server $1 $2') -replace '\s+', ' ').Trim()
+        Write-TierModelFailFast -Message @(
+            "dMSA delegation (-IncludeDmsa) requires a Domain Functional Level of Windows Server 2025.",
+            "Current Domain Functional Level: $dmsaDflFriendly"
+        ) -Remediation @(
+            "Ensure all Domain Controllers in this forest are Server 2025 OS, then increase the DFL to 2025, follow all Microsoft guidance."
+        )
+        return
+    }
+}
 
 # Confirmation prompt for ConfirmApply to prevent accidental execution
 if ($ConfirmApply) {
@@ -219,7 +274,16 @@ Write-Host "Validating prerequisites..." -ForegroundColor Cyan
 $depsPath = Join-Path $PSScriptRoot 'config\dependencies.json'
 
 try {
-    $prereqResult = Test-TierModelPrerequisites -PreferredDc $PreferredDc -DependenciesPath $depsPath
+    $prereqSplat = @{ PreferredDc = $PreferredDc; DependenciesPath = $depsPath }
+    if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
+    if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
+    if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
+    if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
+    # Validate feature-specific prerequisites (gMSA KDS root key, Windows LAPS schema, dMSA
+    # schema/KDS, etc.) HERE, up front, so any unmet -Include prerequisite fails fast before
+    # a single deployment phase runs — rather than surfacing as a confusing planner error deep
+    # in a -FullDeployment run.
+    $prereqResult = Test-TierModelPrerequisites @prereqSplat
     
     # Handle array results
     if ($prereqResult -is [array] -and $prereqResult.Count -gt 0) {
@@ -227,14 +291,12 @@ try {
     }
     
     if (-not $prereqResult -or -not $prereqResult.PSObject.Properties['Valid'] -or -not $prereqResult.Valid) {
-        Write-Host "Prerequisites not met:" -ForegroundColor Red
-        if ($prereqResult.Errors) {
-            $prereqResult.Errors | ForEach-Object { Write-Host "  ERROR: $_" -ForegroundColor Red }
-        }
-        if ($prereqResult.Remediation) {
-            Write-Host "Remediation steps:" -ForegroundColor Yellow
-            $prereqResult.Remediation | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-        }
+        $ffMessages = @()
+        if ($prereqResult -and $prereqResult.Errors) { $ffMessages = @($prereqResult.Errors) }
+        if ($ffMessages.Count -eq 0) { $ffMessages = @('Prerequisites were not met.') }
+        $ffRemediation = @()
+        if ($prereqResult -and $prereqResult.Remediation) { $ffRemediation = @($prereqResult.Remediation) }
+        Write-TierModelFailFast -Message $ffMessages -Remediation $ffRemediation
         exit 1
     }
     
@@ -1770,7 +1832,7 @@ if ($FullDeployment) {
             Write-Host "`n=== Optional Features: MSA/gMSA/dMSA/WinLaps ACL Delegations ===" -ForegroundColor Magenta
             
             # Pass Include switches to prerequisites
-            $prereqSplat = @{ PreferredDc = $PreferredDc }
+            $prereqSplat = @{ PreferredDc = $PreferredDc; DependenciesPath = (Join-Path $PSScriptRoot 'config\dependencies.json') }
             if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
             if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
             if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
@@ -2333,24 +2395,8 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     $config = Get-TierModelConfig
     Write-Host "TierModel module loaded successfully." -ForegroundColor Green
     
-    # Run prerequisites with Include switches
-    Write-Host "Validating prerequisites..." -ForegroundColor Yellow
-    $prereqSplat = @{ PreferredDc = $PreferredDc }
-    if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
-    if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
-    if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
-    if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
-    $prereqs = Test-TierModelPrerequisites @prereqSplat
-    
-    if (-not $prereqs.Valid) {
-        Write-Host "❌ Prerequisites failed:" -ForegroundColor Red
-        $prereqs.Errors | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
-        Write-Host ""
-        Write-Host "Deploy script completed." -ForegroundColor Green
-        return
-    }
-    Write-Host "Prerequisites validation passed." -ForegroundColor Green
-    
+    # Feature prerequisites (-Include*) were already validated up front (fail-fast) before any
+    # scope/standalone work began, so no re-validation is needed here.
     $standaloneResults = @()
     $standaloneTotalApplied = 0
     $standaloneTotalSkipped = 0

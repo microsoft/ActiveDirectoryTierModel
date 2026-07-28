@@ -150,6 +150,43 @@ elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDe
 Write-Host "Audit TierModel orchestration starting." -ForegroundColor Cyan
 Write-Host "Preferred DC: $PreferredDc" -ForegroundColor DarkCyan
 
+function Write-TierModelFailFast {
+    <#
+    .SYNOPSIS
+    Renders a consistent fail-fast prerequisite message and closing line.
+    .DESCRIPTION
+    Produces the standard fail-fast layout used by every up-front gate: a blank line, the
+    indented message line(s) in red, an optional "Remediation steps:" block in yellow
+    (blank-line separated), and the closing "Audit script completed." line — so all
+    fail-fast paths (PowerShell version and the general prerequisite check) look identical,
+    matching Deploy-TierModel.ps1.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Message,
+        [AllowEmptyCollection()][string[]]$Remediation = @()
+    )
+    Write-Host ""
+    foreach ($line in $Message) { Write-Host "  $line" -ForegroundColor Red }
+    if (@($Remediation).Count -gt 0) {
+        Write-Host ""
+        Write-Host "Remediation steps:" -ForegroundColor Yellow
+        foreach ($line in $Remediation) { Write-Host "  - $line" -ForegroundColor Yellow }
+    }
+    Write-Host ""
+    Write-Host "Audit script completed." -ForegroundColor Green
+}
+
+# Check PowerShell version before importing the module
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-TierModelFailFast -Message @(
+        "Deploying and Auditing of the Tier Model requires PowerShell 7.x or later.",
+        "Current version: PowerShell $($PSVersionTable.PSVersion)"
+    ) -Remediation @(
+        "Run the Tier Model from a PowerShell 7 (pwsh) console. If PowerShell 7 is not installed, obtain it from https://aka.ms/powershell."
+    )
+    return
+}
+
 # Validate output file requirements and prompt if needed
 if ($OutputFormat -and -not $OutputFileBase) {
     $OutputFileBase = Read-Host "Enter base filename for output (timestamp and extension will be added automatically)"
@@ -174,14 +211,12 @@ try {
     }
     
     if (-not $prereqResult -or -not $prereqResult.PSObject.Properties['Valid'] -or -not $prereqResult.Valid) {
-        Write-Host "Prerequisites not met:" -ForegroundColor Red
-        if ($prereqResult.Errors) {
-            $prereqResult.Errors | ForEach-Object { Write-Host "  ERROR: $_" -ForegroundColor Red }
-        }
-        if ($prereqResult.Remediation) {
-            Write-Host "Remediation steps:" -ForegroundColor Yellow
-            $prereqResult.Remediation | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-        }
+        $ffMessages = @()
+        if ($prereqResult -and $prereqResult.Errors) { $ffMessages = @($prereqResult.Errors) }
+        if ($ffMessages.Count -eq 0) { $ffMessages = @('Prerequisites were not met.') }
+        $ffRemediation = @()
+        if ($prereqResult -and $prereqResult.Remediation) { $ffRemediation = @($prereqResult.Remediation) }
+        Write-TierModelFailFast -Message $ffMessages -Remediation $ffRemediation
         exit 1
     }
     

@@ -175,6 +175,7 @@ function Test-TierModelWinLapsAcl {
             $selfOk = $false
             $readMissing = @()
             $resetMissing = @()
+            $unexpectedHolders = @()
 
             try {
                 $ouAcl    = Get-Acl -Path "AD:$resolvedOuDn" -ErrorAction Stop
@@ -215,6 +216,29 @@ function Test-TierModelWinLapsAcl {
                                 }
                                 if (-not $found) { $resetMissing += $sam }
                             }
+
+                            # Detect unexpected principals holding LAPS read/reset rights (drift).
+                            # Well-known/administrative principals are legitimately present and skipped.
+                            foreach ($holder in $holders) {
+                                if ($holder -eq 'NT AUTHORITY\SELF' -or
+                                    $holder -eq 'NT AUTHORITY\SYSTEM' -or
+                                    $holder -eq 'BUILTIN\Administrators' -or
+                                    $holder -like '*\Domain Admins' -or
+                                    $holder -like '*\Enterprise Admins' -or
+                                    $holder -like '*\Administrators') {
+                                    continue
+                                }
+                                $isExpectedHolder = $false
+                                foreach ($sam in @($readSamNames + $resetSamNames)) {
+                                    if ($holder -eq "$netBIOSDomain\$sam" -or $holder -like "*\$sam") {
+                                        $isExpectedHolder = $true
+                                        break
+                                    }
+                                }
+                                if (-not $isExpectedHolder -and $unexpectedHolders -notcontains $holder) {
+                                    $unexpectedHolders += $holder
+                                }
+                            }
                         }
                     }
                 }
@@ -237,7 +261,7 @@ function Test-TierModelWinLapsAcl {
             if ($readMissing.Count -gt 0) { $missingPerms += "ReadPasswordPermission($($readMissing -join ', '))" }
             if ($resetMissing.Count -gt 0) { $missingPerms += "ResetPasswordPermission($($resetMissing -join ', '))" }
 
-            if ($missingPerms.Count -eq 0) {
+            if ($missingPerms.Count -eq 0 -and $unexpectedHolders.Count -eq 0) {
                 if (-not $Silent) {
                     Write-Host "    `u{2705} LAPS Delegation COMPLIANT" -ForegroundColor Green
                 }
@@ -252,19 +276,36 @@ function Test-TierModelWinLapsAcl {
                 }
                 $compliantCount++
             } else {
-                if (-not $Silent) {
-                    Write-Host "    `u{274C} Missing LAPS permissions: $($missingPerms -join ', ')" -ForegroundColor Red
+                if ($missingPerms.Count -gt 0) {
+                    if (-not $Silent) {
+                        Write-Host "    `u{274C} Missing LAPS permissions: $($missingPerms -join ', ')" -ForegroundColor Red
+                    }
+                    $findings += [PSCustomObject]@{
+                        Type          = 'MissingAcl'
+                        ResourceType  = 'LapsPermission'
+                        Identifier    = $identifier
+                        Property      = 'Permissions'
+                        ExpectedValue = 'Self + Read + Reset permissions present'
+                        ActualValue   = "$($missingPerms.Count) permission(s) missing"
+                        Details       = "Missing: $($missingPerms -join ', ')"
+                    }
+                    $missingCount++
                 }
-                $findings += [PSCustomObject]@{
-                    Type          = 'MissingAcl'
-                    ResourceType  = 'LapsPermission'
-                    Identifier    = $identifier
-                    Property      = 'Permissions'
-                    ExpectedValue = 'Self + Read + Reset permissions present'
-                    ActualValue   = "$($missingPerms.Count) permission(s) missing"
-                    Details       = "Missing: $($missingPerms -join ', ')"
+                if ($unexpectedHolders.Count -gt 0) {
+                    if (-not $Silent) {
+                        Write-Host "    `u{26A0}`u{FE0F} Unexpected LAPS ACEs detected: $($unexpectedHolders -join ', ')" -ForegroundColor Yellow
+                    }
+                    $findings += [PSCustomObject]@{
+                        Type          = 'UnexpectedAcl'
+                        ResourceType  = 'LapsPermission'
+                        Identifier    = $identifier
+                        Property      = 'Permissions'
+                        ExpectedValue = 'Only configured Read/Reset principals present'
+                        ActualValue   = "$($unexpectedHolders.Count) unexpected principal(s) found"
+                        Details       = "Unexpected LAPS rights holders: $($unexpectedHolders -join ', ')"
+                    }
+                    $mismatchCount++
                 }
-                $missingCount++
             }
         }
 
