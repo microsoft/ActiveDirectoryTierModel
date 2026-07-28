@@ -1770,12 +1770,14 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Dependency Errors'
-        # BUG-002: -UserOnly must list the SPECIFIC missing OU/Group messages, like the other
-        # scope parameters. It calls Invoke-UserDeployment with -Silent (to avoid duplicate plan
-        # output), which suppressed that function's own error listing, so the outer -UserOnly
-        # block must surface the messages itself. Previously only the generic "Resolve all
-        # dependency errors" line was shown and this specific message was missing.
+        # BUG-002: -UserOnly now mirrors -GroupOnly — Invoke-UserDeployment runs non-Silent, so it
+        # prints the "User Plan Summary" section and lists the SPECIFIC missing OU/Group messages
+        # (❌ items) before "=== Deployment Plan ===", and the Deployment Plan section shows only
+        # the generic resolve line. Previously -UserOnly passed -Silent, hiding the summary and
+        # the specific messages.
+        $output | Should -Match 'User Plan Summary'
         $output | Should -Match 'Test error'
+        $output | Should -Match 'Resolve all dependency errors before proceeding with User deployment'
     }
 
     It 'Should display Update count for UpdateUserMembership actions in outer plan summary' {
@@ -1783,7 +1785,7 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
             New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 0 -ToUpdate 1 -ExistingCount 2
         }
 
-        # UserOnly uses Silent=$true internally, so outer plan summary shows Update count
+        # -UserOnly runs non-Silent (mirrors -GroupOnly); the outer plan summary still shows Update count
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Update count: 1'
@@ -1794,7 +1796,7 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
             New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 0 -ExistingCount 2
         }
 
-        # UserOnly uses Silent=$true internally; outer code shows action counts
+        # -UserOnly runs non-Silent (mirrors -GroupOnly); outer code still shows action counts
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Action count: 0'

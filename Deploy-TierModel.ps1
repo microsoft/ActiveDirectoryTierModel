@@ -578,12 +578,10 @@ function Invoke-UserDeployment {
         Write-Host "Analyzing User requirements..." -ForegroundColor Cyan
     }
     
-    # Generate deployment plan
-    if ($Silent) {
-        $plan = Get-TierModelUser -Config $Config -DomainController $DomainController -Silent
-    } else {
-        $plan = Get-TierModelUser -Config $Config -DomainController $DomainController
-    }
+    # Generate deployment plan. Always suppress Get-TierModelUser's per-user "User exists"
+    # output so the -UserOnly console matches -GroupOnly (Get-TierModelGroup has no per-entity
+    # existence spam); the "User Plan Summary" below reports the counts instead.
+    $plan = Get-TierModelUser -Config $Config -DomainController $DomainController -Silent
     
     # Show deployment plan summary (only if not Silent)
     if (-not $Silent) {
@@ -2026,8 +2024,10 @@ else {
             Config = $config
             DomainController = $PreferredDc
             Apply = $ConfirmApply
-            Silent = $true  # Suppress existence messages for UserOnly operations
         }
+        # Non-Silent (mirrors -GroupOnly): Invoke-UserDeployment prints "Analyzing User
+        # requirements..." + "User Plan Summary" + "Dependency Errors". Per-user existence
+        # noise is suppressed inside the function via Get-TierModelUser -Silent.
         $userResult = Invoke-UserDeployment @userParams
         
         # Show deployment plan summary for User-only operations
@@ -2038,13 +2038,6 @@ else {
             $hasErrors = $userResult.PSObject.Properties.Name -contains 'Errors' -and $userResult.Errors -and @($userResult.Errors).Count -gt 0
             
             if ($hasErrors) {
-                # List the specific missing OUs/Groups so -UserOnly matches the other scope
-                # parameters (-GroupOnly, -GposOnly, etc.). The -UserOnly path calls
-                # Invoke-UserDeployment with -Silent (to avoid duplicate plan output), which
-                # suppresses that function's own dependency-error listing, so surface it here.
-                Write-Host "Dependency Errors:" -ForegroundColor Red
-                $uniqueUserErrors = $userResult.Errors | Group-Object -Property Message | ForEach-Object { $_.Group[0] }
-                $uniqueUserErrors | Sort-Object Message | ForEach-Object { Write-Host "  ❌ $($_.Message)" -ForegroundColor Red }
                 Write-Host "Resolve all dependency errors before proceeding with User deployment" -ForegroundColor Red
             } else {
                 # Only show detailed counts when there are no dependency errors
