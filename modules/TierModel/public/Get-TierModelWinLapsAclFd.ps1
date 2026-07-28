@@ -162,9 +162,15 @@ function Get-TierModelWinLapsAclFd {
                     $groupResolution[$group] = "$netBIOSDomain\$($adGroup.sAMAccountName)"
                 }
             } catch {
-                # In FD mode, groups may not exist yet (created by earlier phases); use best-effort
+                # Exception path — handled by the best-effort fallback below.
+            }
+            if (-not $groupResolution.ContainsKey($group)) {
+                # In FD mode the group may not exist yet (created by an earlier phase). Get-ADGroup
+                # -Filter returns nothing (no exception) for a missing group, so fall back to a
+                # best-effort estimated sAMAccountName here (not only in the catch). This lets the
+                # preview show the principal on the Create ACL lines and lets the decryptor step
+                # plan its "Configure" action; the real name resolves at apply time once groups exist.
                 $groupResolution[$group] = "$netBIOSDomain\$($group -replace ' ','')"
-                $warnings += "Group '$group' not found — using estimated sAMAccountName for plan."
             }
         }
 
