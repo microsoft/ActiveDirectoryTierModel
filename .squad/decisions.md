@@ -4,6 +4,191 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+# Lab Validation: BUG-008 & BUG-004
+**Author:** Wolverine (Tester)  
+**Date:** 2026-07-28T17:20  
+**Status:** EVIDENCE READY — for team review
+
+---
+
+## Summary
+
+Both fixes validated on TierLab-DC01 (live DC, WinLapsSchema checkpoint).  
+Beast was on standby; no dev support was required.  
+One design observation raised for Beast's review (see below).
+
+---
+
+## BUG-008: Prerequisites resolve DependenciesPath from any CWD — PASS ✅
+
+**Fix location:** Deploy-TierModel.ps1 L1773 and L2338  
+**Fix:** Both `$prereqSplat` hashtables now include `DependenciesPath = (Join-Path $PSScriptRoot 'config\dependencies.json')`.
+
+**RUN A — cwd=C:\:**
+```
+Deploy TierModel orchestration starting.
+Preferred DC: DC01
+TierModel module loaded successfully.
+Validating prerequisites...
+Prerequisites validation passed.
+Loading configuration...
+Configuration loaded successfully.
+...
+Use -ConfirmApply to execute the deployment plan
+Deploy script completed.
+```
+→ NO "Dependencies file not found at: config/dependencies.json" error. ✅
+
+**RUN B — cwd=C:\TierModel:**
+```
+Deploy TierModel orchestration starting.
+Preferred DC: DC01
+TierModel module loaded successfully.
+Validating prerequisites...
+Prerequisites validation passed.
+```
+→ Identical prereq success. ✅
+
+**Verdict: PASS** — fix works from any working directory.
+
+---
+
+## BUG-004: WinLaps audit reports UnexpectedAcl on drift — PASS ✅
+
+**Fix location:** modules\TierModel\public\Test-TierModelWinLapsAcl.ps1 L226–L299  
+**Fix:** Iterates `Find-LapsADExtendedRights` holders and emits `Type='UnexpectedAcl'` for any principal not in config and not in well-known exclusion list.
+
+### Checkpoint Used
+`WinLapsSchema` (fallback — `WinLapsSchema-Ready` was not present on this machine).
+
+### Deploy: Applied 681, Errors 0 ✅
+
+### Baseline Audit (post-deploy)
+```
+Checking Windows LAPS Delegation: LAPS  Domain Controllers        → ✅ COMPLIANT
+Checking Windows LAPS Delegation: LAPS  Tier 0 Member Servers     → ⚠️ Unexpected LAPS ACEs detected: TIERLAB\Tier0Admins
+Checking Windows LAPS Delegation: LAPS  Tier Model Administration  → ✅ COMPLIANT
+Checking Windows LAPS Delegation: LAPS  Tier 1 Member Servers     → ⚠️ Unexpected LAPS ACEs detected: TIERLAB\Tier1Admins
+Checking Windows LAPS Delegation: LAPS  Tier 1 PAW Devices        → ✅ COMPLIANT
+Checking Windows LAPS Delegation: LAPS  Tier 2 PAW Devices        → ✅ COMPLIANT
+Checking Windows LAPS Delegation: LAPS  Tier 2 End-User Devices   → ✅ COMPLIANT
+
+Total Checked: 7 | Compliant: 5 | Mismatched: 2 | Errors: 0
+```
+
+> **Note on Tier0Admins/Tier1Admins findings**: These are PRE-EXISTING from the WinLapsSchema checkpoint, not injected. Root cause: `Tier0Admins` has a direct `GenericAll` ACE on `Tier 0 Member Servers` (OU delegation), and `Find-LapsADExtendedRights` correctly reports GenericAll as an effective LAPS holder. Since the config only lists `Tier0ServerOperators` as the LAPS readGroup for that OU, the fix correctly flags `Tier0Admins` as unexpected.  
+> **Design Question for Beast:** Should principals with `GenericAll` OU delegation be excluded from UnexpectedAcl reporting? This would eliminate legitimate admin-group false positives. Currently impacts T0/T1 Member Servers on WinLapsSchema-based deployments.
+
+### Drift Injection
+- Group: `ZZZ-WolverineDrift` (Global Security)
+- Target OU: `OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,DC=tierlab,DC=internal`
+- Method: `Set-LapsADReadPasswordPermission -Identity <OU DN> -AllowedPrincipals 'TIERLAB\ZZZ-WolverineDrift'`
+- Holders after injection: `NT AUTHORITY\SYSTEM, TIERLAB\Domain Admins, TIERLAB\Tier1Admins, TIERLAB\ZZZ-WolverineDrift`
+
+### Re-Audit (with injected drift)
+```
+Checking Windows LAPS Delegation: LAPS  Tier 1 PAW Devices
+    ⚠️ Unexpected LAPS ACEs detected: TIERLAB\ZZZ-WolverineDrift
+
+Total Checked: 7 | Compliant: 4 | Mismatched: 3 | Errors: 0
+```
+
+**Finding object:**
+```
+Type:         UnexpectedAcl
+ResourceType: LapsPermission
+Identifier:   LAPS  Tier 1 PAW Devices
+Details:      Unexpected LAPS rights holders: TIERLAB\ZZZ-WolverineDrift
+```
+Mismatched increased 2 → 3 as expected. ✅
+
+### Control: Well-Known Groups NOT Flagged ✅
+```
+PASS: Domain Admins NOT flagged as UnexpectedAcl
+PASS: Enterprise Admins NOT flagged as UnexpectedAcl
+PASS: SYSTEM NOT flagged as UnexpectedAcl
+PASS: SELF NOT flagged as UnexpectedAcl
+PASS: Administrators NOT flagged as UnexpectedAcl
+```
+
+### Cleanup ✅
+- Removed 5 LAPS ACEs for ZZZ-WolverineDrift via `Get-Acl/RemoveAccessRule/Set-Acl` on `AD:` drive
+- Deleted ZZZ-WolverineDrift group
+- Final audit: Tier 1 PAW Devices → ✅ COMPLIANT, Mismatched back to 2
+
+**Verdict: PASS** — fix correctly emits UnexpectedAcl and the well-known exclusion list works.
+
+---
+
+## End State
+- VM: TierLab-DC01 RUNNING ✅
+- WinLaps: ZZZ-WolverineDrift removed, Tier 1 PAW Devices COMPLIANT ✅
+- Pre-existing Tier0Admins/Tier1Admins findings remain (from checkpoint; require Beast review)
+- No source edits; no git operations
+
+---
+
+## Action Item for Beast
+**GenericAll OU delegation false positive (BUG-004 edge case):**  
+When a group (e.g., Tier0Admins) has a GenericAll ACE on an OU as part of the Tier Model's OU delegation, `Find-LapsADExtendedRights` reports it as a LAPS holder. The fix correctly flags it as UnexpectedAcl if it's not in the LAPS config, but this may not be the desired behavior — GenericAll is a broad OU delegation, not an explicit LAPS grant.  
+**Suggested fix:** In the unexpected-holders loop, skip principals that have a `GenericAll` ACE on the OU (check raw ACL in addition to the exclusion list).
+
+
+
+
+### 2026-07-28T16:53+08:00: BUG-003 / OQ-4 — dMSA Functional Level Requirements (DFL vs FFL) — RESOLVED
+**Author:** Beast  
+**Date:** 2026-07-28T16:53+08:00  
+**Requested by:** Joel Platek  
+**Status:** RESOLVED  
+
+#### Question
+
+Does a delegated Managed Service Account (dMSA) in Windows Server 2025 require:
+- (a) ONLY the Domain Functional Level (DFL) to be Windows Server 2025, OR
+- (b) BOTH the DFL AND the Forest Functional Level (FFL) to be Windows Server 2025?
+
+#### Definitive Answer
+
+**(a) — DFL only.** FFL 2025 is NOT required for same-domain dMSA creation and usage.
+
+Microsoft Learn's dMSA documentation does not list DFL or FFL as explicit dMSA prerequisites. The stated requirements are:
+1. At least one Windows Server 2025 DC (discoverable by the client)
+2. Windows Server 2025 schema (objectVersion ≥ 91)
+3. KDS root key
+4. `DelegatedMSAEnabled` registry key on the client device
+
+The AD DS functional-levels page lists ONLY "Database 32k pages" under WS2025 FL features — dMSA is absent from the feature list entirely.
+
+#### Primary Citation
+
+🟢 **Authoritative — Microsoft Learn dMSA FAQ:**
+> "No, you must have at least one Windows Server 2025 DC, which must be discoverable by the client or member server."
+
+URL: https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/delegated-managed-service-accounts/delegated-managed-service-accounts-faq
+
+#### Supporting Citations
+
+🟢 **Authoritative — Microsoft Learn dMSA Setup (Prerequisites section):**
+Lists 5 prerequisites (AD DS role, DC promotion, admin permissions, forest trust for cross-domain only, KDS root key). DFL and FFL are NOT mentioned.
+URL: https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/delegated-managed-service-accounts/delegated-managed-service-accounts-set-up-dmsa
+
+🟢 **Authoritative — Microsoft Learn AD DS Functional Levels:**
+WS2025 FL features section lists only "Database 32k pages optional feature." dMSA is not listed as a WS2025 FL feature.
+URL: https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/active-directory-functional-levels
+
+#### Recommendation for BUG-003 Prerequisite Gate
+
+**Keep the existing DFL-only check. Do NOT add an FFL check.**
+
+The current `Test-TierModelPrerequisites.ps1` gate (schema objectVersion ≥ 91 + DFL = Windows2025Domain) is correct and conservative for single-domain deployments. The DFL=2025 check implies all DCs in the domain are WS2025 (stricter than the MS Learn "at least one WS2025 DC" requirement, but safe). Adding an FFL=2025 check would be incorrect — it would block valid single-domain deployments where FFL has not been raised to 2025.
+
+#### Cross-Domain/Cross-Forest Caveat
+
+FFL 2025 may be relevant for cross-domain or cross-forest dMSA scenarios. The setup page states: "Ensure that a two-way forest trust is established between the relevant AD forests to support authentication for cross-domain and cross-forest scenarios with dMSA." The Tier Model is single-domain and does not use cross-domain/cross-forest dMSA.
+
+---
+
 ### 2026-07-28T12:10:15Z: UI Bugs BUG-002 + BUG-005 Lab Validation Verdict — APPROVED
 **Reviewer:** Cyclops  
 **Date:** 2026-07-28  

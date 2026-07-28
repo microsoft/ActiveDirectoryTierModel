@@ -1,6 +1,44 @@
 # wolverine — History
 
 ## Learnings
+
+**2026-07-28 — BUG-008 & BUG-004 Lab Validation (this session):**
+
+### Lab Config Facts
+- Checkpoints actually on TierLab-DC01 (as of 2026-07-28): `DC-Promoted-Clean`, `WinLapsSchema`. No `WinLapsSchema-Ready` — that was created during BUG-002/005 session and is gone.
+- `lab-config.json` lives in `.research/copilot-cli-hyperv-ad-lab/` (parent of `scripts/`), NOT inside `scripts/`. Pass `-ConfigPath` explicitly to helper scripts.
+- WinLaps audit (Test-TierModelWinLapsAcl) is slow — each of the 7 delegations calls `Find-LapsADExtendedRights` which takes ~1 min per OU. Full audit: 8–10 min. Always use `-File` mode (not `-Command {}`); the former streams output; the latter buffers until completion.
+- The `run-winlaps-audit.ps1` wrapper `Set-Location C:\TierModel; & .\Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` works reliably when executed via `& $pwsh -File`.
+
+### Exact Function Signatures (re-confirmed on guest)
+- `Test-TierModelWinLapsAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+- `Get-TierModelConfig` (no params) — loads from module-relative config
+- `Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` (standalone WinLaps audit mode, no scope param needed)
+
+### Pre-existing WinLapsSchema Checkpoint State (important: known false-positive pattern)
+- After deploying TierModel on WinLapsSchema checkpoint, `Test-TierModelWinLapsAcl` reports `UnexpectedAcl` for:
+  - `TIERLAB\Tier0Admins` on `OU=Tier 0 Member Servers` — root cause: `Tier0Admins` has a **GenericAll** ACE (non-inherited) on that OU from OU delegation. `Find-LapsADExtendedRights` expands GenericAll → effective LAPS rights holder. Config only expects Tier0ServerOperators there.
+  - `TIERLAB\Tier1Admins` on `OU=Tier 1 Member Servers` — same root cause (GenericAll OU delegation ACE).
+- These are NOT inherited from domain root or parent OUs — they are direct GenericAll ACEs set as part of the Tier Model's OU delegation (Tier0Admins manages T0 Member Servers).
+- **This is a potential false positive in the BUG-004 fix**: GenericAll OU delegations legitimately imply LAPS read access but are not the same as explicit LAPS read grants. Flagged for Beast to evaluate whether GenericAll holders should be excluded from UnexpectedAcl reporting.
+- Mismatched count on clean WinLapsSchema post-deploy: **2** (these two OUs). Does not represent injected drift.
+
+### BUG-008 Validation
+- **PASS**. Both `prereqSplat` hashtables at Deploy-TierModel.ps1 L1773 and L2338 now include `DependenciesPath = (Join-Path $PSScriptRoot 'config\dependencies.json')`.
+- RUN A (cwd=C:\): `"Validating prerequisites... Prerequisites validation passed."` — NO "Dependencies file not found" error.
+- RUN B (cwd=C:\TierModel): identical prereq success.
+- Script ended cleanly with `"Use -ConfirmApply to execute the deployment plan"` / `"Deploy script completed."` (expected — preview mode, no -ConfirmApply).
+
+### BUG-004 Validation
+- **PASS**. `Test-TierModelWinLapsAcl` now emits `Type='UnexpectedAcl'` / `ResourceType='LapsPermission'` when unexpected principals hold LAPS rights.
+- Injection: `New-ADGroup ZZZ-WolverineDrift` + `Set-LapsADReadPasswordPermission -Identity <T1PawDN> -AllowedPrincipals TIERLAB\ZZZ-WolverineDrift`.
+- Re-audit: `⚠️ Unexpected LAPS ACEs detected: TIERLAB\ZZZ-WolverineDrift` on `LAPS → Tier 1 PAW Devices`. Mismatched went 2→3.
+- Finding object confirmed: `Type=UnexpectedAcl, ResourceType=LapsPermission, Details="Unexpected LAPS rights holders: TIERLAB\ZZZ-WolverineDrift"`.
+- Control: Domain Admins, Enterprise Admins, SYSTEM, SELF, Administrators all pass `NOT flagged as UnexpectedAcl`.
+- Cleanup: removed 5 LAPS ACEs via `Get-Acl/RemoveAccessRule/Set-Acl` on AD: drive. T1 PAW Devices returned COMPLIANT. Group deleted. Final Mismatched=2 (pre-existing only).
+- `Set-LapsADReadPasswordPermission` has no removal flag — must use direct ACL manipulation via AD: provider to remove LAPS ACEs.
+
+**Beast needed?** No. Both fixes validated without code-level blockers. One design observation raised (GenericAll false positive) for Beast's review — does not block the fix.
 **2026-07-28 — UI Bugs BUG-002 & BUG-005 Full Campaign Verdict:**
 - BUG-002: ✅ RESOLVED — Deploy-TierModel.ps1 L2022–2048 UserOnly block now emits 4 specific ❌ dependency errors; apply correctly blocked on dirty deps; zero AD writes on failure. Wolverine T1–T4: glyph+label proof (❌ = Red foreground). Cyclops corroboration: L2022–2048 error-accumulation gate and L638–645 prerequisites check match observed behavior.
 - BUG-005: ✅ RESOLVED — Get-TierModelWinLapsAclFd.ps1 L196–202 planner correctly routes missing GPO to warnings (not errors) for FD scope; Deploy-TierModel.ps1 L1638–1642 preview gate allows plan to proceed (gate is if .Errors, not .Warnings); Phase 10 apply executes after Phase 5 GPO creation. Wolverine T5–T9: FD preview shows 7× yellow ⚠ (not red ❌); standalone -IncludeWinLaps shows 19× red ❌ (scope boundary). Cyclops corroboration: three-layer source confirmation (planner routing, preview gate, apply path regenerates fresh plan at execution time).

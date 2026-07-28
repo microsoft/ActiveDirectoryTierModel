@@ -58,3 +58,24 @@
 - 2026-06-03T21:34:33.354+08:00 — Verified paths for this UX fix: orchestration changes live in `Deploy-TierModel.ps1`, regression coverage lives in `tests/Integration.Deploy.Tests.ps1`, and manual lab validation runs from `C:\TierLab\Deploy` inside `TierLab-DC01` under PowerShell 7.
 - 2026-07-13T11:34:25Z — Windows LAPS Wave-1 & Wave-2 consolidated by Scribe orchestration session. All technical findings merged into decisions.md (consolidated 8 inbox files). Orchestration log created: .squad/orchestration-log/2026-07-13T11-34-25-UTC-beast.md. Spec APPROVED by Professor X (9/9 constitution pass, 10/10 requirements pass, all 5 architecture sections verified). Handed off to Cyclops for implementation wave authoring. Key deliverables archived and marked ready for next phase.
 - 2025-07-18 — Phase 16 Pester unit tests (T028-T036) completed. 972 unit tests, 0 failures. Three new test files created: Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1. Critical Pester 5.7.1 behaviors: (1) `-AtLeastTimes` is not a valid parameter for `Should -Invoke`; use `-Times N` without `-Exactly` for "at least N" semantics. (2) `Mock` calls inside `It` blocks in Pester 5.7.1 can bleed to subsequent tests in the same Context — avoid It-scoped mock overrides by using config objects that exercise the BeforeAll conditional mock, and by moving error-path tests that require a specific cmdlet mock (e.g. `Get-Acl { throw }`) into dedicated sub-Contexts with BeforeAll. (3) When cmdlet source returns `@{...}` hashtables for Summary/Validation properties, use `.Keys | Should -Contain` not `.PSObject.Properties.Name | Should -Contain`. (4) Config delegations stored as hashtables mean `$acl.PSObject.Properties['inheritedObjectType']` always returns null — audit cmdlets set `InheritedObjectType = [Guid]::Empty` in expected entries, so mock ACEs must also use `[Guid]::Empty` for InheritedObjectType on the GenericAll/Descendents rule.
+
+## Learnings
+
+- 2026-07-28T16:53+08:00 — **BUG-003 / OQ-4 RESOLVED: dMSA functional-level requirements.** Microsoft Learn dMSA documentation (FAQ, setup, overview pages — all 🟢 Authoritative) does NOT list DFL or FFL as dMSA prerequisites. The FAQ states only: "you must have at least one Windows Server 2025 DC, which must be discoverable by the client or member server." The AD DS functional-levels page lists only "Database 32k pages" under WS2025 FL features — dMSA is absent. **Verdict:** For single-domain Tier Model deployment, the existing DFL-only check is CORRECT; an FFL check must NOT be added. FFL 2025 is only relevant for cross-domain/cross-forest dMSA (which needs a two-way forest trust). The `.research/ad-msa-delegation/research/technical-deep-dive.md` §2.2 table and sample readiness function were corrected to remove the erroneous FFL requirement. OQ-4 marked Resolved. **Authoritative URLs:** [dMSA FAQ](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/delegated-managed-service-accounts/delegated-managed-service-accounts-faq), [dMSA Setup](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/delegated-managed-service-accounts/delegated-managed-service-accounts-set-up-dmsa), [AD DS Functional Levels](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/active-directory-functional-levels).
+
+---
+
+### 2026-07-28: Wolverine Lab Validation — GenericAll OU Delegation Edge Case
+
+**Source:** Wolverine BUG-004 lab validation (.squad/decisions/inbox/wolverine-bug008-bug004-labval.md)  
+**Status:** DESIGN REVIEW NEEDED  
+
+**Observation:** When a group (e.g., Tier0Admins) has a GenericAll ACE on an OU as part of Tier Model OU delegation, Find-LapsADExtendedRights reports it as an effective LAPS holder. The BUG-004 fix (Test-TierModelWinLapsAcl.ps1) correctly flags it as UnexpectedAcl if it's not in the LAPS config. However, this may not be the desired behavior — GenericAll is a broad OU delegation for administrative purposes, not an explicit LAPS grant.
+
+**Impacts (from lab):**
+- Tier0Admins on Tier Model Administration root OU: flagged as UnexpectedAcl holder for Tier 1 PAWs (inherited via GenericAll)
+- Tier1Admins on Tier 1 OU: similar behavior
+
+**Suggested Fix:** In the UnexpectedAcl detection loop, skip principals that have a GenericAll ACE on the target OU (check raw ACL in addition to the existing exclusion list). This would distinguish between "admin-delegated OU access" and "explicit LAPS permission grant."
+
+**Next Steps:** Review during design/architecture pass; determine if GenericAll principals should be auto-excluded from UnexpectedAcl reporting, or if a separate well-known-group pattern applies.
