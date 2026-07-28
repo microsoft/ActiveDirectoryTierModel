@@ -1,6 +1,13 @@
 # wolverine — History
 
 ## Learnings
+**2026-07-28 — UI Bugs BUG-002 & BUG-005 Full Campaign Verdict:**
+- BUG-002: ✅ RESOLVED — Deploy-TierModel.ps1 L2022–2048 UserOnly block now emits 4 specific ❌ dependency errors; apply correctly blocked on dirty deps; zero AD writes on failure. Wolverine T1–T4: glyph+label proof (❌ = Red foreground). Cyclops corroboration: L2022–2048 error-accumulation gate and L638–645 prerequisites check match observed behavior.
+- BUG-005: ✅ RESOLVED — Get-TierModelWinLapsAclFd.ps1 L196–202 planner correctly routes missing GPO to warnings (not errors) for FD scope; Deploy-TierModel.ps1 L1638–1642 preview gate allows plan to proceed (gate is if .Errors, not .Warnings); Phase 10 apply executes after Phase 5 GPO creation. Wolverine T5–T9: FD preview shows 7× yellow ⚠ (not red ❌); standalone -IncludeWinLaps shows 19× red ❌ (scope boundary). Cyclops corroboration: three-layer source confirmation (planner routing, preview gate, apply path regenerates fresh plan at execution time).
+- Regressions: NONE — sibling scopes (GroupOnly, GposOnly, audit) all healthy; no contamination observed.
+- Ancillary: BUG-006 candidate identified (pre-existing Test-TierModelPrerequisites relative-path default 'config/dependencies.json' fails unless CWD = C:\TierModel when called from FD+IncludeWinLaps or standalone -Include* blocks without explicit -DependenciesPath). Workaround: pwsh -WorkingDirectory 'C:\TierModel'. Severity: MEDIUM (real operational hazard, trivial fix = add Join-Path  to both callsites L1778 & L2353).
+- Lab state: TierLab-DC01 fully deployed (31 OUs, 26 groups, 2 users, 146 GPOs, 7 LAPS GPOs), running, checkpoint WinLapsSchema-Ready created.
+- Cyclops final verdict: APPROVE — both bugs safe to merge; no blockers.
 
 ### Lab Validation: UI Bugs BUG-002 & BUG-005 (2026-07-28)
 
@@ -700,3 +707,89 @@ Scrutinized full output (55 lines). No second error, no terminating error, no an
   Start-VM -Name 'TierLab-DC01'
   ```
 - Inbox written: `.squad/decisions/inbox/wolverine-winlaps-applied-fix.md`
+
+---
+
+### Full Destructive Validation Campaign: BUG-002 + BUG-005 (2026-07-28)
+
+**Branch:** fix/ui-bugs-002-005 @ 32b748f | **Requested by:** Joel Platek | **Full latitude granted**
+
+#### Checkpoint / Baseline Strategy
+- Starting state: `WinLapsSchema`-derived, fix tree already in `C:\TierModel`, Pester 5.7.1 only (no 5.9.0/6.0.0), AD clean, LAPS schema present.
+- Created `WinLapsSchema-Ready` checkpoint at start of campaign. This snapshot has: fix tree deployed, Pester fixed, LAPS schema, clean AD. Used as the fast-iteration baseline for all destructive tests.
+- Restored to `WinLapsSchema-Ready` before T4, T5/T6 (T6 inherited T5 state — clean), and T7 (with KDS root key re-added after each restore).
+- KDS root key added (`Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))`) for T7 to enable gMSA/dMSA. Not needed for T1-T6.
+- Preserved checkpoints: `DC-Promoted-Clean`, `WinLapsSchema`, `WinLapsSchema-Ready` (new, permanent).
+
+#### Key Techniques
+- **Stdin pipe for -ConfirmApply:** Script uses `Read-Host` for confirmation. Bypass in non-interactive session: `'Y' | & $pwsh -File ...`. Discovered when T2 first attempt returned "Deployment cancelled by user."
+- **-WorkingDirectory for standalone prereq:** Both the "Optional Features" block inside FullDeployment+Include* and the standalone -Include* path call `Test-TierModelPrerequisites` without `-DependenciesPath`, defaulting to relative `config/dependencies.json`. Works only when process cwd = `C:\TierModel`. Fix: use `pwsh -WorkingDirectory 'C:\TierModel' -File ...`. **This is a pre-existing bug separate from BUG-002/005** — logged as a finding.
+- **UTF-8 glyph capture:** `[Console]::OutputEncoding=[Text.Encoding]::UTF8` in the PS-Direct WinPS session before spawning pwsh child. Save transcript with `-Encoding utf8`; read with `Get-Content -Encoding UTF8`.
+- **⚠ vs ❌ proof:** ANSI stripped in redirect. Proof via glyph+label: `⚠` = yellow warning (not blocking), `❌` = red error (blocking). In T5: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase`. In T6: 19× `❌` including 7 GPO-specific.
+
+#### Test Results
+
+**T1 [preview, clean] -UserOnly → PASS**
+- 4× `❌` specific errors: PAWDomainJoin/Tier1ServerDomainJoin groups + Tier 0/1 Service Accounts OUs
+- "Resolve all dependency errors before proceeding with User deployment" generic line present
+- BUG-002 fix confirmed: specific per-dependency ❌ items visible (vs prior empty/generic)
+
+**T2 [apply, clean] -UserOnly -ConfirmApply → PASS**
+- Same 4× specific ❌ items shown after `Y` stdin confirmation
+- Deployment proceeded past confirmation (`Proceeding with deployment execution...`) but stopped safely
+- AD query: zero non-builtin user accounts created
+
+**T3 [deps satisfied] OuOnly → GroupOnly → UserOnly → PASS**
+- T3a OuOnly -ConfirmApply: 31 OUs created (✅)
+- T3b GroupOnly -ConfirmApply: 26 groups created (✅)
+- T3c UserOnly preview: 0 dependency errors, plan shows 4 actions (2 create + 2 update)
+- T3d UserOnly -ConfirmApply: `svc-pawdomainjoin` + `svc-t1srvdomainjoin` created in correct OUs (AD query confirmed)
+
+**T4 [parity] GroupOnly + GposOnly previews → PASS**
+- GroupOnly: 3× `❌ Target OU ... does not exist - create OUs first`
+- GposOnly: 40× `❌` (26 missing groups + 14 missing OUs)
+- Sibling behavior unchanged by BUG-002 fix — no regression
+
+**T5 [FD preview, clean+LAPS] FullDeployment+Includes preview → PASS**
+- Phase 10: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase during FullDeployment.`
+- 21 ACL actions planned
+- Zero `❌` LAPS errors; "Windows LAPS planning errors" gate not triggered
+- BUG-005 fix confirmed: ⚠ yellow warning path working
+
+**T6 [standalone strict, clean+LAPS] -IncludeWinLaps alone → PASS**
+- 19× `❌` errors: 7 missing OUs + 6 missing groups + 7 GPO errors (`Required GPO ... does not exist - create GPOs first`)
+- Zero `⚠` yellow "will be created" leak
+- Scope boundary confirmed: fix is restricted to FD planner (Get-TierModelWinLapsAclFd); standalone path (Get-TierModelWinLapsAcl) stays strict
+
+**T7 [FD apply, clean+LAPS] FullDeployment+All+ConfirmApply → PASS**
+- Workaround needed: `pwsh -WorkingDirectory C:\TierModel` for Optional Features prereq
+- All 7 LAPS GPOs created (✅ Created GPO + Imported settings + Created GPO link per GPO)
+- All 21 LAPS ACL delegations applied (7 SELF permissions + 6 Read-Permission + 5 Reset-Permission + OU decryptors)
+- MSA + gMSA + dMSA ACL delegations also applied (KDS key pre-seeded)
+- Applied: 705, Skipped: 4, Errors: 0
+
+**T8 [FD preview after apply] Verify warnings conditional → PASS**
+- Phase 10: 7× `✅ GPO Exists` + 6× `✅ LAPS Decryptor Exists`
+- `✅ Windows LAPS ACL delegations already up to date`
+- Zero `⚠` warnings — warning is genuinely conditional on absence, not unconditional noise
+
+**T9 [audit] Full audit with IncludeWinLaps → PASS**
+- Overall Status: ✅ COMPLIANT
+- Total Checked: 379, Missing: 0, Drift: 0, Errors: 0, Compliance: 100%
+- WinLaps ACL: 7 checked, 0 drift | WinLaps Decryptor: 6 checked, 0 drift
+- All ADPasswordEncryptionPrincipal settings correct per GPO
+
+#### Pre-Existing Bug Found (Separate from BUG-002/005)
+`Test-TierModelPrerequisites` default `DependenciesPath = 'config/dependencies.json'` is relative. Both the Optional Features block in FD+Include* and the standalone -Include* block call it without an explicit path. Fails unless `$PWD = C:\TierModel`. Non-standalone paths use `Join-Path $PSScriptRoot 'config\dependencies.json'` (correct). Workaround: `pwsh -WorkingDirectory 'C:\TierModel'`.
+
+#### Verdict
+- **BUG-002: RESOLVED** — specific ❌ dependency errors shown in both preview and apply paths; safe blockage confirmed; fix vanishes when deps satisfied; no regression in siblings.
+- **BUG-005: RESOLVED** — FD preview shows ⚠ yellow (not ❌ red); FD apply proceeds and LAPS ACLs applied; standalone path remains strict (scope boundary intact); warning conditional (disappears post-deploy); audit 100% compliant.
+- **No regressions** in GroupOnly, GposOnly, or any other path.
+
+#### Final Lab State
+- VM: RUNNING, AD: responsive, domain: tierlab.internal
+- Fully deployed Tier Model: 31 OUs, 26 groups, 2 users, 101 OU ACLs, 146 GPOs (incl. 7 LAPS GPOs), 60 ADMX files, all LAPS ACLs + decryptors applied, MSA/gMSA/dMSA ACLs applied
+- KDS root key present (b816352d)
+- Checkpoints: DC-Promoted-Clean (root), WinLapsSchema (LAPS schema), WinLapsSchema-Ready (fast-iteration baseline with fix tree + Pester fixed)
+

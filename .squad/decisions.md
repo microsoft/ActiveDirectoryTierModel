@@ -402,3 +402,238 @@ Joel's manual UAT: End-to-end deployment (-IncludeWinLaps), prerequisites valida
 
 **Lab Restore Commands:**
 Provided in baseline report; VM clean at WinLapsSchema checkpoint, ready for Run 7+ if needed after UAT fixes.
+
+---
+
+## 2026-07-28 Full Campaign: Wolverine + Cyclops Review
+
+# Decision: Full Validation Campaign — BUG-002 + BUG-005
+
+**Author:** Wolverine (Tester)  
+**Date:** 2026-07-28  
+**Branch:** fix/ui-bugs-002-005 @ 32b748f  
+**Lab:** TierLab-DC01 (Hyper-V), tierlab.internal  
+
+---
+
+## Verdict
+
+| Bug | Status | Evidence |
+|-----|--------|----------|
+| BUG-002 | ✅ RESOLVED | T1–T4: specific ❌ per-dependency errors shown; apply path safely blocked; no users created; fix vanishes when deps satisfied; siblings unaffected |
+| BUG-005 | ✅ RESOLVED | T5: 7× ⚠ yellow warnings in FD preview; T6: standalone stays strict (7 GPO ❌ errors); T7: FD apply creates GPOs then applies LAPS ACLs; T8: warnings conditional; T9: 100% compliant audit |
+| Regressions | ✅ NONE | GroupOnly / GposOnly / audit all healthy |
+
+---
+
+## BUG-002: Deploy-TierModel.ps1 -UserOnly Dependency Errors
+
+**What was tested:**
+- T1: Preview on clean AD → 4 specific `❌` items + generic resolve line
+- T2: Apply (`-ConfirmApply`) on clean AD → same 4 `❌` items; zero users created in AD
+- T3: Deploy OUs+Groups first, then UserOnly → 0 dependency errors, 2 users created correctly
+- T4: GroupOnly + GposOnly siblings still emit their own specific `❌` lists (no regression)
+
+**Key proof lines (T1/T2):**
+```
+Dependency Errors:
+  ❌ Required group 'PAWDomainJoin' does not exist - create Groups first
+  ❌ Required group 'Tier1ServerDomainJoin' does not exist - create Groups first
+  ❌ Target OU 'Tier 0 Service Accounts' does not exist - create OUs first
+  ❌ Target OU 'Tier 1 Service Accounts' does not exist - create OUs first
+Resolve all dependency errors before proceeding with User deployment
+```
+
+**Key proof lines (T3 — fix vanishes correctly):**
+```
+Action count: 4
+Create count: 2
+Update count: 2
+✅ Creating User: svc-pawdomainjoin (svc-pawdomainjoin)
+✅ Creating User: svc-t1srvdomainjoin (svc-t1srvdomainjoin)
+```
+
+AD query confirmed: `svc-pawdomainjoin` in `OU=Tier 0 Service Accounts` and `svc-t1srvdomainjoin` in `OU=Tier 1 Service Accounts`.
+
+---
+
+## BUG-005: Get-TierModelWinLapsAclFd Missing-GPO = Yellow Warning in FD
+
+**What was tested:**
+- T5: FD preview (clean+LAPS schema) → 7× ⚠ yellow warnings, 21 ACL actions planned, zero ❌ LAPS errors
+- T6: Standalone `-IncludeWinLaps` → 19× ❌ including 7 GPO-specific errors; zero yellow leak (scope boundary intact)
+- T7: FD apply → 7 LAPS GPOs created by Phase 5; Optional Features deployed 21 LAPS ACL delegations successfully; 705 applied, 0 errors
+- T8: FD preview post-deploy → all 7 GPOs ✅ Exist; "✅ Windows LAPS ACL delegations already up to date"; zero ⚠ warnings (warning is conditional)
+- T9: Full audit with `-IncludeWinLaps` → 379 checked, 100% compliant; WinLaps ACL: 7 checked, 0 drift; WinLaps Decryptor: 6 checked, 0 drift
+
+**Key proof lines (T5):**
+```
+Phase 10: Windows LAPS ACL Delegations
+  ⚠ LAPS GPO '*- Tier 0 DCs Windows LAPS - Computer' not found - assuming it will be created by the GPO phase during FullDeployment.
+  ⚠ LAPS GPO '*- Tier 0 Servers Windows LAPS - Computer' not found - assuming it will be created by the GPO phase during FullDeployment.
+  [... 5 more ⚠ warnings ...]
+  Actions planned: 21
+```
+
+**Key proof lines (T6 — scope boundary):**
+```
+Dependency Errors:
+  ❌ Required GPO '*- Tier 0 DCs Windows LAPS - Computer' does not exist - create GPOs first
+  [... 6 more GPO ❌ errors + 12 OU/Group ❌ errors ...]
+```
+
+---
+
+## Pre-Existing Bug (Not Part of BUG-002/005)
+
+**Finding:** `Test-TierModelPrerequisites` default `DependenciesPath = 'config/dependencies.json'` is a relative path. The "Optional Features" block in FD+Include* apply and the standalone -Include* block both call it without explicit `-DependenciesPath`. This fails unless `$PWD = C:\TierModel`. Non-standalone paths correctly use `Join-Path $PSScriptRoot 'config\dependencies.json'`.
+
+**Workaround used:** `pwsh -WorkingDirectory 'C:\TierModel' -File ...`  
+**Recommendation:** File as BUG-006 or similar; fix by passing `Join-Path $PSScriptRoot 'config\dependencies.json'` to both callsites.
+
+---
+
+## Lab State at Campaign End
+
+- **VM:** TierLab-DC01 **RUNNING**, AD **responsive**, domain: tierlab.internal
+- **Deployed:** 31 OUs, 26 groups, 2 users, 101 OU ACLs, 146 GPOs (incl. 7 LAPS GPOs), 60 ADMX files
+- **LAPS:** All ACL delegations + decryptors applied and audit-verified
+- **MSA/gMSA/dMSA:** All ACL delegations applied (KDS root key b816352d present)
+- **Checkpoints:** `DC-Promoted-Clean` (root), `WinLapsSchema` (LAPS schema, pre-deploy), `WinLapsSchema-Ready` (campaign baseline — fix tree + Pester fixed + LAPS schema + clean AD)
+- **Transcripts on guest:** T1–T9 at `C:\TierModel\T[1-9]*.txt`
+
+---
+
+## What Joel Can Explore
+
+```powershell
+$sec=ConvertTo-SecureString 'LabPass123!' -AsPlainText -Force
+$cred=[pscredential]::new('TIERLAB\Administrator',$sec)
+$pwsh='C:\Program Files\PowerShell\7\pwsh.exe'
+
+# Re-run audit (should be 100% compliant)
+Invoke-Command -VMName TierLab-DC01 -Credential $cred {
+  & 'C:\Program Files\PowerShell\7\pwsh.exe' -WorkingDirectory 'C:\TierModel' -File 'C:\TierModel\Audit-TierModel.ps1' '-PreferredDc' 'DC01.tierlab.internal' '-FullDeployment' '-IncludeWinLaps'
+}
+
+# Restore to clean WinLapsSchema for fresh testing:
+Stop-VM TierLab-DC01 -TurnOff -Force
+Restore-VMCheckpoint -VMName TierLab-DC01 -Name 'WinLapsSchema-Ready' -Confirm:$false
+Start-VM TierLab-DC01
+```
+
+
+---
+
+# Decision: Cyclops Review — BUG-002 + BUG-005 Full Campaign
+
+**Reviewer:** Cyclops (Architect & Reviewer)  
+**Date:** 2026-07-28  
+**Branch:** fix/ui-bugs-002-005 @ 32b748f  
+**Tester:** Wolverine  
+**Requested by:** Joel Platek  
+**Verdict:** ✅ APPROVE
+
+---
+
+## Section 1: Verdict Integrity
+
+### BUG-002
+
+Source code corroboration: Deploy-TierModel.ps1 L2022–2048.
+
+`Invoke-UserDeployment` is invoked with `-Silent` to suppress duplicate output from the inner function. The outer UserOnly block then checks `$userResult.Errors` and renders:
+1. `Dependency Errors:` (ForegroundColor Red)
+2. Deduplicated `  ❌ $($_.Message)` per error
+3. `Resolve all dependency errors before proceeding with User deployment`
+
+When errors are present, the inner function returns the error plan before `New-TierModelUser` is called (L638–645 in `Invoke-UserDeployment`), and the outer block's `-Apply = $ConfirmApply` has already been passed. Zero AD writes on dirty deps. Confirmed.
+
+When deps are satisfied (T3): errors array is empty → no error block rendered → action counts displayed → `New-TierModelUser` executed → AD writes confirmed.
+
+T1–T4 results match the code exactly. Evidence sufficient.
+
+### BUG-005
+
+Source code corroboration (three layers):
+
+**Layer 1 — FD planner (Get-TierModelWinLapsAclFd.ps1 L196–202):**
+Missing GPO → `$warnings += "LAPS GPO '...' not found - assuming it will be created by the GPO phase during FullDeployment."` — goes to `$warnings`, NOT `$planErrors`. The comment explicitly documents the design intent (non-blocking in FD context; strict in standalone).
+
+**Layer 2 — FD preview gate (Deploy-TierModel.ps1 ~L1638–1642):**
+```powershell
+if ($winLapsFdPlan.Errors -and $winLapsFdPlan.Errors.Count -gt 0) {
+    # red gate — not reached for missing GPOs
+} else {
+    Add-IncludeAclPhaseToDeploymentPlan ...
+    if ($winLapsFdPlan.Warnings ...) {
+        $winLapsFdPlan.Warnings | ForEach-Object { Write-Host "  ⚠ $_" -ForegroundColor Yellow }
+    }
+}
+```
+Gate fires only on `.Errors`. Missing GPO → no `.Errors` → phase added to plan → warnings rendered as yellow ⚠. Matches T5.
+
+**Layer 3 — FD apply path (Deploy-TierModel.ps1 ~L1828–1832):**
+```powershell
+$winLapsPlan = Get-TierModelWinLapsAclFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent
+if ($winLapsPlan.Errors ...) { # red — not reached at apply time }
+elseif (@($winLapsPlan.Actions).Count -gt 0) { # execute — GPOs exist now }
+```
+Comment in the code explicitly states: `"Always regenerate plan fresh at execution time — groups now exist after Phase 2"`. At apply time the GPO phase (Phase 5/6) has already created the 7 LAPS GPOs, so the fresh FD planner finds them → no warnings → no errors → applies 21 ACL delegations. Matches T7.
+
+**Standalone path (Get-TierModelWinLapsAcl.ps1 L255–261):**
+```powershell
+$planErrors += @{ Message = "Required GPO '$gpoName' does not exist - create GPOs first" }
+```
+Hard error in `$planErrors`. Scope boundary strictly maintained. Matches T6.
+
+T5–T9 fully corroborated by source. Evidence sufficient.
+
+---
+
+## Section 2: Regression Coverage
+
+| Area | Test | Result |
+|------|------|--------|
+| Sibling scopes (-GroupOnly, -GposOnly) | T4 | Each emits its own specific ❌ list — no contamination |
+| Deps-satisfied path | T3 | Zero errors, 2 users created in correct OUs |
+| FD+LAPS apply ordering | T7 | Phase 5 creates GPOs before Phase 10 consumes them |
+| Post-apply idempotency (preview) | T8 | All ✅ GPO Exists, zero ⚠ — warning conditional on genuine absence |
+| Audit | T9 | 100% compliant, 379 checked, 0 drift |
+| Apply blocked on dirty deps | T2 | Zero AD writes confirmed via direct AD query |
+
+One theoretically untested scenario: `-UserOnly` apply when deps are *partially* satisfied (OUs exist but groups missing, or vice versa). Not required — the code iterates all dependency checks independently, accumulates all errors, and the gate is `Count -gt 0`. Partial satisfaction is structurally covered by T1 (all missing → blocked) and T3 (all present → executes). No additional test required.
+
+Coverage is thorough. No missing failure mode blocks sign-off.
+
+---
+
+## Section 3: BUG-006 Validation
+
+**Claim confirmed.** Source evidence:
+
+| Callsite | Line | DependenciesPath | Status |
+|----------|------|-----------------|--------|
+| Early prereq check | L219–222 | `Join-Path $PSScriptRoot 'config\dependencies.json'` | ✅ Correct |
+| FD Optional Features apply (`$msaPrereqs`) | L1778–1783 | Not in splat — falls back to `'config/dependencies.json'` | ❌ CWD-dependent |
+| Standalone -Include* (`$prereqs`) | L2348–2353 | Not in splat — falls back to `'config/dependencies.json'` | ❌ CWD-dependent |
+
+`Test-TierModelPrerequisites.ps1` L50: `[string]$DependenciesPath = 'config/dependencies.json'` — relative default confirmed. `Test-Path $DependenciesPath` at L93 will silently fall through (returning false) or throw when CWD ≠ C:\TierModel.
+
+**Recommended fix is correct and complete:** Add `DependenciesPath = Join-Path $PSScriptRoot 'config\dependencies.json'` to the `$prereqSplat` hashtables at both callsites (~L1778 and ~L2348), consistent with the correct L219–222 pattern.
+
+**Severity:** MEDIUM. Breaks all FD+Include* and standalone -Include* runs silently or with confusing `Dependencies file not found` when CWD ≠ C:\TierModel. Trivial fix; real operational hazard.
+
+**Not a blocker for BUG-002/BUG-005.** File separately as BUG-006.
+
+---
+
+## Section 4: Verdict
+
+**APPROVE**
+
+BUG-002 and BUG-005 source-confirmed at all three required layers (planner routing, preview gate, apply path). T1–T9 coverage is thorough: preview, apply-blocked, apply-executed, idempotency, audit, scope parity. No regressions found. Campaign evidence matches code.
+
+**BUG-006 Recommendation:** File as MEDIUM. Fix both `$prereqSplat` callsites in Deploy-TierModel.ps1 (~L1778 and ~L2348) to include `DependenciesPath = Join-Path $PSScriptRoot 'config\dependencies.json'`, matching the correct L219 pattern.
+
+
