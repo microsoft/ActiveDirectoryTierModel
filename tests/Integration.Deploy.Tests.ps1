@@ -765,6 +765,24 @@ Describe 'Deploy-TierModel - Prerequisites Validation' {
         $LASTEXITCODE | Should -Be 1
     }
     
+    It 'Should use fallback message when prerequisites fail with no Errors array' {
+        # Covers Deploy-TierModel.ps1 L296: when $prereqResult.Errors is empty the script
+        # falls back to the hardcoded "Prerequisites were not met." message.
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid       = $false
+                Errors      = @()
+                Remediation = @()
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly 6>&1 | Out-String
+
+        $output | Should -Match 'Prerequisites were not met'
+        $output | Should -Match 'Deploy script completed'
+        $LASTEXITCODE | Should -Be 1
+    }
+    
     It 'Should handle array return from Test-TierModelPrerequisites' {
         Mock Test-TierModelPrerequisites { 
             return @(
@@ -2462,6 +2480,36 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
         $output | Should -Match 'halting deployment before Groups'
         $LASTEXITCODE | Should -Be 1
         # Groups (Phase 2) must NOT run once the OU tier boundary could not be verified
+        Should -Not -Invoke New-TierModelGroup
+    }
+
+    It 'BUG-010: FullDeployment halts before Groups when OU errors are PSCustomObject format (not hashtable)' {
+        # Covers Deploy-TierModel.ps1 L1757/L1764: the elseif branch reads .Code / .Message
+        # from a [PSCustomObject] error (vs the hashtable branch already tested above).
+        Mock Read-Host { return 'Y' }
+        Mock New-TierModelOu {
+            [PSCustomObject]@{
+                EntityType = 'OU'
+                Applied    = @([PSCustomObject]@{ Name = 'Tier0'; ActionsPerformed = @('CreateOU') })
+                Skipped    = @()
+                Errors     = @(
+                    [PSCustomObject]@{
+                        Code      = 'DisableSecurityInheritanceUnverified'
+                        Message   = "Security-inheritance disable flag could not be confirmed for OU 'Tier0'."
+                        Timestamp = Get-Date
+                        Category  = 'Execution'
+                    }
+                )
+                DurationMs = 100
+                Converged  = $false
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
+
+        $output | Should -Match 'halting deployment before Groups'
+        $output | Should -Match 'Security-inheritance disable flag could not be confirmed'
+        $LASTEXITCODE | Should -Be 1
         Should -Not -Invoke New-TierModelGroup
     }
 }

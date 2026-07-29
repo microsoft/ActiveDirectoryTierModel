@@ -761,6 +761,28 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             @($plan.Errors | Where-Object { $_.Code -eq 'RequiredGpoNotFound' }).Count | Should -Be 0
             @($plan.Warnings | Where-Object { $_ -match "not found" }).Count | Should -Be 0
         }
+
+        It "BUG-005: group resolution falls back to estimated sAMAccountName when Get-ADGroup returns null (non-exception)" {
+            # Get-ADGroup -Filter returns $null (no exception) when a group doesn't exist yet in FD mode.
+            # This exercises the second path into L173 fallback: not the catch, but the post-try
+            # 'if (-not $groupResolution.ContainsKey($group))' guard.
+            Mock Get-ADGroup -ModuleName TierModel { return $null }
+
+            $plan = Get-TierModelWinLapsAclFd -Config $script:WinLapsConfig2 -DomainController $script:TestDC
+
+            # Plan must still be produced (non-blocking)
+            $plan | Should -Not -BeNullOrEmpty
+            $createActions = @($plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' })
+            $createActions.Count | Should -BeGreaterThan 0
+
+            # Each Read/Reset action's principal must use the fallback DOMAIN\GroupNameNoSpaces form
+            $readResetActions = @($createActions | Where-Object {
+                $_.Data.PSObject.Properties['Type'] -and ($_.Data.Type -eq 'Read' -or $_.Data.Type -eq 'Reset')
+            })
+            foreach ($action in $readResetActions) {
+                $action.Data.Principal | Should -Match "^$($script:TestNetBIOS)\\"
+            }
+        }
     }
 
     # ════════════════════════════════════════════════════════════════════════════

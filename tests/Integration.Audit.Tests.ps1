@@ -344,6 +344,26 @@ Describe 'Audit-TierModel.ps1 - Prerequisites Integration' -Tag 'Integration', '
             $LASTEXITCODE | Should -Be 1
         }
         
+        It 'Should use fallback message when prerequisites fail with no Errors array' {
+            # Covers Audit-TierModel.ps1 L216: when $prereqResult.Errors is empty the script
+            # falls back to the hardcoded "Prerequisites were not met." message.
+            Mock -CommandName Test-TierModelPrerequisites {
+                return [PSCustomObject]@{
+                    Valid       = $false
+                    Errors      = @()
+                    Remediation = @()
+                }
+            }
+            $mockConfig = $script:MockConfig
+            Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly *>&1 | Out-String
+
+            $output | Should -Match 'Prerequisites were not met'
+            $output | Should -Match 'Audit script completed'
+            $LASTEXITCODE | Should -Be 1
+        }
+        
         It 'Should display prerequisite errors and remediation' {
             Mock -CommandName Test-TierModelPrerequisites { 
                 return [PSCustomObject]@{ 

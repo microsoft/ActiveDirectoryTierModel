@@ -416,6 +416,118 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             $errorText | Should -Not -Match 'Domain Functional Level of 2025'
             $errorText | Should -Not -Match 'schema version >= 91'
         }
+
+        It "BUG-003: DFL=Windows2025 but schema version < 91 surfaces schema-gap error and adprep remediation" {
+            # DFL is already at Windows Server 2025 so the DFL gate passes,
+            # but schema objectVersion is 88 → the elseif ($schemaVersion -lt 91) branch fires.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            # Schema objectVersion below 91 (BeforeEach default is 88 — no override needed,
+            # but we set it explicitly for clarity)
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 88 }
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            # Schema-gap error IS surfaced (DFL is fine, schema is the bottleneck)
+            $errorText     | Should -Match 'schema version >= 91'
+            # DFL guidance is NOT repeated (DFL is already at 2025)
+            $errorText     | Should -Not -Match 'Domain Functional Level of 2025'
+            # Remediation directs to adprep (new message from this branch)
+            $remText       | Should -Match 'adprep'
+        }
+
+        It "BUG-003: dMSA class not found in schema yields correct error and schema remediation" {
+            # DFL=2025, schema=91 → passes DFL+schema gates; but Get-ADObject throws for the DMSA
+            # class lookup → the catch block surfaces the new remediation message.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            # DMSA class lookup (Filter-based) throws → catch block fires
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                throw "AD object not found"
+            }
+            # Prevent Invoke-Command from attempting real WinRM
+            Mock Invoke-Command -ModuleName TierModel { return @() }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'msDS-DelegatedManagedServiceAccount class not found'
+            $remText       | Should -Match 'schema version >= 91'
+        }
+
+        It "BUG-003: no KDS Root Key for dMSA yields the Add-KdsRootKey remediation" {
+            # DFL=2025, schema=91, DMSA class present; Invoke-Command returns empty → no key found.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            # DMSA class exists (Filter-based)
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            # KDS check: Invoke-Command returns nothing (no keys installed)
+            Mock Invoke-Command -ModuleName TierModel { return @() }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'No KDS Root Key found'
+            $remText       | Should -Match 'Add-KdsRootKey'
+            $remText       | Should -Match 'NEVER create KDS keys automatically'
+        }
+
+        It "BUG-003: KDS Root Key present but not yet effective yields the wait-window remediation" {
+            # DFL=2025, schema=91, DMSA class present; KDS key exists but EffectiveTime < 10 hours ago.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            # KDS key exists but EffectiveTime is only 1 hour ago (< 10-hour window)
+            Mock Invoke-Command -ModuleName TierModel {
+                return @([PSCustomObject]@{ EffectiveTime = (Get-Date).AddHours(-1) })
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'KDS Root Key exists but is not yet effective'
+            $remText       | Should -Match '10-hour replication window'
+        }
     }
 
     # ── T014: WinLaps Prerequisites ─────────────────────────────────────────────

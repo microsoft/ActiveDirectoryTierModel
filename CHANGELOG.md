@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-30
+
 ### Fixed
 - **OU and GPO ACLs now bind to the preferred DC (BUG-001)**: `New-TierModelOuAcl` bound to the target OU with a serverless path (`[ADSI]"LDAP://$targetOUPath"`), which connects to a random DC — in multi-DC environments successive ACL delegations could land on different DCs, causing replication-dependent inconsistency. It now binds via `"LDAP://$DomainController/$targetOUPath"` (the `-PreferredDc` passed through the pipeline), matching the MSA/gMSA/dMSA ACL cmdlets. The same serverless-bind pattern in `New-TierModelGpo` (the GPO Deny-Apply ACL / GPC bind) was fixed to `"LDAP://$DomainController/CN={...}"` so every ACL — OU and GPO — targets the same DC.
 - **`-UserOnly` output now aligns with `-GroupOnly` (BUG-002)**: running `Deploy-TierModel.ps1 -UserOnly` against a domain without the Tier Model OUs/Groups now shows the same sections as every other scope parameter — `Analyzing User requirements...`, a `User Plan Summary`, and the specific `Dependency Errors:` list (each missing OU/Group) — with the `=== Deployment Plan ===` section showing only the generic "Resolve all dependency errors" line. Previously `-UserOnly` called `Invoke-UserDeployment -Silent`, which hid the summary and the dependency-error listing (only the generic resolve line appeared under an otherwise empty heading). The fix runs `Invoke-UserDeployment` non-Silent like `-GroupOnly`, while suppressing per-user "User exists" noise via `Get-TierModelUser -Silent` for parity with the Group path.
