@@ -106,58 +106,123 @@ function New-TierModelOu {
                         $actionsPerformed = @('CreateOU')
                         $warnings = @()
                         
-                        # Configure GPO inheritance blocking if specified
+                        # Configure GPO inheritance blocking if specified - apply, then VERIFY with retry/backoff.
+                        # A silent no-op (Set-GPInheritance returns without error but the gPOptions attribute does
+                        # not persist) must NOT be reported as success, so we read back Get-GPInheritance on the
+                        # SAME DC and retry before recording a hard error.
                         if ($ouData.PSObject.Properties.Name -contains 'blockGpoInheritance' -and $ouData.blockGpoInheritance -eq $true) {
-                            try {
-                                Write-TierModelLog -Level Info -Message "OuBlockGpoStart" -Data @{
-                                    OUName = $ouName
-                                    DistinguishedName = $newOU.DistinguishedName
-                                    CorrelationId = $CorrelationId
-                                } | Out-Null
-                                
-                                Set-GPInheritance -Target $newOU.DistinguishedName -IsBlocked Yes -Server $DomainController | Out-Null
+                            Write-TierModelLog -Level Info -Message "OuBlockGpoStart" -Data @{
+                                OUName = $ouName
+                                DistinguishedName = $newOU.DistinguishedName
+                                CorrelationId = $CorrelationId
+                            } | Out-Null
+
+                            $gpoBlockVerified = $false
+                            $gpoBlockAttempts = 0
+                            $gpoBlockLastError = $null
+                            $gpoBlockMaxAttempts = 4
+                            while (-not $gpoBlockVerified -and $gpoBlockAttempts -lt $gpoBlockMaxAttempts) {
+                                $gpoBlockAttempts++
+                                try {
+                                    Set-GPInheritance -Target $newOU.DistinguishedName -IsBlocked Yes -Server $DomainController -ErrorAction Stop | Out-Null
+                                } catch {
+                                    $gpoBlockLastError = $_.Exception.Message
+                                }
+                                try {
+                                    $gpoInheritanceState = Get-GPInheritance -Target $newOU.DistinguishedName -Server $DomainController -ErrorAction Stop
+                                    if ($gpoInheritanceState.GpoInheritanceBlocked -eq $true) { $gpoBlockVerified = $true; break }
+                                } catch {
+                                    $gpoBlockLastError = $_.Exception.Message
+                                }
+                                if (-not $gpoBlockVerified -and $gpoBlockAttempts -lt $gpoBlockMaxAttempts) {
+                                    Start-Sleep -Milliseconds ([int](500 * [Math]::Pow(2, $gpoBlockAttempts - 1)))
+                                }
+                            }
+
+                            if ($gpoBlockVerified) {
                                 $actionsPerformed += 'BlockGpoInheritance'
-                                
                                 Write-TierModelLog -Level Info -Message "OuBlockGpoSuccess" -Data @{
                                     OUName = $ouName
                                     DistinguishedName = $newOU.DistinguishedName
+                                    Attempts = $gpoBlockAttempts
                                     CorrelationId = $CorrelationId
                                 } | Out-Null
-                            } catch {
-                                $warnings += "Failed to block GPO inheritance: $($_.Exception.Message)"
-                                Write-TierModelLog -Level Warning -Message "OuBlockGpoWarning" -Data @{
+                            } else {
+                                # Human-readable error surfaced to the user; raw exception kept in the log only.
+                                $errors += @{
+                                    Timestamp = Get-Date
+                                    Category  = 'Execution'
+                                    Code      = 'BlockGpoInheritanceUnverified'
+                                    Message   = "Block GPO Inheritance flag was not set for OU '$ouName'. The setting was applied but could not be confirmed after $gpoBlockAttempts attempts."
+                                    Context   = @{ Name = $ouName; DistinguishedName = $newOU.DistinguishedName; Attempts = $gpoBlockAttempts }
+                                }
+                                Write-Host "    `u{274C} Block GPO Inheritance flag was not set for OU '$ouName' (after $gpoBlockAttempts attempts)" -ForegroundColor Red
+                                Write-TierModelLog -Level Error -Message "OuBlockGpoUnverified" -Data @{
                                     OUName = $ouName
-                                    Error = $_.Exception.Message
+                                    DistinguishedName = $newOU.DistinguishedName
+                                    Attempts = $gpoBlockAttempts
+                                    Error = $gpoBlockLastError
                                     CorrelationId = $CorrelationId
                                 } | Out-Null
                             }
                         }
                         
-                        # Configure security inheritance blocking if specified
+                        # Configure security inheritance blocking if specified - apply, then VERIFY with retry/backoff.
                         if ($ouData.PSObject.Properties.Name -contains 'disableInheritance' -and $ouData.disableInheritance -eq $true) {
-                            try {
-                                Write-TierModelLog -Level Info -Message "OuDisableSecInheritStart" -Data @{
-                                    OUName = $ouName
-                                    DistinguishedName = $newOU.DistinguishedName
-                                    CorrelationId = $CorrelationId
-                                } | Out-Null
-                                
-                                # Get the current ACL and disable inheritance
-                                $acl = Get-Acl -Path "AD:\$($newOU.DistinguishedName)"
-                                $acl.SetAccessRuleProtection($true, $true)  # Block inheritance, preserve existing permissions
-                                Set-Acl -Path "AD:\$($newOU.DistinguishedName)" -AclObject $acl | Out-Null
+                            Write-TierModelLog -Level Info -Message "OuDisableSecInheritStart" -Data @{
+                                OUName = $ouName
+                                DistinguishedName = $newOU.DistinguishedName
+                                CorrelationId = $CorrelationId
+                            } | Out-Null
+
+                            $secBlockVerified = $false
+                            $secBlockAttempts = 0
+                            $secBlockLastError = $null
+                            $secBlockMaxAttempts = 4
+                            while (-not $secBlockVerified -and $secBlockAttempts -lt $secBlockMaxAttempts) {
+                                $secBlockAttempts++
+                                try {
+                                    # Get the current ACL and disable inheritance (preserve existing permissions)
+                                    $acl = Get-Acl -Path "AD:\$($newOU.DistinguishedName)" -ErrorAction Stop
+                                    $acl.SetAccessRuleProtection($true, $true)
+                                    Set-Acl -Path "AD:\$($newOU.DistinguishedName)" -AclObject $acl -ErrorAction Stop | Out-Null
+                                } catch {
+                                    $secBlockLastError = $_.Exception.Message
+                                }
+                                try {
+                                    $verifyAcl = Get-Acl -Path "AD:\$($newOU.DistinguishedName)" -ErrorAction Stop
+                                    if ($verifyAcl.AreAccessRulesProtected -eq $true) { $secBlockVerified = $true; break }
+                                } catch {
+                                    $secBlockLastError = $_.Exception.Message
+                                }
+                                if (-not $secBlockVerified -and $secBlockAttempts -lt $secBlockMaxAttempts) {
+                                    Start-Sleep -Milliseconds ([int](500 * [Math]::Pow(2, $secBlockAttempts - 1)))
+                                }
+                            }
+
+                            if ($secBlockVerified) {
                                 $actionsPerformed += 'DisableSecurityInheritance'
-                                
                                 Write-TierModelLog -Level Info -Message "OuDisableSecInheritSuccess" -Data @{
                                     OUName = $ouName
                                     DistinguishedName = $newOU.DistinguishedName
+                                    Attempts = $secBlockAttempts
                                     CorrelationId = $CorrelationId
                                 } | Out-Null
-                            } catch {
-                                $warnings += "Failed to disable security inheritance: $($_.Exception.Message)"
-                                Write-TierModelLog -Level Warning -Message "OuDisableSecInheritWarning" -Data @{
+                            } else {
+                                # Human-readable error surfaced to the user; raw exception kept in the log only.
+                                $errors += @{
+                                    Timestamp = Get-Date
+                                    Category  = 'Execution'
+                                    Code      = 'DisableSecurityInheritanceUnverified'
+                                    Message   = "Security Inheritance was not disabled for OU '$ouName'. The setting was applied but could not be confirmed after $secBlockAttempts attempts."
+                                    Context   = @{ Name = $ouName; DistinguishedName = $newOU.DistinguishedName; Attempts = $secBlockAttempts }
+                                }
+                                Write-Host "    `u{274C} Security Inheritance was not disabled for OU '$ouName' (after $secBlockAttempts attempts)" -ForegroundColor Red
+                                Write-TierModelLog -Level Error -Message "OuDisableSecInheritUnverified" -Data @{
                                     OUName = $ouName
-                                    Error = $_.Exception.Message
+                                    DistinguishedName = $newOU.DistinguishedName
+                                    Attempts = $secBlockAttempts
+                                    Error = $secBlockLastError
                                     CorrelationId = $CorrelationId
                                 } | Out-Null
                             }

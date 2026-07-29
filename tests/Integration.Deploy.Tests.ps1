@@ -2368,6 +2368,28 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
         Should -Invoke New-TierModelGmsaAcl -Times 1
         Should -Invoke New-TierModelDmsaAcl -Times 1
     }
+
+    It 'BUG-010: FullDeployment halts before Groups when an OU inheritance setting cannot be verified' {
+        Mock Read-Host { return 'Y' }
+        # OU phase creates the OU but reports an unverified inheritance error (BUG-010 code)
+        Mock New-TierModelOu {
+            [PSCustomObject]@{
+                EntityType = 'OU'
+                Applied = @([PSCustomObject]@{ Name = 'Tier0'; ActionsPerformed = @('CreateOU') })
+                Skipped = @()
+                Errors = @(@{ Code = 'BlockGpoInheritanceUnverified'; Message = "Block GPO Inheritance flag was not set for OU 'Tier0'."; Timestamp = Get-Date })
+                DurationMs = 100
+                Converged = $false
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
+
+        $output | Should -Match 'halting deployment before Groups'
+        $LASTEXITCODE | Should -Be 1
+        # Groups (Phase 2) must NOT run once the OU tier boundary could not be verified
+        Should -Not -Invoke New-TierModelGroup
+    }
 }
 
 Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {

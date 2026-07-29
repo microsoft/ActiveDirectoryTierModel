@@ -1746,6 +1746,33 @@ if ($FullDeployment) {
             Write-Host "Phase 1: Creating OUs..." -ForegroundColor Cyan
             $ouExecutionResult = Invoke-OuDeployment -Config $config -DomainController $PreferredDc -Apply -Silent
             Write-Host "" # Blank line for readability
+
+            # HARD-STOP GATE (BUG-010): OU inheritance settings (GPO block / security block) are verified
+            # during creation. If any could not be confirmed, halt BEFORE Groups so a tier boundary is
+            # never silently left open. Brand-new-deployment safeguard; existing/live OUs are never modified
+            # (raise a change, remediate manually, then confirm with the audit script).
+            $ouInheritanceErrors = @()
+            if ($ouExecutionResult -and ($ouExecutionResult.PSObject.Properties.Name -contains 'Errors')) {
+                $ouInheritanceErrors = @($ouExecutionResult.Errors | Where-Object {
+                    $ouErrCode = if ($_ -is [hashtable]) { $_['Code'] } elseif ($_ -and $_.PSObject.Properties.Name -contains 'Code') { $_.Code } else { $null }
+                    $ouErrCode -eq 'BlockGpoInheritanceUnverified' -or $ouErrCode -eq 'DisableSecurityInheritanceUnverified'
+                })
+            }
+            if (@($ouInheritanceErrors).Count -gt 0) {
+                Write-Host "❌ OU inheritance could not be verified - halting deployment before Groups (Phase 2)." -ForegroundColor Red
+                foreach ($ouErr in $ouInheritanceErrors) {
+                    $ouErrMsg = if ($ouErr -is [hashtable]) { $ouErr['Message'] } elseif ($ouErr.PSObject.Properties.Name -contains 'Message') { $ouErr.Message } else { "$ouErr" }
+                    Write-Host "    - $ouErrMsg" -ForegroundColor Red
+                }
+                Write-Host ""
+                Write-Host "Remediation steps:" -ForegroundColor Yellow
+                Write-Host "  - This is a brand-new deployment safeguard: one or more OU inheritance settings could not be confirmed." -ForegroundColor Yellow
+                Write-Host "  - Delete the affected OU(s) listed above and re-run the deployment to recreate them cleanly." -ForegroundColor Yellow
+                Write-Host "  - Do NOT modify live/production OUs outside an approved change window; confirm with the audit script." -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "Deploy script completed." -ForegroundColor Green
+                exit 1
+            }
         }
         
         # Execute Phase 2: Groups

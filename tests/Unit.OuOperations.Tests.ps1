@@ -547,6 +547,7 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
             
             Mock New-ADOrganizationalUnit { $mockOU } -ModuleName TierModel
             Mock Set-GPInheritance { } -ModuleName TierModel
+            Mock Get-GPInheritance { [PSCustomObject]@{ GpoInheritanceBlocked = $true } } -ModuleName TierModel
             
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
@@ -587,15 +588,72 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
             Mock Set-GPInheritance {
                 throw "GPO inheritance blocking failed"
             } -ModuleName TierModel
-            
+            Mock Get-GPInheritance { [PSCustomObject]@{ GpoInheritanceBlocked = $false } } -ModuleName TierModel
+            Mock Start-Sleep { } -ModuleName TierModel
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
+
+            # Assert - OU is still created, but the unverified block is a surfaced ERROR (not a hidden warning)
             $result.Applied.Count | Should -Be 1
-            $result.Applied[0].Warnings | Should -Not -BeNullOrEmpty
-            $result.Applied[0].Warnings[0] | Should -BeLike "*Failed to block GPO inheritance*"
             $result.Applied[0].ActionsPerformed | Should -Not -Contain 'BlockGpoInheritance'
+            @($result.Errors | Where-Object { $_.Code -eq 'BlockGpoInheritanceUnverified' }).Count | Should -BeGreaterThan 0
+            @($result.Errors)[0].Message | Should -BeLike "*Block GPO Inheritance flag was not set for OU*"
+        }
+
+        It "Should record an error when GPO inheritance cannot be verified (silent no-op)" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'
+                        Name = 'Tier0'
+                        Path = 'DC=contoso,DC=com'
+                        Data = [PSCustomObject]@{ name = 'Tier0'; blockGpoInheritance = $true }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+            # Set-GPInheritance returns without error, but the setting never persists (silent no-op)
+            Mock Set-GPInheritance { } -ModuleName TierModel
+            Mock Get-GPInheritance { [PSCustomObject]@{ GpoInheritanceBlocked = $false } } -ModuleName TierModel
+            Mock Start-Sleep { } -ModuleName TierModel
+
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            $result.Applied[0].ActionsPerformed | Should -Not -Contain 'BlockGpoInheritance'
+            @($result.Errors | Where-Object { $_.Code -eq 'BlockGpoInheritanceUnverified' }).Count | Should -BeGreaterThan 0
+        }
+
+        It "Should converge when GPO inheritance verifies on a later retry" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'
+                        Name = 'Tier0'
+                        Path = 'DC=contoso,DC=com'
+                        Data = [PSCustomObject]@{ name = 'Tier0'; blockGpoInheritance = $true }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+            Mock Set-GPInheritance { } -ModuleName TierModel
+            $global:tmGpoVerifyCall = 0
+            Mock Get-GPInheritance {
+                $global:tmGpoVerifyCall++
+                [PSCustomObject]@{ GpoInheritanceBlocked = ($global:tmGpoVerifyCall -ge 2) }
+            } -ModuleName TierModel
+            Mock Start-Sleep { } -ModuleName TierModel
+
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            # Verified on the 2nd attempt -> success recorded, no error
+            $result.Applied[0].ActionsPerformed | Should -Contain 'BlockGpoInheritance'
+            @($result.Errors | Where-Object { $_.Code -eq 'BlockGpoInheritanceUnverified' }).Count | Should -Be 0
+            Remove-Variable -Name tmGpoVerifyCall -Scope Global -ErrorAction SilentlyContinue
         }
     }
     
@@ -667,14 +725,15 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
             Mock Get-Acl {
                 throw "ACL retrieval failed"
             } -ModuleName TierModel
-            
+            Mock Start-Sleep { } -ModuleName TierModel
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
+
+            # Assert - OU is still created, but the unverified security block is a surfaced ERROR
             $result.Applied.Count | Should -Be 1
-            $result.Applied[0].Warnings | Should -Not -BeNullOrEmpty
-            $result.Applied[0].Warnings[0] | Should -BeLike "*Failed to disable security inheritance*"
+            @($result.Errors | Where-Object { $_.Code -eq 'DisableSecurityInheritanceUnverified' }).Count | Should -BeGreaterThan 0
+            @($result.Errors)[0].Message | Should -BeLike "*Security Inheritance was not disabled for OU*"
         }
     }
     
