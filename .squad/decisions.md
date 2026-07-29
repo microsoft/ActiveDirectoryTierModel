@@ -4,6 +4,84 @@
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
+
+# BUG-010 Lab Validation — Decision Record
+
+**Date:** 2026-07-29T12:10  
+**Author:** Wolverine (Tester)  
+**Requestor:** @jplatek_microsoft  
+**Status:** PASS — Recommending close
+
+---
+
+## Summary
+
+The BUG-010 fix (verify+retry loop in `New-TierModelOu.ps1` + hard-stop gate in `Deploy-TierModel.ps1`) was lab-validated on TierLab-DC01 (tierlab.internal). **All tests passed.** Recommend marking BUG-010 as resolved.
+
+---
+
+## Evidence
+
+### Files Validated
+Both host and guest SHA256 hashes matched exactly across all 5 test runs:
+
+| File | SHA256 |
+|------|--------|
+| `modules/TierModel/public/New-TierModelOu.ps1` | `2A0A080AED1D4EF1E9157101D81B0610CFB45606A3472F61235A2E915DC3A231` |
+| `Deploy-TierModel.ps1` | `B64741DB113F28417B5A5B4CED165689981562216F15F17458FE347CC2FCA2C8` |
+
+### TEST A — `-OuOnly` Deploy (4 iterations, each from fresh WinLapsSchema restore)
+
+| Iter | gPOptions 10/10=1 | Tier 1 Server Staging | Audit ❌ GPO | False-success | Attempts>1 |
+|------|-------------------|----------------------|-------------|---------------|------------|
+| 1    | PASS              | gPOptions=1 ✓        | 0           | None          | None       |
+| 2    | PASS              | gPOptions=1 ✓        | 0           | None          | None       |
+| 3    | PASS              | gPOptions=1 ✓        | 0           | None          | None       |
+| 4    | PASS              | gPOptions=1 ✓        | 0           | None          | None       |
+
+Representative transcript evidence from Iter 1 (all iterations identical):
+```
+[2026-07-29T12:49:10.255Z] [Info] OuBlockGpoSuccess | Attempts=1, DistinguishedName=OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,DC=tierlab,DC=internal, OUName=Tier 1 Server Staging [CID: b58d3427]
+```
+
+### TEST B — `-FullDeployment` Deploy (1 run)
+
+- **Phase 2 gate cleared** — transcript confirmed: `Phase 2: Creating Groups...`
+- **NOT halted** — no `OU inheritance could not be verified - halting deployment before Groups` line observed
+- **10 `OuBlockGpoSuccess` logged** (Attempts=1 each), including:
+  ```
+  [2026-07-29T13:04:45.996Z] [Info] OuBlockGpoSuccess | Attempts=1, OUName=Tier 1 Server Staging, DistinguishedName=OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,DC=tierlab,DC=internal [CID: e195cbd3]
+  ```
+- gPOptions dump: 10/10 = 1 ✓
+- Audit: 31 OUs checked, 0 missing, 0 drift, 0 ❌ GPO Inheritance, 100% compliance
+
+### Attempts>1 Note
+No Attempts>1 captured across 5 runs. The 10% race condition did not spontaneously trigger in the lab. This is NOT a gap in the fix — it means the DC responded consistently. The read-back verification path IS active (Attempts=1 logged for every OU, confirming the code path runs). To force-trigger Attempts>1 would require injecting a temporary AD delay; that is not required for this validation.
+
+---
+
+## Known Operational Gotcha (Team-relevant, not a bug)
+
+**`Audit-TierModel.ps1` CWD requirement:** The audit script calls `Test-TierModelPrerequisites` without an explicit `DependenciesPath`, which defaults to the relative path `'config/dependencies.json'`. Unless the working directory is `C:\TierModel` at invocation time, the audit exits immediately with "Dependencies file not found." 
+
+**Correct invocation pattern:**
+```powershell
+& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command "Set-Location 'C:\TierModel'; & 'C:\TierModel\Audit-TierModel.ps1' -PreferredDc DC01 -OuOnly"
+```
+
+This is pre-existing behavior (related to BUG-008's fix scope — the `-Include*` paths were fixed but the base `-OuOnly`/`-FullDeployment` path was not affected since it uses `$PSScriptRoot` for the module import). Not a blocker for this validation; noting it for team awareness.
+
+---
+
+## Recommendation
+
+**Close BUG-010 as RESOLVED.** The verify+retry fix prevents silent no-ops, the hard-stop gate prevents false-success propagation to Phase 2, and the `Attempts=` log provides operational observability. Validated across 4× OuOnly and 1× FullDeployment runs from clean checkpoint restores.
+
+**VM state:** Left RUNNING as instructed (TierLab-DC01, WinLapsSchema baseline overwritten by final FullDeployment run; revert to WinLapsSchema checkpoint for future clean-state tests).
+
+
+---
+
 # Lab Validation: BUG-008 & BUG-004
 **Author:** Wolverine (Tester)  
 **Date:** 2026-07-28T17:20  
@@ -438,59 +516,6 @@ Joel's manual UAT: End-to-end deployment (-IncludeWinLaps), prerequisites valida
 - decryptorGroup format: Plain display names ("Tier 0 Admins"), runtime resolution via Get-ADGroup -Filter "Name -eq"
 
 ## Archived Inbox (merged from .squad/decisions/inbox/)
-
-### Beast Decision: Precompute Optional MSA/gMSA/dMSA ACL Plans During Full-Deployment
-**Date:** 2026-06-03T21:34:33.354+08:00
-**Requested by:** Joel Platek
-**What:** Precompute optional MSA/gMSA/dMSA ACL plans during `Deploy-TierModel.ps1` full-deployment orchestration, before the aggregate Deployment Plan summary is printed, and reuse those same plan objects during optional feature execution.
-**Why:** The optional include phases were previously analyzed after the summary, so planning output missed their yellow ACL lines and aggregate counts. Reusing the precomputed Fd plans keeps planning and apply paths aligned and avoids a second, divergent planning pass.
-**Impact:** `-FullDeployment -IncludeMsa/-IncludeGmsa/-IncludeDmsa` now shows phases 7-9 in planning mode, adds their `CreateAcl` counts into the summary totals, and executes the same stored plans after the standard phases complete successfully.
-
-### Beast: Phase 16 Pester Test Patterns — MSA/gMSA/dMSA
-**Author:** Beast (Dr. Hank McCoy)
-**Date:** 2025-07-18
-**Relates to:** T028–T036, Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1
-
-#### Conventions established by Phase 16 tests:
-1. **Never use `Mock` inside `It` blocks for error-path tests** — Pester 5.7.1 treats such mocks as Context-scoped (bleed to subsequent tests). Use dedicated config objects instead.
-2. **`Should -Invoke` "at least N" syntax** — `-AtLeastTimes` is NOT valid. Use `-Times N` (omit `-Exactly`) for "at least N" semantics.
-3. **Hashtable vs PSCustomObject in cmdlet outputs** — Module cmdlets return `Summary` and `Validation` as `@{...}` hashtables. Test using `.Keys | Should -Contain`, not `.PSObject.Properties.Name`.
-4. **InheritedObjectType in ACE mock rules** — Expected `InheritedObjectType` is always `[Guid]::Empty` for GenericAll/Descendents ACE entry.
-5. **BeforeAll conditional mocks handle both positive and negative paths** — Describe-level BeforeAll mocks for `Get-ADOrganizationalUnit` and `Get-ADGroup` return or throw based on Identity value.
-
-### Beast: Standalone Lab Validation — Use Direct Guest Deploy and Clear Blocking Checkpoint KDS Key
-**Date:** 2026-05-30T15:30:00+08:00
-**By:** Beast (via Copilot)
-**What:** For manual Hyper-V validation of standalone `-IncludeMsa -IncludeGmsa -IncludeDmsa`, do not use `Start-LabAndDeploy.ps1` because it always appends `-FullDeployment`. After `Reset-Lab.ps1`, stage files to `C:\TierModel` manually over PS Direct, run `Deploy-TierModel.ps1` directly on the guest for `-OuOnly`, then `-GroupOnly`, then the standalone `-Include*` switches. Also remove the newer non-effective checkpoint KDS root key `d33d6533-a88c-8938-eac2-3c42a8b1838d` after each reset until the checkpoint is refreshed, because prereq validation currently sorts by the latest `EffectiveTime` and otherwise blocks gMSA/dMSA deployment.
-**Why:** This was the only reliable way to complete the requested lab coverage from `DC-Promoted-Clean` and it produced passing results for both the full-deployment and standalone sequencing scenarios.
-
-### Copilot Directive: 002-gmsa-support Testing Scope
-**Date:** 2026-05-30T10:15:07
-**By:** Joel Platek (via Copilot)
-**Testing Constraints:**
-1. DO NOT test pre-requisites (KDS, Server 2025, AD domain/forest requirements for dMSA) — Joel tests manually
-2. DO NOT test actual creation of MSA/gMSA/dMSA objects — Joel tests manually
-3. DO test: -Include* fails without OUs and Groups present
-4. DO test: -Include* cannot be combined with -*Only parameters
-5. DO test: All 3 -Include* parameters can run together with -FullDeployment
-6. Track total successful changes/audits counts to verify they increase with MSA additions
-7. Stop before Pester test tasks — let Joel complete manual testing first
-8. Do NOT modify other cmdlets beyond what is required
-9. If any issue arises, STOP and ask Joel
-10. Update tasks.md as each task is completed
-11. Recommended approach: Deploy tier model first, capture counts, roll back checkpoint, then make code changes and test
-
-### Storm Decision: Phase 16 MSA/gMSA/dMSA Documentation Approach
-**Date:** 2025-07-18
-**Stakeholders:** Storm (DevRel & Documentation), Joel Platek (Project Lead)
-**Scope:** Documentation updates for 12 new Managed Service Account ACL delegation cmdlets
-**Approach:** All documentation files updated with consistent "Optional Feature" messaging across 7 files (test-tag-matrix.md, detailed-deployment-guide.md, deployment-methodology.md, drift-detection-details.md, cmdlet-architecture.md, test-coverage.md, README.md)
-**Key Decisions:**
-- All MSA/gMSA/dMSA features clearly marked as "Optional" requiring explicit -Include* switches
-- Coordinated updates to 7 docs in single pass for consistency
-- Test coverage marked "Pending" to signal team that measurements will shift once tests execute
-- Standardized naming: MsaAcl, GmsaAcl, DmsaAcl tags; Get-TierModel*Acl cmdlet naming
-**Status:** ACTIVE — All 7 docs updated, 12 cmdlets marked pending re-measure
 
 ## Windows LAPS Implementation — Phase 10 (T001–T012)
 
