@@ -717,8 +717,8 @@ function Invoke-UserDeployment {
         # Convert execution result to match expected structure
         $result = [PSCustomObject]@{
             EntityType = 'User'
-            Applied = @(1..$executionResult.Executed | ForEach-Object { [PSCustomObject]@{ Action = 'CreateUser'; Status = 'Success' } })
-            Skipped = @(1..$executionResult.Skipped | ForEach-Object { [PSCustomObject]@{ Action = 'CreateUser'; Status = 'Skipped' } })
+            Applied = @(if ($executionResult.Executed -gt 0) { 1..$executionResult.Executed | ForEach-Object { [PSCustomObject]@{ Action = 'CreateUser'; Status = 'Success' } } })
+            Skipped = @(if ($executionResult.Skipped -gt 0) { 1..$executionResult.Skipped | ForEach-Object { [PSCustomObject]@{ Action = 'CreateUser'; Status = 'Skipped' } } })
             Errors = $executionResult.Errors
             DurationMs = $executionResult.DurationMs
             Converged = $executionResult.Converged
@@ -842,8 +842,8 @@ function Invoke-OuAclDeployment {
         # Convert execution result to match expected structure
         $result = [PSCustomObject]@{
             EntityType = 'OuAcl'
-            Applied = @(1..$executionResult.Executed | ForEach-Object { [PSCustomObject]@{ Action = 'CreateAcl'; Status = 'Success' } })
-            Skipped = @(1..$executionResult.Skipped | ForEach-Object { [PSCustomObject]@{ Action = 'CreateAcl'; Status = 'Skipped' } })
+            Applied = @(if ($executionResult.Executed -gt 0) { 1..$executionResult.Executed | ForEach-Object { [PSCustomObject]@{ Action = 'CreateAcl'; Status = 'Success' } } })
+            Skipped = @(if ($executionResult.Skipped -gt 0) { 1..$executionResult.Skipped | ForEach-Object { [PSCustomObject]@{ Action = 'CreateAcl'; Status = 'Skipped' } } })
             Errors = $executionResult.Errors
             DurationMs = $executionResult.DurationMs
             Converged = $executionResult.Converged

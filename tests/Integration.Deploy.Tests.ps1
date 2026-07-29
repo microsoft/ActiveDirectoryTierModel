@@ -1357,6 +1357,80 @@ Describe 'Deploy-TierModel - FullDeployment Orchestration' {
             Should -Invoke New-TierModelGpo -Times 1
             Should -Invoke Copy-TierModelAdmx -Times 1
         }
+
+        It 'BUG-011: clean FullDeployment reports Skipped: 0 (no phantom 1..0 range skips)' {
+            # Regression: the User and OuAcl phases built their result Skipped arrays with
+            # @(1..$executionResult.Skipped | ForEach-Object {...}). On a clean deploy Skipped=0,
+            # and PowerShell's 1..0 is the DESCENDING range {1,0} (2 elements) — so each of those
+            # two phases emitted 2 phantom "Skipped" entries, yielding a bogus "Skipped: 4" with
+            # zero real skips. Guarding the range with `if ($n -gt 0)` fixes it.
+            Mock Read-Host { return 'Y' }
+            Mock Get-TierModelOu {
+                New-MockDeploymentPlan -EntityType 'OU' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelGroupFd {
+                New-MockDeploymentPlan -EntityType 'Group' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelUserFd {
+                New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelOuAclFd {
+                $result = [PSCustomObject]@{ EntityType = 'OuAcl' }
+                $result | Add-Member -MemberType NoteProperty -Name 'Summary' -Value ([PSCustomObject]@{
+                    TotalActions = 1
+                    CreateActions = 1
+                    ExistingCount = 0
+                })
+                $result | Add-Member -MemberType NoteProperty -Name 'Actions' -Value (@([PSCustomObject]@{
+                    OU = 'OU=Test,DC=test,DC=local'
+                    Action = 'CreateAcl'
+                    Data = @{
+                        identityreference = 'TEST\TestGroup1'
+                        activedirectoryrights = @('GenericAll')
+                        objecttype = 'All Objects'
+                        activeDirectorysecurityinheritance = 'All'
+                    }
+                }))
+                $result | Add-Member -MemberType NoteProperty -Name 'Warnings' -Value ([object[]]@())
+                $result | Add-Member -MemberType NoteProperty -Name 'Errors' -Value ([object[]]@())
+                return $result
+            }
+            Mock Get-TierModelGpoFd {
+                $result = [PSCustomObject]@{ EntityType = 'Gpo' }
+                $result | Add-Member -MemberType NoteProperty -Name 'Summary' -Value ([PSCustomObject]@{
+                    TotalActions = 1
+                    CreateActions = 1
+                    ExistingCount = 0
+                })
+                $result | Add-Member -MemberType NoteProperty -Name 'Actions' -Value (@([PSCustomObject]@{
+                    Name = 'TestGPO1'
+                    Action = 'CreateGpo'
+                }))
+                $result | Add-Member -MemberType NoteProperty -Name 'Warnings' -Value ([object[]]@())
+                $result | Add-Member -MemberType NoteProperty -Name 'Errors' -Value ([object[]]@())
+                return $result
+            }
+            Mock Get-TierModelAdmx {
+                [PSCustomObject]@{
+                    EntityType = 'ADMX'
+                    Summary = [PSCustomObject]@{ TotalFiles = 2; FilesToUpdate = 1; FilesUpToDate = 1 }
+                    Analysis = [PSCustomObject]@{
+                        AdmxToUpdate = @([PSCustomObject]@{ Name = 'test.admx'; ActionType = 'Import' })
+                        AdmlToUpdate = @()
+                        Errors = @()
+                    }
+                }
+            }
+
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+            # The two phases that used the 1..$n antipattern must have executed with zero real skips
+            Should -Invoke New-TierModelUser -Times 1
+            Should -Invoke New-TierModelOuAcl -Times 1
+            # Consolidated summary must report zero skips (was a phantom "Skipped: 4" before the fix)
+            $output | Should -Match 'Skipped:\s*0'
+            $output | Should -Not -Match 'Skipped:\s*[1-9]'
+        }
         
         It 'Should handle FullDeployment with some phases having no actions' {
             Mock Read-Host { return 'Y' }
