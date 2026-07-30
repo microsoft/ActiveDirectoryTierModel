@@ -7,6 +7,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Contributing: contributing.md
   - Quick Deployment Guide: quick-deployment-guide.md
   - Detailed Deployment Guide: detailed-deployment-guide.md
   - FAQ: faq.md
