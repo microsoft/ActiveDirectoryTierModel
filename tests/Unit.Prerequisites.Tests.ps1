@@ -563,8 +563,18 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
                 return [PSCustomObject]@{ ForestMode = 'Windows2016Forest'; RootDomain = 'test.local' }
             }
 
-            # Import-Module LAPS -> succeeds; in-memory LAPS module already loaded by ADStubs
+            # LAPS module present by default — self-contained, no reliance on ADStubs or
+            # cross-file session ordering. Import-Module LAPS succeeds; Get-Module LAPS returns
+            # the module; Get-Command resolves the required LAPS cmdlets. Tests that need the
+            # "module absent / cmdlets missing" path override these at the It scope
+            # (Gate 2 import-failure / missing-cmdlets).
             Mock Import-Module -ModuleName TierModel { } -ParameterFilter { $Name -eq 'LAPS' }
+            Mock Get-Module -ModuleName TierModel -ParameterFilter { $Name -eq 'LAPS' } {
+                return [PSCustomObject]@{ Name = 'LAPS'; Version = '1.0.0' }
+            }
+            Mock Get-Command -ModuleName TierModel -ParameterFilter { $Module -eq 'LAPS' } {
+                return [PSCustomObject]@{ Name = 'MockLapsCmd' }
+            }
 
             Mock Get-ADGroup -ModuleName TierModel { return $null }
             Mock Get-ADGroupMember -ModuleName TierModel { return @() }

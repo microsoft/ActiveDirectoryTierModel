@@ -1358,7 +1358,7 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
         function New-ImportPlan {
             param(
                 [string]$GpoName = "TestGPO",
-                [string]$ImportPath = "gpo\backup-guid",
+                [string]$ImportPath = "gpo\11111111-1111-1111-1111-111111111111",
                 [string]$ActionType = "ImportGPO",
                 [bool]$HasImportPath = $true
             )
@@ -1405,7 +1405,7 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
             $plan = [PSCustomObject]@{
                 Actions = @(
                     [PSCustomObject]@{ Action = "CreateGPO"; Data = [PSCustomObject]@{ name = "G1" }; Path = "OU=X,DC=test,DC=local" }
-                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "G2"; importPath = "gpo\backup" }; Path = "OU=X,DC=test,DC=local" }
+                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "G2"; importPath = "gpo\22222222-2222-2222-2222-222222222222" }; Path = "OU=X,DC=test,DC=local" }
                     [PSCustomObject]@{ Action = "LinkGPO";   Data = [PSCustomObject]@{ name = "G3" }; Path = "OU=X,DC=test,DC=local" }
                 )
                 Config = [PSCustomObject]@{ ConfigPath = "C:\config\tiermodel.json" }
@@ -1498,8 +1498,8 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
 
             $plan = [PSCustomObject]@{
                 Actions = @(
-                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "FailGPO1"; importPath = "gpo\b1" }; Path = "OU=Tier0,DC=test,DC=local" }
-                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "FailGPO2"; importPath = "gpo\b2" }; Path = "OU=Tier0,DC=test,DC=local" }
+                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "FailGPO1"; importPath = "gpo\33333333-3333-3333-3333-333333333333" }; Path = "OU=Tier0,DC=test,DC=local" }
+                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "FailGPO2"; importPath = "gpo\44444444-4444-4444-4444-444444444444" }; Path = "OU=Tier0,DC=test,DC=local" }
                 )
                 Config = [PSCustomObject]@{ ConfigPath = "C:\config\tiermodel.json" }
             }
@@ -1523,8 +1523,8 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
 
             $plan = [PSCustomObject]@{
                 Actions = @(
-                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "GPO1"; importPath = "gpo\b1" }; Path = "OU=T0,DC=test,DC=local" }
-                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "GPO2"; importPath = "gpo\b2" }; Path = "OU=T0,DC=test,DC=local" }
+                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "GPO1"; importPath = "gpo\55555555-5555-5555-5555-555555555555" }; Path = "OU=T0,DC=test,DC=local" }
+                    [PSCustomObject]@{ Action = "ImportGPO"; Data = [PSCustomObject]@{ name = "GPO2"; importPath = "gpo\66666666-6666-6666-6666-666666666666" }; Path = "OU=T0,DC=test,DC=local" }
                 )
                 Config = [PSCustomObject]@{ ConfigPath = "C:\config\tiermodel.json" }
             }

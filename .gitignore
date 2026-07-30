@@ -421,3 +421,6 @@ FodyWeavers.xsd
 
 # Developer Control Tower
 .controltower/
+
+# Test-run scratch directory (Pester GPO mock artifacts written/cleaned by Invoke-AllTests.ps1)
+Temp/
