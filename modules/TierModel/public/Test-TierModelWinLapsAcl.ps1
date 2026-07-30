@@ -175,6 +175,8 @@ function Test-TierModelWinLapsAcl {
             $selfOk = $false
             $readMissing = @()
             $resetMissing = @()
+            $unexpectedHolders = @()
+            $genericAllHolders = @()
 
             try {
                 $ouAcl    = Get-Acl -Path "AD:$resolvedOuDn" -ErrorAction Stop
@@ -184,6 +186,17 @@ function Test-TierModelWinLapsAcl {
                     ($lapsSchemaGUIDs.Count -eq 0 -or $_.ObjectType -in $lapsSchemaGUIDs)
                 })
                 if ($selfAces.Count -ge 1) { $selfOk = $true }
+
+                # BUG-009: Collect principals that hold GenericAll (full control) on the OU.
+                # Their effective LAPS read is an artifact of the Tier Model's OU-management
+                # delegation (audited separately by the OU ACL audit) - NOT an explicit LAPS
+                # delegation - so they must not be flagged as unexpected LAPS holders here.
+                $genericAllHolders = @($ouAcl.Access | Where-Object {
+                    $_.PSObject.Properties['ActiveDirectoryRights'] -and
+                    $_.PSObject.Properties['AccessControlType'] -and
+                    "$($_.AccessControlType)" -eq 'Allow' -and
+                    "$($_.ActiveDirectoryRights)" -match 'GenericAll'
+                } | ForEach-Object { $_.IdentityReference.Value })
             } catch { }
 
             # Read/Reset detection: Find-LapsADExtendedRights correctly reports these holders
@@ -215,6 +228,41 @@ function Test-TierModelWinLapsAcl {
                                 }
                                 if (-not $found) { $resetMissing += $sam }
                             }
+
+                            # Detect unexpected principals holding LAPS read/reset rights (drift).
+                            # Well-known/administrative principals are legitimately present and skipped.
+                            foreach ($holder in $holders) {
+                                if ($holder -eq 'NT AUTHORITY\SELF' -or
+                                    $holder -eq 'NT AUTHORITY\SYSTEM' -or
+                                    $holder -eq 'BUILTIN\Administrators' -or
+                                    $holder -like '*\Domain Admins' -or
+                                    $holder -like '*\Enterprise Admins' -or
+                                    $holder -like '*\Administrators') {
+                                    continue
+                                }
+                                # BUG-009: Skip principals whose LAPS access derives from a GenericAll
+                                # (full control) grant on the OU. That is an OU-management delegation,
+                                # out of scope for the LAPS-delegation audit and covered by the OU ACL audit.
+                                $holderShort = ($holder -split '\\')[-1]
+                                $viaGenericAll = $false
+                                foreach ($ga in $genericAllHolders) {
+                                    if ($holder -eq $ga -or (($ga -split '\\')[-1]) -eq $holderShort) {
+                                        $viaGenericAll = $true
+                                        break
+                                    }
+                                }
+                                if ($viaGenericAll) { continue }
+                                $isExpectedHolder = $false
+                                foreach ($sam in @($readSamNames + $resetSamNames)) {
+                                    if ($holder -eq "$netBIOSDomain\$sam" -or $holder -like "*\$sam") {
+                                        $isExpectedHolder = $true
+                                        break
+                                    }
+                                }
+                                if (-not $isExpectedHolder -and $unexpectedHolders -notcontains $holder) {
+                                    $unexpectedHolders += $holder
+                                }
+                            }
                         }
                     }
                 }
@@ -237,7 +285,7 @@ function Test-TierModelWinLapsAcl {
             if ($readMissing.Count -gt 0) { $missingPerms += "ReadPasswordPermission($($readMissing -join ', '))" }
             if ($resetMissing.Count -gt 0) { $missingPerms += "ResetPasswordPermission($($resetMissing -join ', '))" }
 
-            if ($missingPerms.Count -eq 0) {
+            if ($missingPerms.Count -eq 0 -and $unexpectedHolders.Count -eq 0) {
                 if (-not $Silent) {
                     Write-Host "    `u{2705} LAPS Delegation COMPLIANT" -ForegroundColor Green
                 }
@@ -252,19 +300,36 @@ function Test-TierModelWinLapsAcl {
                 }
                 $compliantCount++
             } else {
-                if (-not $Silent) {
-                    Write-Host "    `u{274C} Missing LAPS permissions: $($missingPerms -join ', ')" -ForegroundColor Red
+                if ($missingPerms.Count -gt 0) {
+                    if (-not $Silent) {
+                        Write-Host "    `u{274C} Missing LAPS permissions: $($missingPerms -join ', ')" -ForegroundColor Red
+                    }
+                    $findings += [PSCustomObject]@{
+                        Type          = 'MissingAcl'
+                        ResourceType  = 'LapsPermission'
+                        Identifier    = $identifier
+                        Property      = 'Permissions'
+                        ExpectedValue = 'Self + Read + Reset permissions present'
+                        ActualValue   = "$($missingPerms.Count) permission(s) missing"
+                        Details       = "Missing: $($missingPerms -join ', ')"
+                    }
+                    $missingCount++
                 }
-                $findings += [PSCustomObject]@{
-                    Type          = 'MissingAcl'
-                    ResourceType  = 'LapsPermission'
-                    Identifier    = $identifier
-                    Property      = 'Permissions'
-                    ExpectedValue = 'Self + Read + Reset permissions present'
-                    ActualValue   = "$($missingPerms.Count) permission(s) missing"
-                    Details       = "Missing: $($missingPerms -join ', ')"
+                if ($unexpectedHolders.Count -gt 0) {
+                    if (-not $Silent) {
+                        Write-Host "    `u{26A0}`u{FE0F} Unexpected LAPS ACEs detected: $($unexpectedHolders -join ', ')" -ForegroundColor Yellow
+                    }
+                    $findings += [PSCustomObject]@{
+                        Type          = 'UnexpectedAcl'
+                        ResourceType  = 'LapsPermission'
+                        Identifier    = $identifier
+                        Property      = 'Permissions'
+                        ExpectedValue = 'Only configured Read/Reset principals present'
+                        ActualValue   = "$($unexpectedHolders.Count) unexpected principal(s) found"
+                        Details       = "Unexpected LAPS rights holders: $($unexpectedHolders -join ', ')"
+                    }
+                    $mismatchCount++
                 }
-                $missingCount++
             }
         }
 

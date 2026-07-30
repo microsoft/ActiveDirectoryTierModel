@@ -398,11 +398,13 @@ FodyWeavers.xsd
 
 # VS Code files for those working on multiple tools
 .vscode/*
-!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/*.code-snippets
+
+# Personal VS Code workspace settings (dark-orange theme) — kept local, not shared with the team
+.vscode/settings.json
 
 # Local History for Visual Studio Code
 .history/
@@ -419,3 +421,6 @@ FodyWeavers.xsd
 
 # Developer Control Tower
 .controltower/
+
+# Test-run scratch directory (Pester GPO mock artifacts written/cleaned by Invoke-AllTests.ps1)
+Temp/

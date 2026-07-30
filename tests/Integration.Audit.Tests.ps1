@@ -344,6 +344,26 @@ Describe 'Audit-TierModel.ps1 - Prerequisites Integration' -Tag 'Integration', '
             $LASTEXITCODE | Should -Be 1
         }
         
+        It 'Should use fallback message when prerequisites fail with no Errors array' {
+            # Covers Audit-TierModel.ps1 L216: when $prereqResult.Errors is empty the script
+            # falls back to the hardcoded "Prerequisites were not met." message.
+            Mock -CommandName Test-TierModelPrerequisites {
+                return [PSCustomObject]@{
+                    Valid       = $false
+                    Errors      = @()
+                    Remediation = @()
+                }
+            }
+            $mockConfig = $script:MockConfig
+            Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly *>&1 | Out-String
+
+            $output | Should -Match 'Prerequisites were not met'
+            $output | Should -Match 'Audit script completed'
+            $LASTEXITCODE | Should -Be 1
+        }
+        
         It 'Should display prerequisite errors and remediation' {
             Mock -CommandName Test-TierModelPrerequisites { 
                 return [PSCustomObject]@{ 
@@ -357,9 +377,13 @@ Describe 'Audit-TierModel.ps1 - Prerequisites Integration' -Tag 'Integration', '
             
             $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly *>&1 | Out-String
             
-            $output | Should -Match 'Prerequisites not met'
             $output | Should -Match 'Domain Admin membership required'
             $output | Should -Match 'Add user to Domain Admins group'
+            $output | Should -Match 'Remediation steps:'
+            $output | Should -Match 'Audit script completed'
+            # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+            $output | Should -Not -Match 'Prerequisites not met'
+            $output | Should -Not -Match 'ERROR:'
         }
         
         It 'Should handle array results from Test-TierModelPrerequisites' {

@@ -18,6 +18,8 @@ Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
 
 ## Sessions
 
+**2026-07-28T16:53+08:00 — BUG-003 / OQ-4 dMSA Functional Level Resolution:** Beast confirmed dMSA requires ONLY DFL=Windows2025Domain for same-domain deployments; FFL 2025 NOT required. No FFL check needed in dMSA documentation. See `.squad/decisions.md` OQ-4 resolution.
+
 ### Session 2025-07-18 — Phase 16 Documentation Updates
 
 Updated all documentation files for Phase 16 MSA/gMSA/dMSA feature rollout:

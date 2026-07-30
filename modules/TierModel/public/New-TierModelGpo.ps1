@@ -117,8 +117,11 @@ function New-TierModelGpo {
                                 $domainDN = $domain.DistinguishedName
                                 $domainNetbios = $domain.NetBIOSName
                                 
-                                # Build ADSI path to GPO container (GPC) in AD
-                                $gpcAdsiPath = "LDAP://CN={$($newGPO.Id)},CN=Policies,CN=System,$domainDN"
+                                # Build ADSI path to GPO container (GPC) in AD, targeting the
+                                # preferred DC so the Deny-Apply ACL is written to the SAME DC as
+                                # every other ACL (serverless binding would hit a random DC and
+                                # cause replication-dependent inconsistency in multi-DC environments).
+                                $gpcAdsiPath = "LDAP://$DomainController/CN={$($newGPO.Id)},CN=Policies,CN=System,$domainDN"
                                 $gpc = [ADSI]$gpcAdsiPath
                                 
                                 # Resolve group identity to NTAccount

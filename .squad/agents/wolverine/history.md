@@ -1,6 +1,75 @@
 # wolverine — History
 
-## BUG FIX: Interactive-Prompt Hang in WinLaps Mandatory-Param Tests (2026-07-16)
+## Learnings
+
+**2026-07-28 — BUG-008 & BUG-004 Lab Validation (this session):**
+
+### Lab Config Facts
+- Checkpoints actually on TierLab-DC01 (as of 2026-07-28): `DC-Promoted-Clean`, `WinLapsSchema`. No `WinLapsSchema-Ready` — that was created during BUG-002/005 session and is gone.
+- `lab-config.json` lives in `.research/copilot-cli-hyperv-ad-lab/` (parent of `scripts/`), NOT inside `scripts/`. Pass `-ConfigPath` explicitly to helper scripts.
+- WinLaps audit (Test-TierModelWinLapsAcl) is slow — each of the 7 delegations calls `Find-LapsADExtendedRights` which takes ~1 min per OU. Full audit: 8–10 min. Always use `-File` mode (not `-Command {}`); the former streams output; the latter buffers until completion.
+- The `run-winlaps-audit.ps1` wrapper `Set-Location C:\TierModel; & .\Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` works reliably when executed via `& $pwsh -File`.
+
+### Exact Function Signatures (re-confirmed on guest)
+- `Test-TierModelWinLapsAcl -Config <object> -DomainController <string> [-Silent] [-SuppressSummary]`
+- `Get-TierModelConfig` (no params) — loads from module-relative config
+- `Audit-TierModel.ps1 -PreferredDc DC01 -IncludeWinLaps` (standalone WinLaps audit mode, no scope param needed)
+
+### Pre-existing WinLapsSchema Checkpoint State (important: known false-positive pattern)
+- After deploying TierModel on WinLapsSchema checkpoint, `Test-TierModelWinLapsAcl` reports `UnexpectedAcl` for:
+  - `TIERLAB\Tier0Admins` on `OU=Tier 0 Member Servers` — root cause: `Tier0Admins` has a **GenericAll** ACE (non-inherited) on that OU from OU delegation. `Find-LapsADExtendedRights` expands GenericAll → effective LAPS rights holder. Config only expects Tier0ServerOperators there.
+  - `TIERLAB\Tier1Admins` on `OU=Tier 1 Member Servers` — same root cause (GenericAll OU delegation ACE).
+- These are NOT inherited from domain root or parent OUs — they are direct GenericAll ACEs set as part of the Tier Model's OU delegation (Tier0Admins manages T0 Member Servers).
+- **This is a potential false positive in the BUG-004 fix**: GenericAll OU delegations legitimately imply LAPS read access but are not the same as explicit LAPS read grants. Flagged for Beast to evaluate whether GenericAll holders should be excluded from UnexpectedAcl reporting.
+- Mismatched count on clean WinLapsSchema post-deploy: **2** (these two OUs). Does not represent injected drift.
+
+### BUG-008 Validation
+- **PASS**. Both `prereqSplat` hashtables at Deploy-TierModel.ps1 L1773 and L2338 now include `DependenciesPath = (Join-Path $PSScriptRoot 'config\dependencies.json')`.
+- RUN A (cwd=C:\): `"Validating prerequisites... Prerequisites validation passed."` — NO "Dependencies file not found" error.
+- RUN B (cwd=C:\TierModel): identical prereq success.
+- Script ended cleanly with `"Use -ConfirmApply to execute the deployment plan"` / `"Deploy script completed."` (expected — preview mode, no -ConfirmApply).
+
+### BUG-004 Validation
+- **PASS**. `Test-TierModelWinLapsAcl` now emits `Type='UnexpectedAcl'` / `ResourceType='LapsPermission'` when unexpected principals hold LAPS rights.
+- Injection: `New-ADGroup ZZZ-WolverineDrift` + `Set-LapsADReadPasswordPermission -Identity <T1PawDN> -AllowedPrincipals TIERLAB\ZZZ-WolverineDrift`.
+- Re-audit: `⚠️ Unexpected LAPS ACEs detected: TIERLAB\ZZZ-WolverineDrift` on `LAPS → Tier 1 PAW Devices`. Mismatched went 2→3.
+- Finding object confirmed: `Type=UnexpectedAcl, ResourceType=LapsPermission, Details="Unexpected LAPS rights holders: TIERLAB\ZZZ-WolverineDrift"`.
+- Control: Domain Admins, Enterprise Admins, SYSTEM, SELF, Administrators all pass `NOT flagged as UnexpectedAcl`.
+- Cleanup: removed 5 LAPS ACEs via `Get-Acl/RemoveAccessRule/Set-Acl` on AD: drive. T1 PAW Devices returned COMPLIANT. Group deleted. Final Mismatched=2 (pre-existing only).
+- `Set-LapsADReadPasswordPermission` has no removal flag — must use direct ACL manipulation via AD: provider to remove LAPS ACEs.
+
+**Beast needed?** No. Both fixes validated without code-level blockers. One design observation raised (GenericAll false positive) for Beast's review — does not block the fix.
+**2026-07-28 — UI Bugs BUG-002 & BUG-005 Full Campaign Verdict:**
+- BUG-002: ✅ RESOLVED — Deploy-TierModel.ps1 L2022–2048 UserOnly block now emits 4 specific ❌ dependency errors; apply correctly blocked on dirty deps; zero AD writes on failure. Wolverine T1–T4: glyph+label proof (❌ = Red foreground). Cyclops corroboration: L2022–2048 error-accumulation gate and L638–645 prerequisites check match observed behavior.
+- BUG-005: ✅ RESOLVED — Get-TierModelWinLapsAclFd.ps1 L196–202 planner correctly routes missing GPO to warnings (not errors) for FD scope; Deploy-TierModel.ps1 L1638–1642 preview gate allows plan to proceed (gate is if .Errors, not .Warnings); Phase 10 apply executes after Phase 5 GPO creation. Wolverine T5–T9: FD preview shows 7× yellow ⚠ (not red ❌); standalone -IncludeWinLaps shows 19× red ❌ (scope boundary). Cyclops corroboration: three-layer source confirmation (planner routing, preview gate, apply path regenerates fresh plan at execution time).
+- Regressions: NONE — sibling scopes (GroupOnly, GposOnly, audit) all healthy; no contamination observed.
+- Ancillary: BUG-006 candidate identified (pre-existing Test-TierModelPrerequisites relative-path default 'config/dependencies.json' fails unless CWD = C:\TierModel when called from FD+IncludeWinLaps or standalone -Include* blocks without explicit -DependenciesPath). Workaround: pwsh -WorkingDirectory 'C:\TierModel'. Severity: MEDIUM (real operational hazard, trivial fix = add Join-Path  to both callsites L1778 & L2353).
+- Lab state: TierLab-DC01 fully deployed (31 OUs, 26 groups, 2 users, 146 GPOs, 7 LAPS GPOs), running, checkpoint WinLapsSchema-Ready created.
+- Cyclops final verdict: APPROVE — both bugs safe to merge; no blockers.
+
+### Lab Validation: UI Bugs BUG-002 & BUG-005 (2026-07-28)
+
+**Deploy-Preview Validation Workflow on Hyper-V AD Lab:**
+- Transport: PowerShell Direct via `New-PSSession -VMName TierLab-DC01 -Credential $cred` (VMBus, no network needed).
+- Each PS Direct session runs WinPS 5.1 — always spawn `C:\Program Files\PowerShell\7\pwsh.exe` as a child process to run the TierModel module (requires PS7).
+- Session state does NOT persist between separate PS tool calls; create and use sessions within a single invocation.
+- Copy working tree host→guest with `Copy-Item -ToSession` then verify with SHA256 hash comparison; guest disk state persists between calls.
+- Prerequisites gate: `Test-TierModelPrerequisites` picks the highest available Pester version (`Sort-Object Version -Descending | Select-Object -First 1`). Lab VM had Pester 6.0.0 installed; had to remove 6.0.0 & 5.9.0 from guest so 5.7.1 wins — deploy prereq then passed.
+
+**⚠-vs-❌ Glyph/Label Technique for Proving Color Across Redirected Output:**
+- ANSI color codes are stripped when PS output is captured/redirected. Color is provable only via the GLYPH+LABEL combo in source: `⚠` is emitted with `-ForegroundColor Yellow`; `❌` is emitted with `-ForegroundColor Red`.
+- Set `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` in the WinPS 5.1 PS Direct session before spawning the child pwsh.exe so ⚠/❌ Unicode glyphs are captured faithfully (not mojibake).
+- Save transcript to guest file with `-Encoding utf8`; read back with `Get-Content -Encoding UTF8`.
+- In BUG-005: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase` confirmed Yellow-warning behavior. Zero `❌` LAPS errors confirmed Red-error was suppressed/removed.
+- In BUG-002: 4× `❌ Required group/OU ... does not exist - create X first` confirmed the specific per-dependency errors are now emitted (were previously suppressed by the `-Silent` call).
+
+**PASS/FAIL Outcomes:**
+- **BUG-002 (UserOnly dependency errors) — PASS** (commit 32b748f, 2026-07-28): specific ❌ dependency items appear.
+- **BUG-005 (WinLaps preview GPO warning) — PASS** (commit 32b748f, 2026-07-28): Phase 10 emits ⚠ not ❌ for missing GPOs.
+
+---
+
+**Older history archived to history-archive.md (2026-07-28).**
 
 **Status:** ✅ FIXED — LOCAL only, no commit. Requested by Joel Platek.
 
@@ -676,3 +745,129 @@ Scrutinized full output (55 lines). No second error, no terminating error, no an
   Start-VM -Name 'TierLab-DC01'
   ```
 - Inbox written: `.squad/decisions/inbox/wolverine-winlaps-applied-fix.md`
+
+---
+
+### Full Destructive Validation Campaign: BUG-002 + BUG-005 (2026-07-28)
+
+**Branch:** fix/ui-bugs-002-005 @ 32b748f | **Requested by:** Joel Platek | **Full latitude granted**
+
+#### Checkpoint / Baseline Strategy
+- Starting state: `WinLapsSchema`-derived, fix tree already in `C:\TierModel`, Pester 5.7.1 only (no 5.9.0/6.0.0), AD clean, LAPS schema present.
+- Created `WinLapsSchema-Ready` checkpoint at start of campaign. This snapshot has: fix tree deployed, Pester fixed, LAPS schema, clean AD. Used as the fast-iteration baseline for all destructive tests.
+- Restored to `WinLapsSchema-Ready` before T4, T5/T6 (T6 inherited T5 state — clean), and T7 (with KDS root key re-added after each restore).
+- KDS root key added (`Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))`) for T7 to enable gMSA/dMSA. Not needed for T1-T6.
+- Preserved checkpoints: `DC-Promoted-Clean`, `WinLapsSchema`, `WinLapsSchema-Ready` (new, permanent).
+
+#### Key Techniques
+- **Stdin pipe for -ConfirmApply:** Script uses `Read-Host` for confirmation. Bypass in non-interactive session: `'Y' | & $pwsh -File ...`. Discovered when T2 first attempt returned "Deployment cancelled by user."
+- **-WorkingDirectory for standalone prereq:** Both the "Optional Features" block inside FullDeployment+Include* and the standalone -Include* path call `Test-TierModelPrerequisites` without `-DependenciesPath`, defaulting to relative `config/dependencies.json`. Works only when process cwd = `C:\TierModel`. Fix: use `pwsh -WorkingDirectory 'C:\TierModel' -File ...`. **This is a pre-existing bug separate from BUG-002/005** — logged as a finding.
+- **UTF-8 glyph capture:** `[Console]::OutputEncoding=[Text.Encoding]::UTF8` in the PS-Direct WinPS session before spawning pwsh child. Save transcript with `-Encoding utf8`; read with `Get-Content -Encoding UTF8`.
+- **⚠ vs ❌ proof:** ANSI stripped in redirect. Proof via glyph+label: `⚠` = yellow warning (not blocking), `❌` = red error (blocking). In T5: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase`. In T6: 19× `❌` including 7 GPO-specific.
+
+#### Test Results
+
+**T1 [preview, clean] -UserOnly → PASS**
+- 4× `❌` specific errors: PAWDomainJoin/Tier1ServerDomainJoin groups + Tier 0/1 Service Accounts OUs
+- "Resolve all dependency errors before proceeding with User deployment" generic line present
+- BUG-002 fix confirmed: specific per-dependency ❌ items visible (vs prior empty/generic)
+
+**T2 [apply, clean] -UserOnly -ConfirmApply → PASS**
+- Same 4× specific ❌ items shown after `Y` stdin confirmation
+- Deployment proceeded past confirmation (`Proceeding with deployment execution...`) but stopped safely
+- AD query: zero non-builtin user accounts created
+
+**T3 [deps satisfied] OuOnly → GroupOnly → UserOnly → PASS**
+- T3a OuOnly -ConfirmApply: 31 OUs created (✅)
+- T3b GroupOnly -ConfirmApply: 26 groups created (✅)
+- T3c UserOnly preview: 0 dependency errors, plan shows 4 actions (2 create + 2 update)
+- T3d UserOnly -ConfirmApply: `svc-pawdomainjoin` + `svc-t1srvdomainjoin` created in correct OUs (AD query confirmed)
+
+**T4 [parity] GroupOnly + GposOnly previews → PASS**
+- GroupOnly: 3× `❌ Target OU ... does not exist - create OUs first`
+- GposOnly: 40× `❌` (26 missing groups + 14 missing OUs)
+- Sibling behavior unchanged by BUG-002 fix — no regression
+
+**T5 [FD preview, clean+LAPS] FullDeployment+Includes preview → PASS**
+- Phase 10: 7× `⚠ LAPS GPO ... not found - assuming it will be created by the GPO phase during FullDeployment.`
+- 21 ACL actions planned
+- Zero `❌` LAPS errors; "Windows LAPS planning errors" gate not triggered
+- BUG-005 fix confirmed: ⚠ yellow warning path working
+
+**T6 [standalone strict, clean+LAPS] -IncludeWinLaps alone → PASS**
+- 19× `❌` errors: 7 missing OUs + 6 missing groups + 7 GPO errors (`Required GPO ... does not exist - create GPOs first`)
+- Zero `⚠` yellow "will be created" leak
+- Scope boundary confirmed: fix is restricted to FD planner (Get-TierModelWinLapsAclFd); standalone path (Get-TierModelWinLapsAcl) stays strict
+
+**T7 [FD apply, clean+LAPS] FullDeployment+All+ConfirmApply → PASS**
+- Workaround needed: `pwsh -WorkingDirectory C:\TierModel` for Optional Features prereq
+- All 7 LAPS GPOs created (✅ Created GPO + Imported settings + Created GPO link per GPO)
+- All 21 LAPS ACL delegations applied (7 SELF permissions + 6 Read-Permission + 5 Reset-Permission + OU decryptors)
+- MSA + gMSA + dMSA ACL delegations also applied (KDS key pre-seeded)
+- Applied: 705, Skipped: 4, Errors: 0
+
+**T8 [FD preview after apply] Verify warnings conditional → PASS**
+- Phase 10: 7× `✅ GPO Exists` + 6× `✅ LAPS Decryptor Exists`
+- `✅ Windows LAPS ACL delegations already up to date`
+- Zero `⚠` warnings — warning is genuinely conditional on absence, not unconditional noise
+
+**T9 [audit] Full audit with IncludeWinLaps → PASS**
+- Overall Status: ✅ COMPLIANT
+- Total Checked: 379, Missing: 0, Drift: 0, Errors: 0, Compliance: 100%
+- WinLaps ACL: 7 checked, 0 drift | WinLaps Decryptor: 6 checked, 0 drift
+- All ADPasswordEncryptionPrincipal settings correct per GPO
+
+#### Pre-Existing Bug Found (Separate from BUG-002/005)
+`Test-TierModelPrerequisites` default `DependenciesPath = 'config/dependencies.json'` is relative. Both the Optional Features block in FD+Include* and the standalone -Include* block call it without an explicit path. Fails unless `$PWD = C:\TierModel`. Non-standalone paths use `Join-Path $PSScriptRoot 'config\dependencies.json'` (correct). Workaround: `pwsh -WorkingDirectory 'C:\TierModel'`.
+
+#### Verdict
+- **BUG-002: RESOLVED** — specific ❌ dependency errors shown in both preview and apply paths; safe blockage confirmed; fix vanishes when deps satisfied; no regression in siblings.
+- **BUG-005: RESOLVED** — FD preview shows ⚠ yellow (not ❌ red); FD apply proceeds and LAPS ACLs applied; standalone path remains strict (scope boundary intact); warning conditional (disappears post-deploy); audit 100% compliant.
+- **No regressions** in GroupOnly, GposOnly, or any other path.
+
+#### Final Lab State
+- VM: RUNNING, AD: responsive, domain: tierlab.internal
+- Fully deployed Tier Model: 31 OUs, 26 groups, 2 users, 101 OU ACLs, 146 GPOs (incl. 7 LAPS GPOs), 60 ADMX files, all LAPS ACLs + decryptors applied, MSA/gMSA/dMSA ACLs applied
+- KDS root key present (b816352d)
+- Checkpoints: DC-Promoted-Clean (root), WinLapsSchema (LAPS schema), WinLapsSchema-Ready (fast-iteration baseline with fix tree + Pester fixed)
+
+---
+
+**2026-07-29 — BUG-010 Lab Validation:**
+
+### BUG-010: Set-GPInheritance Silent No-Op — Fix Validation PASSED
+
+**Fix under test:** `New-TierModelOu.ps1` verify+retry loop (up to 4 attempts, 0.5/1/2 s backoff) for both GPO and security inheritance; `Deploy-TierModel.ps1` hard-stop gate before Phase 2 Groups if any OU inheritance unverified.
+
+**SHA256 verified (host == guest, both runs):**
+- `New-TierModelOu.ps1`: `2A0A080AED1D4EF1E9157101D81B0610CFB45606A3472F61235A2E915DC3A231` ✓
+- `Deploy-TierModel.ps1`: `B64741DB113F28417B5A5B4CED165689981562216F15F17458FE347CC2FCA2C8` ✓
+
+**TEST A (-OuOnly, 4 iterations from clean WinLapsSchema restore each time):**
+
+| Iter | gPOptions 10/10=1 | Tier 1 Server Staging | Audit ❌ | False-success | Attempts>1 |
+|------|-------------------|----------------------|----------|---------------|------------|
+| 1    | PASS              | gPOptions=1 ✓        | 0        | None          | None       |
+| 2    | PASS              | gPOptions=1 ✓        | 0        | None          | None       |
+| 3    | PASS              | gPOptions=1 ✓        | 0        | None          | None       |
+| 4    | PASS              | gPOptions=1 ✓        | 0        | None          | None       |
+
+All 4 iterations: 10/10 `OuBlockGpoSuccess` logged per run (with corresponding `OuDisableSecInheritSuccess`), zero false-success lines, zero audit `❌ GPO Inheritance: Not Blocked`.
+
+**TEST B (-FullDeployment, 1 run):**
+- Phase 2 gate cleared — transcript confirmed: `Phase 2: Creating Groups...` ✓
+- NOT halted: no `OU inheritance could not be verified - halting deployment before Groups` line
+- 10 `OuBlockGpoSuccess | Attempts=1` lines, all correct OUs including Tier 1 Server Staging
+- gPOptions: 10/10 = 1 ✓ | Audit: 0 ❌ | 100% compliance, 31 OUs, 0 drift
+
+**Attempts>1 evidence:** None observed across 5 total runs. This is expected — the lab DC responds fast and the no-op race condition (~10%) didn't trigger. The retry machinery is confirmed wired (Attempts=1 is logged for every OU, proving the read-back verification path runs), but a natural re-trigger of the race wasn't captured in 5 runs. The absence of Attempts>1 is NOT evidence the retry doesn't work; it means the lab didn't spontaneously repro the 10% race. The important evidence is that the infrastructure (read-back log + verify path) is active and producing output.
+
+### Key Gotcha — Verbose-Only Logging
+`OuBlockGpoSuccess ... Attempts=N` logs at Info level which routes to `Write-Verbose` inside the module. The module's file-logging is NOT wired to the deploy `-Logging` path. **Attempts count is ONLY visible if you run with `$VerbosePreference='Continue'` in the same pwsh7 process.** The false-success/halt error paths (`OuBlockGpoUnverified`) use `Write-Host` directly and are always visible regardless of verbose setting. Always use the `*>&1 | Tee-Object` wrapper pattern for any BUG-010 validation work.
+
+### Audit Working Directory Requirement
+`Audit-TierModel.ps1` calls `Test-TierModelPrerequisites` without an explicit `DependenciesPath`, which defaults to relative `'config/dependencies.json'`. The audit MUST be invoked with CWD = `C:\TierModel`, e.g.: `pwsh -NoProfile -Command "Set-Location 'C:\TierModel'; & 'C:\TierModel\Audit-TierModel.ps1' ..."`. Calling via `-File` alone from any other directory causes an immediate "Dependencies file not found" prereq failure and exits before auditing anything.
+
+### Verdict
+**BUG-010: RESOLVED.** The verify+retry fix for `Set-GPInheritance` silent no-op is confirmed working. All 5 runs (4× OuOnly + 1× FullDeployment) returned 10/10 blocked OUs, zero false-success, zero audit ❌. The FullDeployment hard-stop gate cleared cleanly. VM left RUNNING.
+

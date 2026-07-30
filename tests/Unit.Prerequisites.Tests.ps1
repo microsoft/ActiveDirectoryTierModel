@@ -107,12 +107,20 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
     Context "Module Version Validation" -Tag 'Modules','Prereq' {
     It "Should check Pester module availability" -Tag 'Positive','Modules' {
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
-            
+
             $result.EnvironmentSnapshot.PesterVersion | Should -Not -BeNullOrEmpty
-            
-            $pesterModule = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
-            if ($pesterModule) {
-                $result.EnvironmentSnapshot.PesterVersion | Should -Be $pesterModule.Version.ToString()
+
+            $installedPester = @(Get-Module -ListAvailable -Name Pester)
+            # The snapshot reports the highest supported 5.x release (Pester 6.x is not yet
+            # supported and installs side-by-side), falling back to the highest installed
+            # version only when no 5.x is present.
+            $expectedPester = $installedPester | Where-Object { $_.Version.Major -eq 5 } |
+                Sort-Object Version -Descending | Select-Object -First 1
+            if (-not $expectedPester) {
+                $expectedPester = $installedPester | Sort-Object Version -Descending | Select-Object -First 1
+            }
+            if ($expectedPester) {
+                $result.EnvironmentSnapshot.PesterVersion | Should -Be $expectedPester.Version.ToString()
             } else {
                 $result.EnvironmentSnapshot.PesterVersion | Should -Be 'Not installed'
                 $result.Valid | Should -Be $false
@@ -353,6 +361,175 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         }
     }
 
+    # ── BUG-003: dMSA functional-level messaging (DFL-only, no FFL check) ────────
+    Context "dMSA Prerequisites — DFL / schema messaging (BUG-003)" -Tag 'DmsaPrereq', 'Prereq' {
+
+        BeforeEach {
+            Mock Get-ADRootDSE -ModuleName TierModel {
+                return [PSCustomObject]@{ schemaNamingContext = "CN=Schema,CN=Configuration,DC=test,DC=local" }
+            }
+            # Schema objectVersion below 91 by default — would trigger the schema gate if not suppressed
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 88 }
+            }
+            # dMSA class lookup present
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2016Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADForest -ModuleName TierModel {
+                return [PSCustomObject]@{ ForestMode = 'Windows2016Forest'; RootDomain = 'test.local' }
+            }
+        }
+
+        It "Insufficient DFL yields the friendly 2025 guidance and suppresses the redundant schema-version error" {
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+
+            $result.Valid | Should -Be $false
+            $errorText    | Should -Match 'Domain Functional Level of 2025'
+            # Schema-version error is suppressed when the DFL is the blocking issue (raising DFL implies schema >= 91)
+            $errorText    | Should -Not -Match 'schema version >= 91'
+            # DFL-only: no Forest Functional Level requirement is enforced (OQ-4 — dMSA needs FFL 2025 only cross-forest)
+            $errorText    | Should -Not -Match 'Forest Functional Level'
+        }
+
+        It "Sufficient DFL (Windows2025Domain, schema 91) passes the dMSA functional-level gate" {
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+
+            $errorText | Should -Not -Match 'Domain Functional Level of 2025'
+            $errorText | Should -Not -Match 'schema version >= 91'
+        }
+
+        It "BUG-003: DFL=Windows2025 but schema version < 91 surfaces schema-gap error and adprep remediation" {
+            # DFL is already at Windows Server 2025 so the DFL gate passes,
+            # but schema objectVersion is 88 → the elseif ($schemaVersion -lt 91) branch fires.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            # Schema objectVersion below 91 (BeforeEach default is 88 — no override needed,
+            # but we set it explicitly for clarity)
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 88 }
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            # Schema-gap error IS surfaced (DFL is fine, schema is the bottleneck)
+            $errorText     | Should -Match 'schema version >= 91'
+            # DFL guidance is NOT repeated (DFL is already at 2025)
+            $errorText     | Should -Not -Match 'Domain Functional Level of 2025'
+            # Remediation directs to adprep (new message from this branch)
+            $remText       | Should -Match 'adprep'
+        }
+
+        It "BUG-003: dMSA class not found in schema yields correct error and schema remediation" {
+            # DFL=2025, schema=91 → passes DFL+schema gates; but Get-ADObject throws for the DMSA
+            # class lookup → the catch block surfaces the new remediation message.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            # DMSA class lookup (Filter-based) throws → catch block fires
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                throw "AD object not found"
+            }
+            # Prevent Invoke-Command from attempting real WinRM
+            Mock Invoke-Command -ModuleName TierModel { return @() }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'msDS-DelegatedManagedServiceAccount class not found'
+            $remText       | Should -Match 'schema version >= 91'
+        }
+
+        It "BUG-003: no KDS Root Key for dMSA yields the Add-KdsRootKey remediation" {
+            # DFL=2025, schema=91, DMSA class present; Invoke-Command returns empty → no key found.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            # DMSA class exists (Filter-based)
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            # KDS check: Invoke-Command returns nothing (no keys installed)
+            Mock Invoke-Command -ModuleName TierModel { return @() }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'No KDS Root Key found'
+            $remText       | Should -Match 'Add-KdsRootKey'
+            $remText       | Should -Match 'NEVER create KDS keys automatically'
+        }
+
+        It "BUG-003: KDS Root Key present but not yet effective yields the wait-window remediation" {
+            # DFL=2025, schema=91, DMSA class present; KDS key exists but EffectiveTime < 10 hours ago.
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DomainMode = 'Windows2025Domain'; NetBIOSName = 'TEST'
+                    DNSRoot = 'test.local'; DistinguishedName = 'DC=test,DC=local'
+                }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Identity -and $null -eq $Filter } {
+                return [PSCustomObject]@{ objectVersion = 91 }
+            }
+            Mock Get-ADObject -ModuleName TierModel -ParameterFilter { $null -ne $Filter } {
+                return [PSCustomObject]@{ ldapDisplayName = 'msDS-DelegatedManagedServiceAccount' }
+            }
+            # KDS key exists but EffectiveTime is only 1 hour ago (< 10-hour window)
+            Mock Invoke-Command -ModuleName TierModel {
+                return @([PSCustomObject]@{ EffectiveTime = (Get-Date).AddHours(-1) })
+            }
+
+            $result    = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile -IncludeDmsa
+            $errorText = ($result.Errors -join "`n")
+            $remText   = ($result.Remediation -join "`n")
+
+            $result.Valid  | Should -Be $false
+            $errorText     | Should -Match 'KDS Root Key exists but is not yet effective'
+            $remText       | Should -Match '10-hour replication window'
+        }
+    }
+
     # ── T014: WinLaps Prerequisites ─────────────────────────────────────────────
     Context "WinLaps Prerequisites (-IncludeWinLaps)" -Tag 'WinLapsPrereq', 'Prereq' {
 
@@ -386,8 +563,18 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
                 return [PSCustomObject]@{ ForestMode = 'Windows2016Forest'; RootDomain = 'test.local' }
             }
 
-            # Import-Module LAPS -> succeeds; in-memory LAPS module already loaded by ADStubs
+            # LAPS module present by default — self-contained, no reliance on ADStubs or
+            # cross-file session ordering. Import-Module LAPS succeeds; Get-Module LAPS returns
+            # the module; Get-Command resolves the required LAPS cmdlets. Tests that need the
+            # "module absent / cmdlets missing" path override these at the It scope
+            # (Gate 2 import-failure / missing-cmdlets).
             Mock Import-Module -ModuleName TierModel { } -ParameterFilter { $Name -eq 'LAPS' }
+            Mock Get-Module -ModuleName TierModel -ParameterFilter { $Name -eq 'LAPS' } {
+                return [PSCustomObject]@{ Name = 'LAPS'; Version = '1.0.0' }
+            }
+            Mock Get-Command -ModuleName TierModel -ParameterFilter { $Module -eq 'LAPS' } {
+                return [PSCustomObject]@{ Name = 'MockLapsCmd' }
+            }
 
             Mock Get-ADGroup -ModuleName TierModel { return $null }
             Mock Get-ADGroupMember -ModuleName TierModel { return @() }
@@ -738,15 +925,45 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
         ($result.Remediation -join ' ')      | Should -Match 'Install-Module.*Pester'
     }
 
-    It "Should report Pester version mismatch when installed version differs from deps (lines 143-146)" {
+    It "Should report a Pester version mismatch when only a non-5.x major is installed (lines 147-165)" {
         InModuleScope TierModel {
-            Mock Get-Module { return [PSCustomObject]@{ Version = [version]'5.0.0' } } `
+            Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'6.0.0' } } `
                 -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
         }
-        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
         $result.Valid | Should -Be $false
-        ($result.Errors -join ' ') | Should -Match 'Pester version mismatch'
-        ($result.Remediation -join ' ') | Should -Match 'Install-Module.*Pester.*5\.7\.1'
+        ($result.Errors -join ' ') | Should -Match 'No supported Pester 5\.x release found'
+        ($result.Errors -join ' ') | Should -Match 'Pester 6\.x has breaking changes'
+        ($result.Remediation -join ' ') | Should -Match 'Install-Module.*Pester.*5\.0\.0'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '6.0.0'
+    }
+
+    It "Should accept any Pester 5.x version, not only the reference version (loosened gate)" {
+        InModuleScope TierModel {
+            Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.8.0' } } `
+                -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
+        }
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
+        ($result.Errors -join ' ') | Should -Not -Match 'Pester version mismatch'
+        ($result.Errors -join ' ') | Should -Not -Match 'No supported Pester'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.8.0'
+    }
+
+    It "Should accept a supported 5.x installed side-by-side with an unsupported 6.x (non-blocking warning)" {
+        InModuleScope TierModel {
+            Mock Get-Module {
+                return @(
+                    [PSCustomObject]@{ Name = 'Pester'; Version = [version]'6.0.0' },
+                    [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.9.0' }
+                )
+            } -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }
+        }
+        $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtPesterOnlyDeps
+        ($result.Errors -join ' ') | Should -Not -Match 'No supported Pester'
+        ($result.Errors -join ' ') | Should -Not -Match 'Pester module is not installed'
+        $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.9.0'
+        ($result.Remediation -join ' ') | Should -Match 'installed side-by-side'
+        ($result.Remediation -join ' ') | Should -Match 'Import-Module Pester -MaximumVersion 5\.99\.99'
     }
 
     It "Should report RSAT-AD remediation when ActiveDirectory module is missing (line 209)" {

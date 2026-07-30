@@ -765,6 +765,24 @@ Describe 'Deploy-TierModel - Prerequisites Validation' {
         $LASTEXITCODE | Should -Be 1
     }
     
+    It 'Should use fallback message when prerequisites fail with no Errors array' {
+        # Covers Deploy-TierModel.ps1 L296: when $prereqResult.Errors is empty the script
+        # falls back to the hardcoded "Prerequisites were not met." message.
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid       = $false
+                Errors      = @()
+                Remediation = @()
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly 6>&1 | Out-String
+
+        $output | Should -Match 'Prerequisites were not met'
+        $output | Should -Match 'Deploy script completed'
+        $LASTEXITCODE | Should -Be 1
+    }
+    
     It 'Should handle array return from Test-TierModelPrerequisites' {
         Mock Test-TierModelPrerequisites { 
             return @(
@@ -1357,6 +1375,80 @@ Describe 'Deploy-TierModel - FullDeployment Orchestration' {
             Should -Invoke New-TierModelGpo -Times 1
             Should -Invoke Copy-TierModelAdmx -Times 1
         }
+
+        It 'BUG-011: clean FullDeployment reports Skipped: 0 (no phantom 1..0 range skips)' {
+            # Regression: the User and OuAcl phases built their result Skipped arrays with
+            # @(1..$executionResult.Skipped | ForEach-Object {...}). On a clean deploy Skipped=0,
+            # and PowerShell's 1..0 is the DESCENDING range {1,0} (2 elements) — so each of those
+            # two phases emitted 2 phantom "Skipped" entries, yielding a bogus "Skipped: 4" with
+            # zero real skips. Guarding the range with `if ($n -gt 0)` fixes it.
+            Mock Read-Host { return 'Y' }
+            Mock Get-TierModelOu {
+                New-MockDeploymentPlan -EntityType 'OU' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelGroupFd {
+                New-MockDeploymentPlan -EntityType 'Group' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelUserFd {
+                New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+            }
+            Mock Get-TierModelOuAclFd {
+                $result = [PSCustomObject]@{ EntityType = 'OuAcl' }
+                $result | Add-Member -MemberType NoteProperty -Name 'Summary' -Value ([PSCustomObject]@{
+                    TotalActions = 1
+                    CreateActions = 1
+                    ExistingCount = 0
+                })
+                $result | Add-Member -MemberType NoteProperty -Name 'Actions' -Value (@([PSCustomObject]@{
+                    OU = 'OU=Test,DC=test,DC=local'
+                    Action = 'CreateAcl'
+                    Data = @{
+                        identityreference = 'TEST\TestGroup1'
+                        activedirectoryrights = @('GenericAll')
+                        objecttype = 'All Objects'
+                        activeDirectorysecurityinheritance = 'All'
+                    }
+                }))
+                $result | Add-Member -MemberType NoteProperty -Name 'Warnings' -Value ([object[]]@())
+                $result | Add-Member -MemberType NoteProperty -Name 'Errors' -Value ([object[]]@())
+                return $result
+            }
+            Mock Get-TierModelGpoFd {
+                $result = [PSCustomObject]@{ EntityType = 'Gpo' }
+                $result | Add-Member -MemberType NoteProperty -Name 'Summary' -Value ([PSCustomObject]@{
+                    TotalActions = 1
+                    CreateActions = 1
+                    ExistingCount = 0
+                })
+                $result | Add-Member -MemberType NoteProperty -Name 'Actions' -Value (@([PSCustomObject]@{
+                    Name = 'TestGPO1'
+                    Action = 'CreateGpo'
+                }))
+                $result | Add-Member -MemberType NoteProperty -Name 'Warnings' -Value ([object[]]@())
+                $result | Add-Member -MemberType NoteProperty -Name 'Errors' -Value ([object[]]@())
+                return $result
+            }
+            Mock Get-TierModelAdmx {
+                [PSCustomObject]@{
+                    EntityType = 'ADMX'
+                    Summary = [PSCustomObject]@{ TotalFiles = 2; FilesToUpdate = 1; FilesUpToDate = 1 }
+                    Analysis = [PSCustomObject]@{
+                        AdmxToUpdate = @([PSCustomObject]@{ Name = 'test.admx'; ActionType = 'Import' })
+                        AdmlToUpdate = @()
+                        Errors = @()
+                    }
+                }
+            }
+
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+            # The two phases that used the 1..$n antipattern must have executed with zero real skips
+            Should -Invoke New-TierModelUser -Times 1
+            Should -Invoke New-TierModelOuAcl -Times 1
+            # Consolidated summary must report zero skips (was a phantom "Skipped: 4" before the fix)
+            $output | Should -Match 'Skipped:\s*0'
+            $output | Should -Not -Match 'Skipped:\s*[1-9]'
+        }
         
         It 'Should handle FullDeployment with some phases having no actions' {
             Mock Read-Host { return 'Y' }
@@ -1770,6 +1862,14 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Dependency Errors'
+        # BUG-002: -UserOnly now mirrors -GroupOnly — Invoke-UserDeployment runs non-Silent, so it
+        # prints the "User Plan Summary" section and lists the SPECIFIC missing OU/Group messages
+        # (❌ items) before "=== Deployment Plan ===", and the Deployment Plan section shows only
+        # the generic resolve line. Previously -UserOnly passed -Silent, hiding the summary and
+        # the specific messages.
+        $output | Should -Match 'User Plan Summary'
+        $output | Should -Match 'Test error'
+        $output | Should -Match 'Resolve all dependency errors before proceeding with User deployment'
     }
 
     It 'Should display Update count for UpdateUserMembership actions in outer plan summary' {
@@ -1777,7 +1877,7 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
             New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 0 -ToUpdate 1 -ExistingCount 2
         }
 
-        # UserOnly uses Silent=$true internally, so outer plan summary shows Update count
+        # -UserOnly runs non-Silent (mirrors -GroupOnly); the outer plan summary still shows Update count
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Update count: 1'
@@ -1788,7 +1888,7 @@ Describe 'Deploy-TierModel - UserOnly Display Variants' {
             New-MockDeploymentPlan -EntityType 'User' -TotalInConfig 2 -ToCreate 0 -ExistingCount 2
         }
 
-        # UserOnly uses Silent=$true internally; outer code shows action counts
+        # -UserOnly runs non-Silent (mirrors -GroupOnly); outer code still shows action counts
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -UserOnly -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Action count: 0'
@@ -2360,6 +2460,58 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
         Should -Invoke New-TierModelGmsaAcl -Times 1
         Should -Invoke New-TierModelDmsaAcl -Times 1
     }
+
+    It 'BUG-010: FullDeployment halts before Groups when an OU inheritance setting cannot be verified' {
+        Mock Read-Host { return 'Y' }
+        # OU phase creates the OU but reports an unverified inheritance error (BUG-010 code)
+        Mock New-TierModelOu {
+            [PSCustomObject]@{
+                EntityType = 'OU'
+                Applied = @([PSCustomObject]@{ Name = 'Tier0'; ActionsPerformed = @('CreateOU') })
+                Skipped = @()
+                Errors = @(@{ Code = 'BlockGpoInheritanceUnverified'; Message = "Block GPO Inheritance flag was not set for OU 'Tier0'."; Timestamp = Get-Date })
+                DurationMs = 100
+                Converged = $false
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
+
+        $output | Should -Match 'halting deployment before Groups'
+        $LASTEXITCODE | Should -Be 1
+        # Groups (Phase 2) must NOT run once the OU tier boundary could not be verified
+        Should -Not -Invoke New-TierModelGroup
+    }
+
+    It 'BUG-010: FullDeployment halts before Groups when OU errors are PSCustomObject format (not hashtable)' {
+        # Covers Deploy-TierModel.ps1 L1757/L1764: the elseif branch reads .Code / .Message
+        # from a [PSCustomObject] error (vs the hashtable branch already tested above).
+        Mock Read-Host { return 'Y' }
+        Mock New-TierModelOu {
+            [PSCustomObject]@{
+                EntityType = 'OU'
+                Applied    = @([PSCustomObject]@{ Name = 'Tier0'; ActionsPerformed = @('CreateOU') })
+                Skipped    = @()
+                Errors     = @(
+                    [PSCustomObject]@{
+                        Code      = 'DisableSecurityInheritanceUnverified'
+                        Message   = "Security-inheritance disable flag could not be confirmed for OU 'Tier0'."
+                        Timestamp = Get-Date
+                        Category  = 'Execution'
+                    }
+                )
+                DurationMs = 100
+                Converged  = $false
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
+
+        $output | Should -Match 'halting deployment before Groups'
+        $output | Should -Match 'Security-inheritance disable flag could not be confirmed'
+        $LASTEXITCODE | Should -Be 1
+        Should -Not -Invoke New-TierModelGroup
+    }
 }
 
 Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {
@@ -2778,5 +2930,97 @@ Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'No ACL delegations configured'
+    }
+}
+
+Describe "Deploy-TierModel Prerequisite Splat Invariants" -Tag "Integration", "Deploy", "Prereq" {
+    BeforeAll {
+        $script:DeployScriptPath = Join-Path $PSScriptRoot '..\Deploy-TierModel.ps1'
+        $script:DeploySource     = Get-Content $script:DeployScriptPath -Raw
+    }
+
+    It "BUG-008: every `$prereqSplat initializer passes DependenciesPath so prerequisites resolve from any working directory" {
+        # A splat that omits DependenciesPath falls back to Test-TierModelPrerequisites' cwd-relative
+        # default ('config/dependencies.json') and fails with "Dependencies file not found" when the
+        # script is invoked from a directory other than the deploy root.
+        $inits = [regex]::Matches($script:DeploySource, '\$prereqSplat\s*=\s*@\{[^}]*\}')
+        @($inits).Count | Should -BeGreaterThan 0 -Because 'Deploy-TierModel.ps1 builds prerequisite splats for the optional-features and include-only paths'
+        foreach ($m in $inits) {
+            $m.Value | Should -Match 'DependenciesPath' -Because 'each prerequisite splat must pass an absolute DependenciesPath so prereqs work regardless of the current directory'
+        }
+    }
+}
+
+Describe "Deploy-TierModel - Feature Prerequisite Fail-Fast (BUG-003)" -Tag "Integration", "Deploy", "Prereq" {
+    BeforeEach {
+        Mock Read-Host { return 'N' }
+    }
+
+    It "dMSA: -IncludeDmsa fails fast with a clean v5-style message when Domain Functional Level < 2025 (before any phases)" {
+        # dMSA critical pre-flight gate reads the DFL directly and exits cleanly, like the PS-version gate.
+        Mock Get-ADDomain {
+            return [PSCustomObject]@{
+                DomainMode = 'Windows2016Domain'; DNSRoot = 'test.local'
+                NetBIOSName = 'TEST'; DistinguishedName = 'DC=test,DC=local'
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeDmsa -ErrorAction Stop 6>&1 | Out-String
+
+        $output | Should -Match 'requires a Domain Functional Level of Windows Server 2025'
+        $output | Should -Match 'Current Domain Functional Level: Windows Server 2016'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Ensure all Domain Controllers'
+        $output | Should -Match 'Deploy script completed'
+        # Fails BEFORE any deployment phases / planning run — no ugly downstream planner error
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
+        $output | Should -Not -Match 'dMSA ACL Delegations'
+    }
+
+    It "gMSA: -FullDeployment -IncludeGmsa fails fast (before phases) when the KDS Root Key prerequisite is missing" {
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid               = $false
+                Errors              = @('No KDS Root Key found. gMSA requires an effective KDS Root Key.')
+                Remediation         = @('Create a KDS Root Key: Add-KdsRootKey -EffectiveImmediately (for lab).')
+                EnvironmentSnapshot = @{}
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeGmsa 6>&1 | Out-String
+
+        $output | Should -Match 'No KDS Root Key found'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Deploy script completed'
+        # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+        $output | Should -Not -Match 'Prerequisites not met'
+        $output | Should -Not -Match 'ERROR:'
+        # Fails BEFORE any deployment phases run
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
+    }
+
+    It "WinLaps: -FullDeployment -IncludeWinLaps fails fast (before phases) when the Windows LAPS schema is missing" {
+        Mock Test-TierModelPrerequisites {
+            return [PSCustomObject]@{
+                Valid               = $false
+                Errors              = @('The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.')
+                Remediation         = @('Follow Microsoft documentation to extend the Windows LAPS schema, then re-run with -IncludeWinLaps.')
+                EnvironmentSnapshot = @{}
+            }
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -IncludeWinLaps 6>&1 | Out-String
+
+        $output | Should -Match 'Windows LAPS schema'
+        $output | Should -Match 'Remediation steps:'
+        $output | Should -Match 'Deploy script completed'
+        # New aligned fail-fast format: no "Prerequisites not met:" header, no "ERROR:" prefix
+        $output | Should -Not -Match 'Prerequisites not met'
+        $output | Should -Not -Match 'ERROR:'
+        # Fails BEFORE any deployment phases run
+        $output | Should -Not -Match 'Phase \d'
+        $output | Should -Not -Match 'Deployment Plan'
     }
 }

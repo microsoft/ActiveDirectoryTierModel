@@ -13,10 +13,10 @@
 - Not a substitute for a full security architecture review
 
 ### What version of the Tier Model is this?
-- Current release is **v1.2.0** (released July 16, 2026)
+- Current release is **v1.2.1** (released July 30, 2026)
 - The initial automated release was **v1.0.0** (released February 27, 2026)
 - See the `CHANGELOG.md` file in the repository root for full release history
-- v1.2.0 is a **minor, backward-compatible** feature release (adds Windows LAPS ACL delegation and GPO decryptor support); v1.1.0 added MSA/gMSA/dMSA ACL support; `2.x` is reserved for future breaking changes
+- v1.2.1 is a **patch** release (UI and reliability bug fixes, BUG-001..011); v1.2.0 added Windows LAPS ACL delegation and GPO decryptor support; v1.1.0 added MSA/gMSA/dMSA ACL support; `2.x` is reserved for future breaking changes
 
 ---
 
@@ -110,7 +110,7 @@ The high-level migration path is:
 ### What PowerShell modules must be installed?
 - `ActiveDirectory` (v1.0.1.0 or later)
 - `GroupPolicy` (v1.0 or later)
-- `Pester` (v5.7.1 or later) — install from PowerShell Gallery
+- `Pester` (any 5.x release; Pester 6.x is not yet supported) — install from PowerShell Gallery
 - Notes on air-gapped environments and offline module installation
 
 ### Do I need to run this from a Domain Controller?

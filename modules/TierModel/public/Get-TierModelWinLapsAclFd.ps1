@@ -162,9 +162,15 @@ function Get-TierModelWinLapsAclFd {
                     $groupResolution[$group] = "$netBIOSDomain\$($adGroup.sAMAccountName)"
                 }
             } catch {
-                # In FD mode, groups may not exist yet (created by earlier phases); use best-effort
+                # Exception path — handled by the best-effort fallback below.
+            }
+            if (-not $groupResolution.ContainsKey($group)) {
+                # In FD mode the group may not exist yet (created by an earlier phase). Get-ADGroup
+                # -Filter returns nothing (no exception) for a missing group, so fall back to a
+                # best-effort estimated sAMAccountName here (not only in the catch). This lets the
+                # preview show the principal on the Create ACL lines and lets the decryptor step
+                # plan its "Configure" action; the real name resolves at apply time once groups exist.
                 $groupResolution[$group] = "$netBIOSDomain\$($group -replace ' ','')"
-                $warnings += "Group '$group' not found — using estimated sAMAccountName for plan."
             }
         }
 
@@ -191,13 +197,13 @@ function Get-TierModelWinLapsAclFd {
                 try {
                     $existingGpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop
                 } catch {
-                    $planErrors += @{
-                        Timestamp = Get-Date
-                        Category  = 'Validation'
-                        Code      = 'RequiredGpoNotFound'
-                        Message   = "Required GPO '$gpoName' does not exist - create GPOs first"
-                        Context   = @{ GpoName = $gpoName }
-                    }
+                    # FullDeployment planning: the LAPS GPOs are created by the earlier GPO phase
+                    # at apply time, so a missing GPO during preview is expected and non-blocking —
+                    # no planError and no user-facing warning. The decryptor step below plans a
+                    # "Configure" action per GPO regardless of current existence, rendered as a
+                    # yellow "■ Configure : <gpoName>" line. The standalone -IncludeWinLaps path
+                    # (Get-TierModelWinLapsAcl) keeps the strict pre-existence requirement.
+                    Write-TierModelLog -Level Debug -Message "LAPS GPO not present during FD planning (expected; created by GPO phase)" -Data @{ GpoName = $gpoName; CorrelationId = $CorrelationId } | Out-Null
                 }
             }
         }

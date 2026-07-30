@@ -732,7 +732,7 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             @($plan.Errors | Where-Object { $_.Code -eq 'DOMAIN_RESOLUTION_FAILED' }).Count | Should -BeGreaterThan 0
         }
 
-        It "Gate 4a (FD): RequiredGpoNotFound when Config.gpos has LAPS GPO and Get-GPO throws" {
+        It "Gate 4a (FD): missing LAPS GPO is non-blocking (created by GPO phase) - no error, no warning" {
             $fdConfigWithGpos = [PSCustomObject]@{
                 winLapsDelegations = @(
                     [PSCustomObject]@{
@@ -754,7 +754,34 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
 
             $plan = Get-TierModelWinLapsAclFd -Config $fdConfigWithGpos -DomainController $script:TestDC
 
-            @($plan.Errors | Where-Object { $_.Code -eq 'RequiredGpoNotFound' }).Count | Should -BeGreaterThan 0
+            # BUG-005: in FullDeployment the LAPS GPOs are created by the earlier GPO phase, so a
+            # missing GPO during planning is non-blocking: no RequiredGpoNotFound error (which
+            # rendered red) AND no "not found" warning. The plan renders the decryptor step as a
+            # yellow "■ Configure : <gpoName>" line instead.
+            @($plan.Errors | Where-Object { $_.Code -eq 'RequiredGpoNotFound' }).Count | Should -Be 0
+            @($plan.Warnings | Where-Object { $_ -match "not found" }).Count | Should -Be 0
+        }
+
+        It "BUG-005: group resolution falls back to estimated sAMAccountName when Get-ADGroup returns null (non-exception)" {
+            # Get-ADGroup -Filter returns $null (no exception) when a group doesn't exist yet in FD mode.
+            # This exercises the second path into L173 fallback: not the catch, but the post-try
+            # 'if (-not $groupResolution.ContainsKey($group))' guard.
+            Mock Get-ADGroup -ModuleName TierModel { return $null }
+
+            $plan = Get-TierModelWinLapsAclFd -Config $script:WinLapsConfig2 -DomainController $script:TestDC
+
+            # Plan must still be produced (non-blocking)
+            $plan | Should -Not -BeNullOrEmpty
+            $createActions = @($plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' })
+            $createActions.Count | Should -BeGreaterThan 0
+
+            # Each Read/Reset action's principal must use the fallback DOMAIN\GroupNameNoSpaces form
+            $readResetActions = @($createActions | Where-Object {
+                $_.Data.PSObject.Properties['Type'] -and ($_.Data.Type -eq 'Read' -or $_.Data.Type -eq 'Reset')
+            })
+            foreach ($action in $readResetActions) {
+                $action.Data.Principal | Should -Match "^$($script:TestNetBIOS)\\"
+            }
         }
     }
 
@@ -811,6 +838,119 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             $result.Drift         | Should -Be 0
             $result.TotalChecked  | Should -Be 1
             @($result.Findings)[0].Type | Should -Be 'Compliant'
+        }
+
+        It "UnexpectedAcl finding when an extra principal holds LAPS rights (drift)" {
+            # SELF present + configured read/reset group present (compliant baseline),
+            # PLUS an extra rogue principal holding LAPS extended rights → UnexpectedAcl.
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\RogueGroup") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $result.Missing    | Should -Be 0
+            $result.Mismatched | Should -Be 1
+            $result.Drift      | Should -Be 1
+            $unexpected = @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' })
+            $unexpected.Count           | Should -Be 1
+            $unexpected[0].ResourceType | Should -Be 'LapsPermission'
+            $unexpected[0].Details      | Should -Match 'RogueGroup'
+        }
+
+        It "Well-known principals (Domain Admins) holding LAPS rights are not flagged as unexpected" {
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\Domain Admins") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $result.Compliant  | Should -Be 1
+            $result.Mismatched | Should -Be 0
+            @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' }).Count | Should -Be 0
+        }
+
+        It "BUG-009: principal holding GenericAll on the OU is not flagged as unexpected LAPS holder" {
+            # A tier-admin group holds GenericAll on its tier's Member Server OU via the Tier Model
+            # OU-management delegation. GenericAll implicitly grants LAPS read, so
+            # Find-LapsADExtendedRights surfaces it as an effective holder even though it is NOT a
+            # configured LAPS reader. It must NOT be flagged as UnexpectedAcl — the OU ACL audit
+            # owns GenericAll drift.
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                $genericAllAce = [PSCustomObject]@{
+                    IdentityReference     = [PSCustomObject]@{ Value = "$script:TestNetBIOS\OuManagers" }
+                    IsInherited           = $false
+                    ObjectType            = [Guid]::Empty
+                    AccessControlType     = 'Allow'
+                    ActiveDirectoryRights = 'GenericAll'
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce, $genericAllAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\OuManagers") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $result.Compliant  | Should -Be 1
+            $result.Mismatched | Should -Be 0
+            $result.Drift      | Should -Be 0
+            @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' }).Count | Should -Be 0
+        }
+
+        It "BUG-009: an extra explicit LAPS holder WITHOUT GenericAll is still flagged as unexpected" {
+            # Regression guard: the GenericAll exclusion must not suppress genuine LAPS drift. A
+            # rogue principal that holds LAPS rights but NOT GenericAll must still be flagged.
+            Mock Get-Acl -ModuleName TierModel {
+                param($Path, $ErrorAction)
+                $selfAce = [PSCustomObject]@{
+                    IdentityReference = [PSCustomObject]@{ Value = 'NT AUTHORITY\SELF' }
+                    IsInherited       = $false
+                    ObjectType        = [Guid]::Empty
+                }
+                $genericAllAce = [PSCustomObject]@{
+                    IdentityReference     = [PSCustomObject]@{ Value = "$script:TestNetBIOS\OuManagers" }
+                    IsInherited           = $false
+                    ObjectType            = [Guid]::Empty
+                    AccessControlType     = 'Allow'
+                    ActiveDirectoryRights = 'GenericAll'
+                }
+                return [PSCustomObject]@{ Path = $Path; Access = @($selfAce, $genericAllAce) }
+            }
+            Mock Find-LapsADExtendedRights -ModuleName TierModel {
+                return [PSCustomObject]@{ ExtendedRightHolders = @("$script:TestNetBIOS\Tier0Admins", "$script:TestNetBIOS\OuManagers", "$script:TestNetBIOS\RogueGroup") }
+            }
+
+            $result = Test-TierModelWinLapsAcl -Config $script:WinLapsConfig1 -DomainController $script:TestDC
+
+            $unexpected = @($result.Findings | Where-Object { $_.Type -eq 'UnexpectedAcl' })
+            $unexpected.Count      | Should -Be 1
+            $unexpected[0].Details | Should -Match 'RogueGroup'
+            $unexpected[0].Details | Should -Not -Match 'OuManagers'
         }
 
         It "MissingAcl finding when SELF ACE absent" {

@@ -72,8 +72,11 @@ function New-TierModelOuAcl {
                     
                     if ($PSCmdlet.ShouldProcess("OU: $targetOUPath", "Apply ACL delegation for $identityReference")) {
                         
-                        # Bind to the OU via LDAP (like original working code)
-                        $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$targetOUPath")
+                        # Bind to the OU via LDAP on the preferred DC so every ACL is applied to
+                        # the SAME DC. Serverless binding ("LDAP://$targetOUPath") connects to a
+                        # random DC, causing replication-dependent inconsistency in multi-DC
+                        # environments. Matches the MSA/gMSA/dMSA ACL cmdlets.
+                        $de = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$targetOUPath")
                         
                         # Resolve NTAccount -> SID (recommended for stable matching)
                         $ntAccount = New-Object System.Security.Principal.NTAccount($identityReference)

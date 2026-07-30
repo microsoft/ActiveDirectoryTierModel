@@ -107,17 +107,31 @@ try {
     }
     Write-Host ""
     
-    # Check Pester version
-    $pesterModule = Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
-    if (-not $pesterModule) {
-        Write-Error "Pester module not found. Install with: Install-Module -Name Pester -Force. For help, see: https://github.com/pester/Pester"
+    # Check Pester version. Require a supported 5.x release; Pester 6.x has breaking
+    # changes (new mock engine / Should-* assertions) that are not yet supported. Pester
+    # versions install side-by-side, so select and explicitly import the highest 5.x even
+    # when a newer major is also installed (PowerShell would otherwise auto-load the highest).
+    $allPester = @(Get-Module Pester -ListAvailable | Where-Object { $null -ne $_ })
+    if (-not $allPester) {
+        Write-Error "Pester module not found. Install with: Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force. For help, see: https://github.com/pester/Pester"
         return
     }
-    
+    $supportedPester = $allPester | Where-Object { $_.Version.Major -eq 5 } | Sort-Object Version -Descending | Select-Object -First 1
+    $highestPester = ($allPester | Sort-Object Version -Descending | Select-Object -First 1).Version
+    if (-not $supportedPester) {
+        Write-Error "No supported Pester 5.x release found (highest installed: $highestPester). Pester $($highestPester.Major).x has breaking changes that are not yet supported. Install 5.x side-by-side: Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force"
+        return
+    }
+
+    # Explicitly load the supported 5.x line so Invoke-Pester does not auto-load a newer major.
+    Remove-Module Pester -Force -ErrorAction SilentlyContinue
+    Import-Module Pester -RequiredVersion $supportedPester.Version -Force
+    $pesterModule = $supportedPester
+
     Write-Host "📋 Pester Version: $($pesterModule.Version)" -ForegroundColor Green
-    
-    if ($pesterModule.Version.Major -lt 5) {
-        Write-Warning "Pester v5+ recommended. Current version: $($pesterModule.Version)"
+
+    if ($highestPester.Major -ne 5) {
+        Write-Warning "Pester $highestPester is installed side-by-side; $($highestPester.Major).x has untested breaking changes. Using supported $($pesterModule.Version)."
     }
     
     Write-Host ""
