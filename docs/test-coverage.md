@@ -9,43 +9,51 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** July 16, 2026 (1,401 tests / 0 failed — v1.2.0 Windows LAPS complete) | **Overall: 90.92%** | **Target: 95%**
+**Last measured:** July 30, 2026 (1,425 tests / 0 failed — v1.2.1 UI & bug fixes) | **Overall: 88.68%** | **Target: 95%**
 
 > ✅ **v1.2.0 measured:** 5 new Windows LAPS cmdlets added with comprehensive test coverage. New files span 81.6–92.7%. 2 new test files: Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1.
+
+> ⚠️ **v1.2.1 measured:** BUG-001..011 fixes added ~600 production lines across 8 files; overall dipped 90.92% → 88.68% (all still above the 80% CI gate on the module scope). `Audit-TierModel.ps1` dropped to 73.1% (new fail-fast/alignment code paths that need live-AD or PS<7 to exercise — documented hard limits).
 
 | Tier | Files | Count |
 |------|-------|-------|
 | ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink` | 12 |
-| 🟡 90-99% | `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Test-TierModelPrerequisites`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor` | 21 |
-| 🟠 80-89% | `Deploy-TierModel`, `New-Tier*`, `Get-TierModel*Fd` variants, `Audit-TierModel`, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd` | 18 |
-| 🔴 50-79% | **No files!** 🎉 | 0 |
+| 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor` | 31 |
+| 🟠 80-89% | `Deploy-TierModel`, `New-Tier*`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites`, `Test-TierModelWinLapsAcl` | 19 |
+| 🔴 50-79% | `Audit-TierModel.ps1` (73.1%) | 1 |
 | 🚨 0-25% | **No critical gaps!** 🎉 | 0 |
 
 ### 📋 All Files — Line Coverage (sorted by % ascending)
 
 | File | Covered | Missed | Total | % |
 |------|---------|--------|-------|---|
+| `Audit-TierModel.ps1` | 692 | 255 | 947 | 🔴 73.1% |
 | `modules/TierModel/public/Test-TierModelOu.ps1` | 194 | 46 | 240 | 🟠 80.8% |
 | `modules/TierModel/public/Import-TierModelGpo.ps1` | 89 | 21 | 110 | 🟠 80.9% ✦ |
+| `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 🟠 81.4% ✦ |
+| `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
+| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 343 | 72 | 415 | 🟠 82.7% ✦ |
 | `modules/TierModel/TierModel.psm1` | 582 | 121 | 703 | 🟠 82.8% ✦ |
 | `modules/TierModel/public/New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 🟠 83.3% |
+| `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |
 | `modules/TierModel/public/Update-TierModelGPOConfig.ps1` | 87 | 17 | 104 | 🟠 83.7% |
 | `modules/TierModel/public/Get-TierModelUserFd.ps1` | 83 | 15 | 98 | 🟠 84.7% |
 | `modules/TierModel/public/New-TierModelUser.ps1` | 104 | 18 | 122 | 🟠 85.2% |
-| `Audit-TierModel.ps1` | 399 | 67 | 466 | 🟠 85.6% |
 | `modules/TierModel/public/New-TierModelGPOLink.ps1` | 115 | 19 | 134 | 🟠 85.8% |
 | `modules/TierModel/public/Test-TierModelUser.ps1` | 158 | 26 | 184 | 🟠 85.9% |
 | `modules/TierModel/public/Get-TierModelOu.ps1` | 98 | 16 | 114 | 🟠 86.0% |
-| `modules/TierModel/public/New-TierModelOu.ps1` | 138 | 22 | 160 | 🟠 86.2% |
 | `modules/TierModel/public/Test-TierModelOuAcl.ps1` | 274 | 44 | 318 | 🟠 86.2% |
 | `modules/TierModel/public/New-TierModelGroup.ps1` | 127 | 20 | 147 | 🟠 86.4% |
 | `modules/TierModel/public/Set-TierModelGpoTemplate.ps1` | 52 | 8 | 60 | 🟠 86.7% |
-| `Deploy-TierModel.ps1` | 1471 | 181 | 1652 | 🟠 89.0% ✦ |
+| `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` | 233 | 30 | 263 | 🟠 88.6% |
+| `modules/TierModel/public/New-TierModelOu.ps1` | 207 | 26 | 233 | 🟠 88.8% |
 | `modules/TierModel/public/Get-TierModelDmsaAclFd.ps1` | 193 | 21 | 214 | 🟡 90.2% |
+| `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
 | `modules/TierModel/public/Get-TierModelMsaAclFd.ps1` | 186 | 17 | 203 | 🟡 91.6% |
 | `modules/TierModel/public/Get-TierModelGmsaAclFd.ps1` | 186 | 17 | 203 | 🟡 91.6% |
 | `modules/TierModel/public/Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 🟡 91.6% |
 | `modules/TierModel/public/Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 🟡 92.7% |
+| `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
 | `modules/TierModel/public/Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
 | `modules/TierModel/public/Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
 | `modules/TierModel/public/Get-TierModelUser.ps1` | 107 | 8 | 115 | 🟡 93.0% |
@@ -56,14 +64,13 @@
 | `modules/TierModel/public/Get-TierModelGpoTemplate.ps1` | 46 | 3 | 49 | 🟡 93.9% |
 | `modules/TierModel/public/Get-TierModelAdmx.ps1` | 147 | 9 | 156 | 🟡 94.2% |
 | `modules/TierModel/public/Copy-TierModelAdmx.ps1` | 135 | 8 | 143 | 🟡 94.4% |
-| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 193 | 11 | 204 | 🟡 94.61% ✦ |
 | `modules/TierModel/public/Get-TierModelGpoLinkFd.ps1` | 151 | 8 | 159 | 🟡 94.97% ✦ |
 | `modules/TierModel/public/Resolve-DomainSpecificGuid.ps1` | 46 | 2 | 48 | 🟡 95.8% |
 | `modules/TierModel/public/Get-TierModelGpo.ps1` | 500 | 20 | 520 | 🟡 96.2% |
 | `modules/TierModel/public/New-TierModelDmsaAcl.ps1` | 151 | 5 | 156 | 🟡 96.8% |
 | `modules/TierModel/public/Get-TierModelGpoFd.ps1` | 310 | 8 | 318 | 🟡 97.5% |
-| `modules/TierModel/public/New-TierModelGpo.ps1` | 119 | 3 | 122 | 🟡 97.5% ✦ |
 | `modules/TierModel/public/New-TierModelOuAcl.ps1` | 155 | 4 | 159 | 🟡 97.5% ✦ |
+| `modules/TierModel/public/New-TierModelGpo.ps1` | 138 | 3 | 141 | 🟡 97.9% ✦ |
 | `modules/TierModel/public/Resolve-TierModelPrincipalSid.ps1` | 196 | 4 | 200 | 🟡 98.0% |
 | `modules/TierModel/public/Get-TierModelOuAcl.ps1` | 240 | 4 | 244 | 🟡 98.36% ✦ |
 | `modules/TierModel/public/New-TierModelMsaAcl.ps1` | 129 | 2 | 131 | 🟡 98.5% |
@@ -83,16 +90,11 @@
 | `modules/TierModel/public/Test-TierModelGPOLink.ps1` | 222 | 0 | 222 | ✅ 100% |
 | `modules/TierModel/public/Test-TierModelOuExists.ps1` | 9 | 0 | 9 | ✅ 100% |
 | `modules/TierModel/public/Write-TierModelLog.ps1` | 37 | 0 | 37 | ✅ 100% |
-| `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | — | — | 485 | 🟠 84.5% |
-| `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
-| `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` | — | — | 329 | 🟡 91.8% |
-| `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
-| **TOTAL (63 files)** | — | — | **13,331** | **90.92%** |
+| **TOTAL (63 files)** | 13,788 | 1,760 | 15,548 | **88.68%** |
 
 > **✦** = File has a documented structural barrier preventing full coverage without production code refactoring. See **Hard Coverage Limits** table below for details.
 
-> **Aggregate codebase coverage: 8,140 / 8,916 executable commands = 91.3%** — every file is now at or above 80%.
+> **Docs-scope coverage (v1.2.1): 13,788 / 15,548 commands = 88.68%** *(measured July 30, 2026)*. `Audit-TierModel.ps1` is 73.1% (below 80%); all `modules/TierModel/*` files remain above 80%.
 
 ---
 
@@ -113,61 +115,77 @@
 | `Test-TierModelOuExists.ps1` | 9 | ✅ 100% |
 | `Write-TierModelLog.ps1` | 37 | ✅ 100% |
 
-### 🟡 Near Target: 90-99% Coverage (21 files)
+### 🟡 Near Target: 90-99% Coverage (31 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
+| `Get-TierModelDmsaAclFd.ps1` | 193 | 21 | 214 | 90.2% |
+| `New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
+| `Get-TierModelMsaAclFd.ps1` | 186 | 17 | 203 | 91.6% |
+| `Get-TierModelGmsaAclFd.ps1` | 186 | 17 | 203 | 91.6% |
+| `Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 91.6% |
+| `Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 92.7% |
+| `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
+| `Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
+| `Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
 | `Get-TierModelUser.ps1` | 107 | 8 | 115 | 93.0% |
+| `Get-TierModelMsaAcl.ps1` | 200 | 15 | 215 | 93.0% |
+| `Get-TierModelGmsaAcl.ps1` | 201 | 15 | 216 | 93.1% |
 | `Test-TierModelGPOAudit.ps1` | 246 | 18 | 264 | 93.18% ✦ |
 | `Get-TierModelConfig.ps1` | 113 | 8 | 121 | 93.4% ✦ |
 | `Get-TierModelGpoTemplate.ps1` | 46 | 3 | 49 | 93.9% |
 | `Get-TierModelAdmx.ps1` | 147 | 9 | 156 | 94.2% |
 | `Copy-TierModelAdmx.ps1` | 135 | 8 | 143 | 94.4% |
-| `Test-TierModelPrerequisites.ps1` | 193 | 11 | 204 | 94.61% ✦ |
 | `Get-TierModelGpoLinkFd.ps1` | 151 | 8 | 159 | 94.97% ✦ |
 | `Resolve-DomainSpecificGuid.ps1` | 46 | 2 | 48 | 95.8% |
 | `Get-TierModelGpo.ps1` | 500 | 20 | 520 | 96.2% |
+| `New-TierModelDmsaAcl.ps1` | 151 | 5 | 156 | 96.8% |
 | `Get-TierModelGpoFd.ps1` | 310 | 8 | 318 | 97.5% |
-| `New-TierModelGpo.ps1` | 119 | 3 | 122 | 97.5% ✦ |
 | `New-TierModelOuAcl.ps1` | 155 | 4 | 159 | 97.5% ✦ |
+| `New-TierModelGpo.ps1` | 138 | 3 | 141 | 97.9% ✦ |
 | `Resolve-TierModelPrincipalSid.ps1` | 196 | 4 | 200 | 98.0% |
 | `Get-TierModelOuAcl.ps1` | 240 | 4 | 244 | 98.36% ✦ |
+| `New-TierModelMsaAcl.ps1` | 129 | 2 | 131 | 98.5% |
+| `New-TierModelGmsaAcl.ps1` | 130 | 2 | 132 | 98.5% |
 | `Get-TierModelGroupFd.ps1` | 110 | 1 | 111 | 99.1% ✦ |
 | `Test-TierModelGPOContent.ps1` | 228 | 2 | 230 | 99.1% |
 | `Get-TierModelOuAclFd.ps1` | 194 | 1 | 195 | 99.49% ✦ |
-| `New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
-| `Test-TierModelWinLapsAcl.ps1` | — | — | 329 | 🟡 91.8% |
-| `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
 
-### 🟠 Below Target: 80-89% Coverage (18 files)
+### 🟠 Below Target: 80-89% Coverage (19 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
 | `Test-TierModelOu.ps1` | 194 | 46 | 240 | 80.8% |
+| `Import-TierModelGpo.ps1` | 89 | 21 | 110 | 80.9% ✦ |
+| `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 81.4% ✦ |
 | `TierModel.psm1` | 582 | 121 | 703 | 82.8% ✦ |
+| `Test-TierModelPrerequisites.ps1` | 343 | 72 | 415 | 82.7% ✦ |
 | `New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 83.3% |
 | `Update-TierModelGPOConfig.ps1` | 87 | 17 | 104 | 83.7% |
 | `Get-TierModelUserFd.ps1` | 83 | 15 | 98 | 84.7% |
 | `New-TierModelUser.ps1` | 104 | 18 | 122 | 85.2% |
-| `Audit-TierModel.ps1` | 399 | 67 | 466 | 85.6% |
 | `New-TierModelGPOLink.ps1` | 115 | 19 | 134 | 85.8% |
 | `Test-TierModelUser.ps1` | 158 | 26 | 184 | 85.9% |
 | `Get-TierModelOu.ps1` | 98 | 16 | 114 | 86.0% |
-| `New-TierModelOu.ps1` | 138 | 22 | 160 | 86.2% |
 | `Test-TierModelOuAcl.ps1` | 274 | 44 | 318 | 86.2% |
 | `New-TierModelGroup.ps1` | 127 | 20 | 147 | 86.4% |
 | `Set-TierModelGpoTemplate.ps1` | 52 | 8 | 60 | 86.7% |
-| `Deploy-TierModel.ps1` | 1471 | 181 | 1652 | 89.0% ✦ |
+| `Test-TierModelWinLapsAcl.ps1` | 233 | 30 | 263 | 88.6% |
+| `New-TierModelOu.ps1` | 207 | 26 | 233 | 88.8% |
 | `Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `Get-TierModelWinLapsAclFd.ps1` | — | — | 485 | 🟠 84.5% |
+| `Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |
 
-### 🔴 Needs Work: 50-79% Coverage (0 files)
+### 🔴 Needs Work: 50-79% Coverage (1 file)
 
-**🎉 No files in this tier!** `New-TierModelOuAcl.ps1` raised to **97.5%** (46.5%→97.5%: +13 tests, March 6, 2026).
+| File | Covered | Missed | Total | Coverage |
+|------|---------|--------|-------|----------|
+| `Audit-TierModel.ps1` | 692 | 255 | 947 | 🔴 73.1% |
+
+> **Note:** `Audit-TierModel.ps1` fell from 85.6% (v1.2.0) to 73.1% in v1.2.1 due to ~481 new production lines added by BUG-001..011 (fail-fast validation and alignment code paths). These paths require a live AD environment or PowerShell < 7 to exercise. See Hard Coverage Limits table for documentation. The CI gate applies to the `modules/TierModel/*` scope, where all files remain above 80%.
 
 ### 🚨 Critical Gaps: <25% Coverage (0 files)
 
-**🎉 No critical gaps remaining!** The former red-tier file `New-TierModelOuAcl.ps1` has been raised to **97.5%** (46.5%→97.5%: +13 tests, March 6, 2026). All files now sit at **80%+**.
+**🎉 No critical gaps remaining!** The former red-tier file `New-TierModelOuAcl.ps1` has been raised to **97.5%** (46.5%→97.5%: +13 tests, March 6, 2026). All `modules/TierModel/*` files sit at **80%+** (CI gate met); `Audit-TierModel.ps1` is 73.1% in the docs scope — see 🔴 tier above.
 
 ### 🧱 Hard Coverage Limits — Files That Cannot Reach 95% Without Refactoring
 
