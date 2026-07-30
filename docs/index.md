@@ -2,6 +2,10 @@
 
 Welcome to the Active Directory Tier Model documentation.
 
+## Contributing
+
+- **[Contributing & Change Process](contributing.md)** - How to propose changes: open an issue first, agree on scope, then submit a focused pull request. **Please read this before opening a PR.**
+
 ## Getting Started
 
 - **[Quick Deployment Guide](quick-deployment-guide.md)** - Fast-track deployment instructions for experienced administrators

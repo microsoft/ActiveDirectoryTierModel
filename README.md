@@ -84,13 +84,29 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🤝 Contributing
 
-Contributions are welcome! Before submitting a pull request, you **must** ensure:
+Contributions are welcome — but this is a **security-sensitive** project, so we follow an
+**issue-first** process. Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** before opening a
+pull request.
+
+**The process, in short:**
+
+1. 🗣️ **Open an issue first** describing the problem or proposal — for *any* change (feature, fix, refactor, config, or docs).
+2. 🧭 **Discuss and get maintainer agreement** on scope and approach **before writing code**.
+3. 🔀 **Then open a focused PR** that links the agreed issue and implements only what was agreed.
+
+> ⚠️ **Pull requests without a linked, pre-agreed issue will be closed.** Unsolicited new
+> parameters, alternate deployment topologies, relaxed security validation, or
+> bundled / reformat-heavy changes are rejected on sight — not to be unwelcoming, but
+> because unreviewed changes to a tiering-security tool can silently weaken tier
+> boundaries. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full rationale.
+
+When your PR is ready, it must also satisfy:
 
 1. ✅ **All Pester tests pass** — the CI pipeline will reject any PR with failing tests
 2. 🧪 **New or updated tests are included** — any new code or bug fix must include corresponding test cases to maintain or improve code coverage
 3. 📊 **Code coverage stays at or above 80%** — the CI enforces a minimum coverage threshold; if your changes reduce coverage below 80%, add tests until coverage is restored
 4. 📝 Documentation is updated for any new or changed functionality
-5. 🎯 Code follows project conventions
+5. 🎯 Code follows project conventions and keeps the diff focused (no unrelated reformatting)
 
 > **Note:** The packaging step will not produce a release artifact unless all tests pass and coverage meets the minimum threshold.
 
