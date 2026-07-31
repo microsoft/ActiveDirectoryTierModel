@@ -31,6 +31,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[CI/CD Integration](https://microsoft.github.io/ActiveDirectoryTierModel/ci-cd/)** - Pipeline integration and automation
 - **[Test Tag Matrix](https://microsoft.github.io/ActiveDirectoryTierModel/test-tag-matrix/)** - Pester test organization
 - **[Test Coverage](https://microsoft.github.io/ActiveDirectoryTierModel/test-coverage/)** - Comprehensive test coverage analysis and roadmap
+- **[Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/)** - Supported languages (English only today) and the localization roadmap
 
 ### 🔧 Technical Specifications
 - **[Feature Specification](specs/001-tier-model-module/spec.md)** - Complete requirements and user stories
@@ -138,6 +139,7 @@ cd ActiveDirectoryTierModel
 - **Elevation**: Administrator privileges required
 - **Domain Admin**: Membership in Domain Admins group
 - **Modules**: ActiveDirectory, GroupPolicy (see `config/dependencies.json`)
+- **Language**: English (`en-US`) only — both the domain controller **OS** and **Active Directory** must be English (see [Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/))
 
 *For detailed prerequisite validation, run `Test-TierModelPrerequisites`*
 
