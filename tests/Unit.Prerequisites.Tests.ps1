@@ -13,6 +13,11 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         # Mock external dependencies
         Mock Test-NetConnection { return $true } -ParameterFilter { $ComputerName -eq 'MockDC.test.local' } -ModuleName TierModel
         Mock Test-NetConnection { return $false } -ParameterFilter { $ComputerName -eq 'UnreachableDC.test.local' } -ModuleName TierModel
+
+        # Default the host OS language to English (en-US) so the unconditional host-OS
+        # language gate passes and execution reaches the remaining checks. Individual
+        # language tests override this per-case.
+        Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0409' }
         
         # Create test dependencies file content
         $validDependencies = @{
@@ -256,6 +261,57 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         }
     }
     
+    Context "Host OS Language Enforcement" -Tag 'Language','Prereq' {
+        It "fails fast with a friendly error when the host OS install language is non-English (German)" -Tag 'Negative','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0407' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English host operating system'
+            ($result.Remediation -join ' ') | Should -Match 'language-support'
+        }
+
+        It "stops before the Pester/module checks on a non-English host OS (early return)" -Tag 'Negative','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0407' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            # Early return means later checks never ran: their snapshot keys are absent
+            # and no Pester/module remediation is surfaced on an unsupported OS.
+            $result.EnvironmentSnapshot.ContainsKey('PesterVersion') | Should -Be $false
+            ($result.Errors -join ' ') | Should -Not -Match 'Pester'
+        }
+
+        It "passes the host OS check when the install language is English (en-US, 0409)" -Tag 'Positive','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0409' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+        }
+
+        It "accepts other English variants such as en-GB (0809)" -Tag 'Positive','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0809' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+        }
+
+        It "does not hard-fail on the OS check when the install language cannot be read" -Tag 'Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { throw 'registry value not found' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+            $result.EnvironmentSnapshot.HostOsLanguageCheckError | Should -Not -BeNullOrEmpty
+        }
+    }
+
     Context "AD Language Enforcement" -Tag 'Language','Prereq' {
         BeforeAll {
             Mock Import-Module -ModuleName TierModel { }
@@ -957,6 +1013,8 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
             Mock Test-NetConnection   { return $true }
             Mock Write-TierModelLog   { }
             Mock Import-Module        { }
+            # Host OS install language defaults to English (en-US) so the OS gate passes
+            Mock Get-ItemPropertyValue { return '0409' } -ParameterFilter { $Name -eq 'InstallLanguage' }
             # Pester present at the right version
             Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.7.1' } } `
                 -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }

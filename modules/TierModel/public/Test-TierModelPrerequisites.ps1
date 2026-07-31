@@ -134,7 +134,40 @@ function Test-TierModelPrerequisites {
             $null = $result.Errors.Add("PowerShell session is not running as Administrator.")
             $null = $result.Remediation.Add("Start PowerShell as Administrator (Run as administrator)")
         }
-        
+
+        # --- English-language host operating system check (unconditional) ---
+        # The Tier Model supports English (en-US) Windows only. Verify the OS of the host
+        # running this script (admin workstation OR domain controller) was installed in
+        # English by reading the static InstallLanguage LCID from
+        # HKLM\SYSTEM\CurrentControlSet\Control\Nls\Language. Any English variant passes
+        # (primary language 0x09 — en-US, en-GB, ...); the AD group-name check further below
+        # is the authoritative directory-language gate. This runs before the Pester/module
+        # checks so a non-English host stops immediately — there is no reason to have the
+        # operator install modules on an unsupported OS. Guarded: if the language cannot be
+        # read, record it and continue. See docs/language-support.md.
+        try {
+            $hostInstallLanguage = Get-ItemPropertyValue -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\Language' -Name 'InstallLanguage' -ErrorAction Stop
+            $result.EnvironmentSnapshot.HostInstallLanguage = $hostInstallLanguage
+            $hostPrimaryLanguage = ([Convert]::ToInt32([string]$hostInstallLanguage, 16)) -band 0x3FF
+            $hostOsEnglish = ($hostPrimaryLanguage -eq 0x09)
+            $result.EnvironmentSnapshot.HostOsEnglish = $hostOsEnglish
+            if (-not $hostOsEnglish) {
+                $result.Valid = $false
+                $null = $result.Errors.Add("Non-English host operating system detected. The Tier Model supports English (en-US) Windows only.")
+                $null = $result.Remediation.Add("Run Deploy and Audit from an English (en-US) Windows host. See Language Support: https://microsoft.github.io/ActiveDirectoryTierModel/language-support/")
+                # Fail fast: stop before the module/domain/AD checks on an unsupported OS.
+                $result.Errors = @($result.Errors)
+                $result.Remediation = @($result.Remediation)
+                Write-Output $result
+                return
+            }
+        }
+        catch {
+            # Could not determine the host install language (e.g. registry value absent).
+            # Do not hard-block on the OS signal; the AD language check still applies.
+            $result.EnvironmentSnapshot.HostOsLanguageCheckError = $_.Exception.Message
+        }
+
         # Test required modules and versions (dependencies already parsed at start)
         # Check Pester version. Any Pester 5.x release is supported; Pester 6.x introduces
         # breaking changes (new mock engine / Should-* assertions) that are not yet tested,

@@ -58,6 +58,10 @@ Describe "Integration: Windows LAPS Deployment Pipeline" -Tag "Integration", "Wi
         # ── Baseline mocks (all resources exist, all permissions absent) ─────────
         Mock Write-TierModelLog -ModuleName TierModel { }
 
+        # Host OS install language defaults to English (en-US) so the prerequisite
+        # host-OS language gate passes and the deployment flow proceeds.
+        Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0409' }
+
         Mock Resolve-TierModelDomainDN -ModuleName TierModel { return $script:TestDomainDN }
 
         Mock Resolve-TierModelPlaceholder -ModuleName TierModel {
