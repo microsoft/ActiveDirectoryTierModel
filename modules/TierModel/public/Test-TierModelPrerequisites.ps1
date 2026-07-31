@@ -439,10 +439,21 @@ function Test-TierModelPrerequisites {
                     )
 
                     $languageMismatches = [System.Collections.ArrayList]@()
+                    $resolvedAnyCanary = $false
                     foreach ($canary in $englishCanaries) {
-                        $grp = Get-ADGroup -Identity $canary.Sid -Server $PreferredDc -ErrorAction Stop
-                        if ($null -ne $grp -and -not [string]::IsNullOrEmpty($grp.Name) -and $grp.Name -ne $canary.Expected) {
-                            $null = $languageMismatches.Add("$($canary.Expected) is named '$($grp.Name)'")
+                        try {
+                            $grp = Get-ADGroup -Identity $canary.Sid -Server $PreferredDc -ErrorAction Stop
+                        }
+                        catch {
+                            # A single well-known group could not be resolved; skip it so a
+                            # transient failure cannot mask a confirmed mismatch on another.
+                            continue
+                        }
+                        if ($null -ne $grp -and -not [string]::IsNullOrEmpty($grp.Name)) {
+                            $resolvedAnyCanary = $true
+                            if ($grp.Name -ne $canary.Expected) {
+                                $null = $languageMismatches.Add("$($canary.Expected) is named '$($grp.Name)'")
+                            }
                         }
                     }
 
@@ -453,7 +464,7 @@ function Test-TierModelPrerequisites {
                         $null = $result.Errors.Add("Non-English Active Directory detected. The Tier Model supports English (en-US) Active Directory only.")
                         $null = $result.Remediation.Add("Run Deploy and Audit against an English (en-US) Active Directory. See Language Support: https://microsoft.github.io/ActiveDirectoryTierModel/language-support/")
                     }
-                    else {
+                    elseif ($resolvedAnyCanary) {
                         $result.EnvironmentSnapshot.AdLanguageEnglish = $true
                     }
                 }

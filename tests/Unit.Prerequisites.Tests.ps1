@@ -372,6 +372,27 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
         }
 
+        It "still flags non-English when a later well-known group cannot be resolved" -Tag 'Negative','Language' {
+            # Domain Admins (localized) resolves first, Server Operators then throws, and
+            # Account Operators (localized) resolves last. The confirmed mismatches must not
+            # be discarded by the mid-loop failure — the gate must still fail closed.
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domänen-Admins';    SID = $Identity } }
+                    'S-1-5-32-549' { throw 'transient AD failure' }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Konten-Operatoren'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English Active Directory'
+            ($result.EnvironmentSnapshot.AdLanguageMismatches -join ' ') | Should -Match 'Domänen-Admins'
+        }
+
         It "does not fail the language check when Active Directory cannot be evaluated" -Tag 'Language' {
             Mock Get-ADDomain -ModuleName TierModel { throw 'Domain unreachable' }
             Mock Get-ADGroup  -ModuleName TierModel { return $null }
@@ -379,6 +400,18 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
 
             ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+        }
+
+        It "skips the language check when the domain SID cannot be determined" -Tag 'Language' {
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{ DNSRoot = 'test.local'; NetBIOSName = 'TEST'; DomainSID = $null }
+            }
+            Mock Get-ADGroup -ModuleName TierModel { return $null }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+            $result.EnvironmentSnapshot.ContainsKey('AdLanguageEnglish') | Should -Be $false
         }
     }
 
