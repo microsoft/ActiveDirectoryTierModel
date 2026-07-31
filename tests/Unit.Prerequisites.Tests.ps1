@@ -256,6 +256,76 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         }
     }
     
+    Context "AD Language Enforcement" -Tag 'Language','Prereq' {
+        BeforeAll {
+            Mock Import-Module -ModuleName TierModel { }
+            Mock Get-Module -ModuleName TierModel {
+                param($Name)
+                switch ($Name) {
+                    'ActiveDirectory' { return [PSCustomObject]@{ Name = 'ActiveDirectory'; Version = [version]'1.0.1.0' } }
+                    'GroupPolicy'     { return [PSCustomObject]@{ Name = 'GroupPolicy';     Version = [version]'1.0' } }
+                    'Pester'          { return [PSCustomObject]@{ Name = 'Pester';          Version = [version]'5.7.1' } }
+                    default           { return $null }
+                }
+            }
+            Mock Get-ADForest      -ModuleName TierModel { return [PSCustomObject]@{ RootDomain = 'test.local' } }
+            Mock Get-ADGroupMember -ModuleName TierModel { return @() }
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DNSRoot     = 'test.local'
+                    NetBIOSName = 'TEST'
+                    DomainSID   = [PSCustomObject]@{ Value = 'S-1-5-21-1111111111-2222222222-3333333333' }
+                }
+            }
+        }
+
+        It "fails fast with a friendly error when well-known group names are non-English (German)" -Tag 'Negative','Language' {
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domänen-Admins';    SID = $Identity } }
+                    'S-1-5-32-549' { return [PSCustomObject]@{ Name = 'Server-Operatoren'; SID = $Identity } }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Konten-Operatoren'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            $result.EnvironmentSnapshot.AdLanguageEnglish | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English Active Directory'
+            ($result.Remediation -join ' ') | Should -Match 'language-support'
+            ($result.EnvironmentSnapshot.AdLanguageMismatches -join ' ') | Should -Match 'Server-Operatoren'
+        }
+
+        It "passes the AD language check when all three well-known group names are English" -Tag 'Positive','Language' {
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domain Admins';     SID = $Identity } }
+                    'S-1-5-32-549' { return [PSCustomObject]@{ Name = 'Server Operators';  SID = $Identity } }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Account Operators'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.AdLanguageEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+        }
+
+        It "does not fail the language check when Active Directory cannot be evaluated" -Tag 'Language' {
+            Mock Get-ADDomain -ModuleName TierModel { throw 'Domain unreachable' }
+            Mock Get-ADGroup  -ModuleName TierModel { return $null }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+        }
+    }
+
     Context "Result Object Structure" {
         It "Should return properly structured result object" -Tag 'Positive','Structure' {
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile

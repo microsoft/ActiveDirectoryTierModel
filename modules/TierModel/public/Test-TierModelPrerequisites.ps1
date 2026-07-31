@@ -383,6 +383,56 @@ function Test-TierModelPrerequisites {
             }
         }
         
+        # --- English-language Active Directory check (unconditional) ---
+        # The Tier Model references well-known principals by their English names. On a
+        # fully-localized non-English domain those names differ (set at domain creation
+        # from the DC install language and replicated), so deployments and audits would
+        # fail. Resolve three well-known groups BY SID and confirm each directory Name is
+        # its expected English value. Names are read from AD (not translated client-side,
+        # which the local OS would localize and give a false pass). Guarded so it is a
+        # no-op when AD cannot be evaluated; see docs/language-support.md for the policy.
+        if (Get-Module ActiveDirectory -ErrorAction SilentlyContinue) {
+            try {
+                $adLangDomain = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
+                $domainSid = if ($adLangDomain.DomainSID) { $adLangDomain.DomainSID.Value } else { $null }
+
+                # Only evaluate with a real domain SID (S-1-5-21-...). Anything else
+                # (unresolved domain) is treated as "cannot determine" and skipped.
+                if ($domainSid -match '^S-1-5-21-') {
+                    $englishCanaries = @(
+                        [PSCustomObject]@{ Expected = 'Domain Admins';     Sid = "$domainSid-512" }
+                        [PSCustomObject]@{ Expected = 'Server Operators';  Sid = 'S-1-5-32-549' }
+                        [PSCustomObject]@{ Expected = 'Account Operators'; Sid = 'S-1-5-32-548' }
+                    )
+
+                    $languageMismatches = [System.Collections.ArrayList]@()
+                    foreach ($canary in $englishCanaries) {
+                        $grp = Get-ADGroup -Identity $canary.Sid -Server $PreferredDc -ErrorAction Stop
+                        if ($null -ne $grp -and -not [string]::IsNullOrEmpty($grp.Name) -and $grp.Name -ne $canary.Expected) {
+                            $null = $languageMismatches.Add("$($canary.Expected) is named '$($grp.Name)'")
+                        }
+                    }
+
+                    if ($languageMismatches.Count -gt 0) {
+                        $result.Valid = $false
+                        $result.EnvironmentSnapshot.AdLanguageEnglish = $false
+                        $result.EnvironmentSnapshot.AdLanguageMismatches = @($languageMismatches)
+                        $null = $result.Errors.Add("Non-English Active Directory detected. The Tier Model supports English (en-US) Active Directory only.")
+                        $null = $result.Remediation.Add("Run Deploy and Audit against an English (en-US) Active Directory. See Language Support: https://microsoft.github.io/ActiveDirectoryTierModel/language-support/")
+                    }
+                    else {
+                        $result.EnvironmentSnapshot.AdLanguageEnglish = $true
+                    }
+                }
+            }
+            catch {
+                # AD language could not be evaluated (e.g. AD Web Services unreachable).
+                # Do not hard-fail here; DC reachability and domain-admin checks already
+                # gate a broken AD connection. Record the condition for diagnostics.
+                $result.EnvironmentSnapshot.AdLanguageCheckError = $_.Exception.Message
+            }
+        }
+
         # --- MSA/gMSA/dMSA/WinLaps Prerequisites (shared schema/DFL resolution) ---
         if ($IncludeMsa -or $IncludeGmsa -or $IncludeDmsa -or $IncludeWinLaps) {
             $schemaDN = $null

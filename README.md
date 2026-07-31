@@ -139,7 +139,7 @@ cd ActiveDirectoryTierModel
 - **Elevation**: Administrator privileges required
 - **Domain Admin**: Membership in Domain Admins group
 - **Modules**: ActiveDirectory, GroupPolicy (see `config/dependencies.json`)
-- **Language**: English (`en-US`) only — both the domain controller **OS** and **Active Directory** must be English (see [Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/))
+- **Language**: English (`en-US`) only — both the **host OS** (the machine you run the scripts from) and **Active Directory** must be English (see [Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/))
 
 *For detailed prerequisite validation, run `Test-TierModelPrerequisites`*
 

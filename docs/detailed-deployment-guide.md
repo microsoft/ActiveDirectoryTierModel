@@ -4,7 +4,7 @@ This guide provides a step-by-step deployment workflow using scoped deployment p
 
 For a streamlined full deployment workflow, see the [Quick Deployment Guide](quick-deployment-guide.md).
 
-> **Supported environment:** English (`en-US`) only — the domain controller **OS** and **Active Directory** must both be English. Non-English environments are detected and stopped during prerequisite validation. See [Language Support](language-support.md).
+> **Supported environment:** English (`en-US`) only — the **host OS** (the machine you run the scripts from) and **Active Directory** must both be English. Non-English environments are detected and stopped during prerequisite validation. See [Language Support](language-support.md).
 
 ## Overview
 

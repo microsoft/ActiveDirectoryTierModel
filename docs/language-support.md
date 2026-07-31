@@ -1,9 +1,9 @@
 # Language Support
 
 > **Status: English (`en-US`) only.** At this time the Active Directory Tier Model
-> supports deploying and auditing only where **both** the domain controller's operating
-> system **and** Active Directory are English. On a non-English domain controller OS or
-> a localized Active Directory, `Deploy-TierModel` and `Audit-TierModel` **stop during
+> supports deploying and auditing only where **both** the host operating system (the
+> machine you run the scripts from) **and** Active Directory are English. On a non-English
+> host OS or a localized Active Directory, `Deploy-TierModel` and `Audit-TierModel` **stop during
 > prerequisite validation** with a clear message rather than partially applying an
 > inconsistent configuration.
 
@@ -38,8 +38,9 @@ Detecting the **domain's** language must be done at the Active Directory level: 
 or registry install language can disagree with the domain — for example, an English-OS
 domain controller joined to a German domain still serves German names — so an OS check
 alone cannot stand in for the directory check. In addition, the Tier Model requires the
-domain controller's **operating system** to be installed in English, so that English is
-guaranteed in *both* places: the OS **and** the directory.
+**operating system of the host you run the scripts from** (your admin workstation or the
+domain controller itself) to be installed in English, so that English is guaranteed in
+*both* places: the host OS **and** the directory.
 
 ## How the requirement is enforced
 
@@ -48,12 +49,13 @@ that both `Deploy-TierModel` and `Audit-TierModel` run up front — before any c
 made. Both must pass; if either fails, the run stops with a friendly, actionable error.
 In the final code the checks run in this order:
 
-### Check 1 — English operating system (domain controller)
+### Check 1 — English operating system (execution host)
 
-The target domain controller's Windows **installation language** must be English
-(`en-US` — install language `0409`). This is the static, authoritative signal for how
-the operating system was installed, and it is read from the domain controller itself.
-This check runs **first** because it is the broadest, cheapest signal.
+The Windows **installation language** of the host where you run `Deploy-TierModel` /
+`Audit-TierModel` — your admin workstation or the domain controller itself — must be
+English (`en-US` — install language `0409`). It is read from the local machine running
+the scripts. This check runs **first**; if the host OS is not English, the run stops
+before the Active Directory check.
 
 ### Check 2 — English Active Directory (well-known group names)
 
@@ -86,11 +88,12 @@ Design notes:
 
 Neither check alone is sufficient:
 
-- **OS check alone** would miss an English-OS domain controller joined to a localized
-  domain — the directory names are still localized (Check 2 catches this).
-- **AD check alone** would allow a non-English domain controller OS, which the Tier
-  Model does not support and which can affect locale-sensitive OS-level operations even
-  when the directory names happen to be English.
+- **OS check alone** would still allow a **localized directory** — you could run from an
+  English host against a non-English domain, where the well-known names differ (Check 2
+  catches this).
+- **AD check alone** would allow running from a **non-English host**, which the Tier
+  Model does not support and which can affect locale-sensitive host-side operations
+  (e.g. ADML template locale, string/date handling) even when the directory is English.
 
 Requiring **both** guarantees English end-to-end — in the operating system and in the
 directory. Each check has its own dedicated fail-fast test.

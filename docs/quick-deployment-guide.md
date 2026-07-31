@@ -10,7 +10,7 @@ Before deploying the Tier Model, ensure the following requirements are met:
 - **PowerShell 7.0 or later** (PowerShell 5.1 is not supported)
 - **Domain Admin membership** for deployment operations
 - **Network access** to your preferred Domain Controller
-- **English (`en-US`) only** — the domain controller **OS** and **Active Directory** must both be English; non-English environments are detected and stopped up front (see [Language Support](language-support.md))
+- **English (`en-US`) only** — the **host OS** (the machine you run the scripts from) and **Active Directory** must both be English; non-English environments are detected and stopped up front (see [Language Support](language-support.md))
 
 ### Required PowerShell Modules
 - `ActiveDirectory` (version 1.0.1.0 or later)
@@ -124,7 +124,7 @@ If `Test-TierModelPrerequisites` reports errors:
 - Install PowerShell 7+ from https://github.com/PowerShell/PowerShell/releases
 - Verify Domain Admin group membership
 - Ensure required AD and GP modules are installed (use RSAT on Windows)
-- Ensure the domain controller **OS** and **Active Directory** are English (`en-US`) — non-English environments are not supported (see [Language Support](language-support.md))
+- Ensure the **host OS** (where you run the scripts) and **Active Directory** are English (`en-US`) — non-English environments are not supported (see [Language Support](language-support.md))
 
 ### Deployment Errors
 - Review error messages in deployment output
