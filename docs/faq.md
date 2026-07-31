@@ -107,6 +107,12 @@ The high-level migration path is:
 - **Domain Admin** membership is required for full deployment
 - Scoped deployments (e.g., `-OuAclsOnly`) may work with delegated permissions — to be confirmed per use case
 
+### What language or locale is supported?
+- **English (`en-US`) only, at this time.** Both the **host** you run the scripts from (your workstation or the domain controller) and **Active Directory** must be English.
+- The tool runs **two fail-fast prerequisite checks** — one for the host OS install language, one for the well-known Active Directory group names — and stops with a clear message on a non-English environment **before making any change**.
+- Only 18 languages fully localize Windows Server (including AD group names); English is supported and the other 17 are detected and stopped. Language Interface Packs (e.g. Hindi, Bengali) and non-bold language packs (e.g. Arabic) keep English AD names and are unaffected.
+- See [Language Support](language-support.md) for the full language list and the future localization roadmap.
+
 ### What PowerShell modules must be installed?
 - `ActiveDirectory` (v1.0.1.0 or later)
 - `GroupPolicy` (v1.0 or later)
@@ -324,6 +330,7 @@ The time and energy spent trying to minimize the Tier Model footprint would be f
 - Confirm you are running as Domain Admin
 - Confirm network connectivity to the `-PreferredDc` specified
 - Check that all required modules are installed at the correct versions
+- Confirm the **host OS** (where you run the scripts) and **Active Directory** are English (`en-US`) — non-English environments are not supported (see [Language Support](language-support.md))
 
 ### An OU was not created. Why?
 - The OU may already exist (check the log for "OU already exists" INFO messages)

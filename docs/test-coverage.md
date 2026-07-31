@@ -9,7 +9,9 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** July 30, 2026 (1,425 tests / 0 failed — v1.2.1 UI & bug fixes) | **Overall: 88.68%** | **Target: 95%**
+**Last measured:** July 31, 2026 (1,435 tests / 0 failed — v1.2.2 English-language enforcement) | **Overall: 88.72%** | **Target: 95%**
+
+> ✅ **v1.2.2 measured:** English-language enforcement (#23) added two fail-fast checks (host OS + Active Directory) to `Test-TierModelPrerequisites.ps1` with 10 new unit tests; the file's new code is fully covered (file 82.7% → 84.62%). English (en-US) deployment/audit behavior is unchanged; overall docs-scope coverage held at 88.72%.
 
 > ✅ **v1.2.0 measured:** 5 new Windows LAPS cmdlets added with comprehensive test coverage. New files span 81.6–92.7%. 2 new test files: Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1.
 
@@ -32,7 +34,7 @@
 | `modules/TierModel/public/Import-TierModelGpo.ps1` | 89 | 21 | 110 | 🟠 80.9% ✦ |
 | `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 🟠 81.4% ✦ |
 | `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 343 | 72 | 415 | 🟠 82.7% ✦ |
+| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 396 | 72 | 468 | 🟠 84.62% ✦ |
 | `modules/TierModel/TierModel.psm1` | 582 | 121 | 703 | 🟠 82.8% ✦ |
 | `modules/TierModel/public/New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 🟠 83.3% |
 | `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |
@@ -159,7 +161,7 @@
 | `Import-TierModelGpo.ps1` | 89 | 21 | 110 | 80.9% ✦ |
 | `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 81.4% ✦ |
 | `TierModel.psm1` | 582 | 121 | 703 | 82.8% ✦ |
-| `Test-TierModelPrerequisites.ps1` | 343 | 72 | 415 | 82.7% ✦ |
+| `Test-TierModelPrerequisites.ps1` | 396 | 72 | 468 | 84.62% ✦ |
 | `New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 83.3% |
 | `Update-TierModelGPOConfig.ps1` | 87 | 17 | 104 | 83.7% |
 | `Get-TierModelUserFd.ps1` | 83 | 15 | 98 | 84.7% |

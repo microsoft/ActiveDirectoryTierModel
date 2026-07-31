@@ -13,6 +13,11 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         # Mock external dependencies
         Mock Test-NetConnection { return $true } -ParameterFilter { $ComputerName -eq 'MockDC.test.local' } -ModuleName TierModel
         Mock Test-NetConnection { return $false } -ParameterFilter { $ComputerName -eq 'UnreachableDC.test.local' } -ModuleName TierModel
+
+        # Default the host OS language to English (en-US) so the unconditional host-OS
+        # language gate passes and execution reaches the remaining checks. Individual
+        # language tests override this per-case.
+        Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0409' }
         
         # Create test dependencies file content
         $validDependencies = @{
@@ -256,6 +261,160 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
         }
     }
     
+    Context "Host OS Language Enforcement" -Tag 'Language','Prereq' {
+        It "fails fast with a friendly error when the host OS install language is non-English (German)" -Tag 'Negative','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0407' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English host operating system'
+            ($result.Remediation -join ' ') | Should -Match 'language-support'
+        }
+
+        It "stops before the Pester/module checks on a non-English host OS (early return)" -Tag 'Negative','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0407' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            # Early return means later checks never ran: their snapshot keys are absent
+            # and no Pester/module remediation is surfaced on an unsupported OS.
+            $result.EnvironmentSnapshot.ContainsKey('PesterVersion') | Should -Be $false
+            ($result.Errors -join ' ') | Should -Not -Match 'Pester'
+        }
+
+        It "passes the host OS check when the install language is English (en-US, 0409)" -Tag 'Positive','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0409' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+        }
+
+        It "accepts other English variants such as en-GB (0809)" -Tag 'Positive','Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { return '0809' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.HostOsEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+        }
+
+        It "does not hard-fail on the OS check when the install language cannot be read" -Tag 'Language' {
+            Mock Get-ItemPropertyValue -ModuleName TierModel -ParameterFilter { $Name -eq 'InstallLanguage' } { throw 'registry value not found' }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English host operating system'
+            $result.EnvironmentSnapshot.HostOsLanguageCheckError | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    Context "AD Language Enforcement" -Tag 'Language','Prereq' {
+        BeforeAll {
+            Mock Import-Module -ModuleName TierModel { }
+            Mock Get-Module -ModuleName TierModel {
+                param($Name)
+                switch ($Name) {
+                    'ActiveDirectory' { return [PSCustomObject]@{ Name = 'ActiveDirectory'; Version = [version]'1.0.1.0' } }
+                    'GroupPolicy'     { return [PSCustomObject]@{ Name = 'GroupPolicy';     Version = [version]'1.0' } }
+                    'Pester'          { return [PSCustomObject]@{ Name = 'Pester';          Version = [version]'5.7.1' } }
+                    default           { return $null }
+                }
+            }
+            Mock Get-ADForest      -ModuleName TierModel { return [PSCustomObject]@{ RootDomain = 'test.local' } }
+            Mock Get-ADGroupMember -ModuleName TierModel { return @() }
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{
+                    DNSRoot     = 'test.local'
+                    NetBIOSName = 'TEST'
+                    DomainSID   = [PSCustomObject]@{ Value = 'S-1-5-21-1111111111-2222222222-3333333333' }
+                }
+            }
+        }
+
+        It "fails fast with a friendly error when well-known group names are non-English (German)" -Tag 'Negative','Language' {
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domänen-Admins';    SID = $Identity } }
+                    'S-1-5-32-549' { return [PSCustomObject]@{ Name = 'Server-Operatoren'; SID = $Identity } }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Konten-Operatoren'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            $result.EnvironmentSnapshot.AdLanguageEnglish | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English Active Directory'
+            ($result.Remediation -join ' ') | Should -Match 'language-support'
+            ($result.EnvironmentSnapshot.AdLanguageMismatches -join ' ') | Should -Match 'Server-Operatoren'
+        }
+
+        It "passes the AD language check when all three well-known group names are English" -Tag 'Positive','Language' {
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domain Admins';     SID = $Identity } }
+                    'S-1-5-32-549' { return [PSCustomObject]@{ Name = 'Server Operators';  SID = $Identity } }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Account Operators'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.EnvironmentSnapshot.AdLanguageEnglish | Should -Be $true
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+        }
+
+        It "still flags non-English when a later well-known group cannot be resolved" -Tag 'Negative','Language' {
+            # Domain Admins (localized) resolves first, Server Operators then throws, and
+            # Account Operators (localized) resolves last. The confirmed mismatches must not
+            # be discarded by the mid-loop failure — the gate must still fail closed.
+            Mock Get-ADGroup -ModuleName TierModel {
+                param($Identity)
+                switch -Wildcard ("$Identity") {
+                    '*-512'        { return [PSCustomObject]@{ Name = 'Domänen-Admins';    SID = $Identity } }
+                    'S-1-5-32-549' { throw 'transient AD failure' }
+                    'S-1-5-32-548' { return [PSCustomObject]@{ Name = 'Konten-Operatoren'; SID = $Identity } }
+                    default        { return [PSCustomObject]@{ Name = "$Identity";         SID = $Identity } }
+                }
+            }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            $result.Valid | Should -Be $false
+            ($result.Errors -join ' ') | Should -Match 'Non-English Active Directory'
+            ($result.EnvironmentSnapshot.AdLanguageMismatches -join ' ') | Should -Match 'Domänen-Admins'
+        }
+
+        It "does not fail the language check when Active Directory cannot be evaluated" -Tag 'Language' {
+            Mock Get-ADDomain -ModuleName TierModel { throw 'Domain unreachable' }
+            Mock Get-ADGroup  -ModuleName TierModel { return $null }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+        }
+
+        It "skips the language check when the domain SID cannot be determined" -Tag 'Language' {
+            Mock Get-ADDomain -ModuleName TierModel {
+                return [PSCustomObject]@{ DNSRoot = 'test.local'; NetBIOSName = 'TEST'; DomainSID = $null }
+            }
+            Mock Get-ADGroup -ModuleName TierModel { return $null }
+
+            $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $script:validDepsFile
+
+            ($result.Errors -join ' ') | Should -Not -Match 'Non-English Active Directory'
+            $result.EnvironmentSnapshot.ContainsKey('AdLanguageEnglish') | Should -Be $false
+        }
+    }
+
     Context "Result Object Structure" {
         It "Should return properly structured result object" -Tag 'Positive','Structure' {
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
@@ -887,6 +1046,8 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
             Mock Test-NetConnection   { return $true }
             Mock Write-TierModelLog   { }
             Mock Import-Module        { }
+            # Host OS install language defaults to English (en-US) so the OS gate passes
+            Mock Get-ItemPropertyValue { return '0409' } -ParameterFilter { $Name -eq 'InstallLanguage' }
             # Pester present at the right version
             Mock Get-Module { return [PSCustomObject]@{ Name = 'Pester'; Version = [version]'5.7.1' } } `
                 -ParameterFilter { $ListAvailable -eq $true -and $Name -eq 'Pester' }

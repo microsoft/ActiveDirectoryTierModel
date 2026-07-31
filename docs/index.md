@@ -29,3 +29,7 @@ Welcome to the Active Directory Tier Model documentation.
 - **[Test Tag Matrix](test-tag-matrix.md)** - Test organization, tagging, and execution strategies
 - **[Test Coverage](test-coverage.md)** - Comprehensive test coverage analysis and roadmap
 - **[CI/CD Integration](ci-cd.md)** - Continuous Integration and Deployment pipelines
+
+## Reference
+
+- **[Language Support](language-support.md)** - Supported languages (English only today), the 18 fully-localized Windows Server languages, and the roadmap and challenges for community localization

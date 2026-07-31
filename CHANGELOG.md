@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-07-31
+
+### Added
+- **English-language enforcement (#23)**: `Test-TierModelPrerequisites` now fails fast — before any deployment or audit change — when the environment is not English (`en-US`). Two unconditional checks run up front and are inherited by both `Deploy-TierModel.ps1` and `Audit-TierModel.ps1`:
+  - **Host operating system** — reads the local machine's static `InstallLanguage` LCID (`HKLM\SYSTEM\CurrentControlSet\Control\Nls\Language`) and requires an English variant (primary language `0x09`, e.g. en-US/en-GB). Runs after the elevation check and **before** the Pester/module checks, and returns immediately on a non-English host so the operator is never asked to install modules on an unsupported OS.
+  - **Active Directory** — resolves three well-known groups by SID (Domain Admins `<DomainSID>-512`, Server Operators `S-1-5-32-549`, Account Operators `S-1-5-32-548`) and requires each directory `Name` to be its English value. Child-domain safe (no Enterprise/Schema Admins); names are read from AD (never client-side SID translation, which the local OS would localize into a false pass). A confirmed localized name always fails closed even if another well-known group cannot be resolved.
+  - Both checks emit friendly `Errors`/`Remediation` and record diagnostics in `EnvironmentSnapshot` (`HostInstallLanguage`, `HostOsEnglish`, `AdLanguageEnglish`, `AdLanguageMismatches`, …).
+- **Documentation**: new `docs/language-support.md` documenting the English-only requirement, the 18 fully-localized Windows Server languages that are detected and stopped, and a future community-localization roadmap. Prerequisite notes added to the README, the quick/detailed deployment guides, and the FAQ.
+
+### Notes
+- No configuration changes are required and English (`en-US`) deployments and audits are unaffected (full suite: **1,435** automated tests passing; module scope ~91% coverage). Non-English environments are a documented, unsupported scenario — see `docs/language-support.md`.
+
 ## [1.2.1] - 2026-07-30
 
 ### Fixed
