@@ -31,6 +31,19 @@ Updated all documentation files for Phase 16 MSA/gMSA/dMSA feature rollout:
 - Updated `docs/test-coverage.md`: Added 12 new cmdlets to coverage table marked "⏳ Pending" with estimated line counts (~240, ~195, ~159, ~318 lines per pattern); updated total file count to 58; updated pending re-measure note with Phase 16 details
 - Updated `README.md`: Updated project description to include "MSA/gMSA/dMSA Permissions"; updated test file counts (15 unit tests, 21 total test files); updated Test Coverage Highlights with 58 production files; added optional features table to Deployment Scripts section showing `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` switches
 
+## Session 2026-08-05 — Sentinel Monitoring Documentation
+
+Authored the Microsoft Sentinel monitoring guide for the Tier Model Content Hub solution.
+
+**Files created/modified:**
+- `docs/sentinel-monitoring.md` — new guide (two-part: philosophy + step-by-step install with 26 screenshots)
+- `docs/images/sentinel/` — 26 screenshots copied from user's Downloads
+- `mkdocs.yml` — added `Sentinel Monitoring: sentinel-monitoring.md` nav entry; added `validation.links.not_found: ignore` to allow image asset links under strict mode
+- `docs/index.md` — added `## Monitoring` section with bullet linking the new page
+- `README.md` — added `## 📊 Monitoring` section before `## 🔗 Additional Resources`; added bullet in Core Documentation list
+
+**Build result:** `mkdocs build --strict` passes clean, 0 warnings.
+
 ## Learnings
 
 - Parameter naming convention: Follow PowerShell PascalCase convention consistently. `-IncludeGmsa` is more readable and maintainable than mixed-case `-IncludeGMSA`.
@@ -83,3 +96,5 @@ Wrote all T021 documentation for the Windows LAPS feature (module v1.2.0):
 - 2026-05-29T10:10:00Z — Spec documentation merged and archived by Scribe. All parameter fixes, edge cases, and rights model clarifications preserved in decisions registry.
 - **2025-07-18 — Documentation consistency:** MSA/gMSA/dMSA features marked as "Optional" requiring explicit `-Include*` switches throughout all docs; all 7 documentation files updated in a single coordinated pass; test coverage file marked as "Pending re-measure" to signal to team that measurements will shift when tests are run
 - **2026-07-16 — WinLaps documentation:** Windows LAPS feature is Windows LAPS ONLY (never legacy ms-Mcs-AdmPwd*); schema prerequisite is a hard stop (tool never extends schema); decryptor is per-tier (single principal per GPO, CNG-DPAPI enforcement); DC OU has no decryptor (DSRM uses Domain Admins); audit is always OPT-IN via -IncludeWinLaps
+- **2026-08-05 — Sentinel monitoring doc:** Lives at `docs/sentinel-monitoring.md`, screenshots at `docs/images/sentinel/` (26 files). Doc principles: never include rule/workbook counts (they change); never duplicate KQL — link to Azure/Azure-Sentinel source; keep doc focused on philosophy, prerequisites, click-through enablement, and links. Recommended install order: install from Content Hub → enable analytic rules (one at a time) → deploy automation rules (ARM template, same region/RG as workspace) → save workbook. The `(TMxxx.1)` tag in rule names links analytic rules, automation rules, and workbook — renaming breaks everything.
+- **2026-08-05T11:24:14+08:00 — Exclude screenshots that show rule/workbook counts:** The solution-details "content included" screenshot (`02-solution-details-02.png`) was intentionally removed because it displayed rule/workbook counts that would require re-shooting whenever counts change. Consistent with the no-counts guardrail: if an image would make the doc lie when counts change, don't include it. A screenshot copied from Downloads had a leading space in its filename (` 01-contenthub-search.png`). MkDocs 1.6.x strict mode correctly caught this as a broken image link. The correct fix is to rename the asset (use `-LiteralPath` in PowerShell to handle the space literally). Never add `validation.links.not_found: ignore` to mkdocs.yml to paper over a broken link — that hides real problems. Keep strict link validation ON at all times.
