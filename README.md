@@ -32,6 +32,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[Test Tag Matrix](https://microsoft.github.io/ActiveDirectoryTierModel/test-tag-matrix/)** - Pester test organization
 - **[Test Coverage](https://microsoft.github.io/ActiveDirectoryTierModel/test-coverage/)** - Comprehensive test coverage analysis and roadmap
 - **[Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/)** - Supported languages (English only today) and the localization roadmap
+- **[Sentinel Monitoring](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
 
 ### 🔧 Technical Specifications
 - **[Feature Specification](specs/001-tier-model-module/spec.md)** - Complete requirements and user stories
@@ -143,6 +144,13 @@ cd ActiveDirectoryTierModel
 - **Language**: English (`en-US`) only — both the **host OS** (the machine you run the scripts from) and **Active Directory** must be English (see [Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/))
 
 *For detailed prerequisite validation, run `Test-TierModelPrerequisites`*
+
+## 📊 Monitoring
+
+Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model is available as a solution in the **Azure Content Hub**. The solution covers Tier Model–specific detection and triage — no custom playbooks or watchlists required. The only hard requirement is that every Domain Controller's Security event logs must be flowing into the Sentinel workspace; any DC not onboarded is a blind spot.
+
+- 📖 [Sentinel Monitoring Guide](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/)
+- 🔗 [Content Hub solution source (Azure/Azure-Sentinel)](https://github.com/Azure/Azure-Sentinel/tree/master/Solutions/Microsoft%20Active%20Directory%20Tier%20Model)
 
 ## 🔗 Additional Resources
 

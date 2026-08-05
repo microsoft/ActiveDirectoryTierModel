@@ -30,6 +30,10 @@ Welcome to the Active Directory Tier Model documentation.
 - **[Test Coverage](test-coverage.md)** - Comprehensive test coverage analysis and roadmap
 - **[CI/CD Integration](ci-cd.md)** - Continuous Integration and Deployment pipelines
 
+## Monitoring
+
+- **[Sentinel Monitoring](sentinel-monitoring.md)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
+
 ## Reference
 
 - **[Language Support](language-support.md)** - Supported languages (English only today), the 18 fully-localized Windows Server languages, and the roadmap and challenges for community localization
