@@ -1,8 +1,28 @@
 # storm — History
 
-## Session 2026-08-05 — GPO Management Guidance Page
+## Session 2026-08-05 — GPO Management Guidance Page (Revision Pass)
 
-Authored `docs/gpo-management-guidance.md` (18 sections, ~1,400 lines), the operational best-practices companion to `gpo-management-strategy.md`. Wired into `mkdocs.yml`, `docs/index.md`, and `README.md`. `mkdocs build --strict` passes with zero warnings.
+Revision pass on `docs/gpo-management-guidance.md` applying all owner peer-review corrections (2026-08-05T16:09:55+08:00):
+
+- **§1 Overview & Philosophy:** Rewrote to establish Account Restrictions GPO at link order 1 (highest, enabled day one) as the model's foundation. SOE at link order 2, overrides baselines but NOT Account Restrictions. Four-home model corrected throughout.
+- **§2 Golden Rules:** Added "never put Deny URAs or RG definitions in the SOE." Updated SHF name example to `CIS v3.0.0`. Changed "unpredictable" baseline reasoning to performance rationale. Made third-party config delivery prescriptive (via GPO, never local).
+- **§3 Precedence Table:** Corrected inverted table — Account Restrictions = order 1 (enabled), SOE = order 2 (disabled), SHF = 3, MS SCT = 4, feature GPOs 5–12 with accurate enabled/disabled states. Added new subsections: "User Rights Assignments Are Not Cumulative" (replace-not-merge; why overrides work) and "GPO Configuration Halves — Why We Disable One Half per GPO" (UserSettingsDisabled performance, loopback guidance).
+- **§4 Post-Deployment:** Added explicit "Enable the SOE link" step. Added firewall audit-mode step before enabling baseline. Added explicit statement that SOE does not override Account Restrictions.
+- **§5 Choosing Your Security Baseline:** Added requirement for vendor-provided importable GPO (CIS provides one behind membership). Added "if you don't import, you can't claim the framework" guidance and auditor disclosure note. Fixed dual-baseline rationale from "unpredictable" to "performance/processing cost." Added application-specific override path at child OU level.
+- **§7 SOE:** Added explicit statement that SOE is at priority 2 and does not override Account Restrictions at priority 1.
+- **§8 Review GPOs table:** Fixed first row — separated BitLocker (disk encryption) from Windows LAPS (local admin password). Added AV exclusions note (child-OU Security GPO). Added free/built-in callout (MDE requires license). Made third-party alternative column prescriptive throughout.
+- **§9 Enforced GPOs:** Removed false "Default Domain Policy is the common example" claim. Corrected framing: Tier Model blocks inheritance; only Enforced GPOs can still reach it. Added concrete "Group Policy Inheritance tab" verification step.
+- **§11 Naming:** Updated child-OU GPO naming from "URA - Computer" suffix to "Security" convention (e.g., `T1-Payroll-Web Security`).
+- **§12 Deny Model:** Fixed Denied To column — each right denies the full set of Tier Model AD groups + relevant local accounts. Override 1: removed "only when vendor doesn't support gMSA" clause; corrected gMSA guidance (gMSA still needs Allow rights, doesn't eliminate URA rules). Added duplicate/rename/link-below-Security procedure. Override 2: corrected CLIUSR explanation — template removes `NT AUTHORITY\Local account` (all local accounts), not CLIUSR by name.
+- **§13 Template GPOs Reference:** Added User Config disabled callout. Fixed Override-Deny-Network row (removes all local accounts, not CLIUSR by name). Renamed all template usage descriptions from "URA" to "Security." Added link-order guidance (Security GPO = priority 1, overrides below).
+- **§14 Firewall:** Added prerequisite first step (Windows Firewall must be enabled + block mode before exporting policy). Fixed attacker double-negative sentence to plain affirmative statement.
+- **§15 Governance:** Updated "URA GPO" → "Security GPO."
+- **§16 Worked Example:** Renamed all child-OU GPOs from "URA - Computer" to "Security" convention. Fixed Starting Point description (Account Restrictions at order 1, enabled). Corrected Step 5 (Override Deny Network): explained NT AUTHORITY\Local account is what's removed, not CLIUSR by name; Override links at priority 2 below Security GPO at priority 1. Updated Step 6 firewall to verify block mode first. Updated image placeholder description to show corrected layer order.
+- **§17 Upgrade Lifecycle:** Fixed CIS example version `CIS Mar2027` → `CIS v3.0.0` (or date-based label such as `Nov26`).
+
+`mkdocs build --strict` — ✅ exit code 0, zero warnings. `site/` deleted.
+
+
 
 **Files created/modified:**
 - `docs/gpo-management-guidance.md` (new)

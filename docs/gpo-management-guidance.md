@@ -38,14 +38,18 @@ This distinction matters for two reasons:
 - **In-place upgrades.** When a new version of the Tier Model ships, it replaces root-level GPOs cleanly because those GPOs have not been modified. If you have altered them, an upgrade becomes a diff exercise and a maintenance burden you own forever.
 - **Audit accuracy.** The [Drift Detection](drift-detection-details.md) audit script validates that the expected GPOs are present, linked in the correct order, and configured correctly. Reordering, renaming, or modifying a provided root-level GPO will produce drift findings that cannot be auto-remediated.
 
-The **SOE GPO** (`*- Tier <N> Servers SOE - Computer`) is your designated override surface. Every customer-specific setting belongs there. The SOE is created empty and linked at the highest priority within each root Tier Model OU so that its settings win over everything beneath it in link order. Your job is to put settings *into* the SOE — never to edit the other root GPOs.
+The **Account Restrictions GPO** (`*- Tier <N> Servers Account Restrictions`) is the GPO that makes the Tier Model work. It is linked at priority 1 (highest precedence) and is link-enabled from day one. It owns the Deny user rights assignments and the Restricted Group definitions for every server in the tier. Nothing you configure in other GPOs at the root level overrides it.
+
+The **SOE GPO** (`*- Tier <N> Servers SOE - Computer`) is your designated override surface. It is linked at priority 2, so its settings override the security baseline and all other root-OU GPOs below it — but not the Account Restrictions GPO above it. The SOE ships link-disabled; enabling it is a deliberate post-deployment step. The SOE must never contain Deny user rights or Restricted Group definitions — those belong exclusively to the Account Restrictions GPO.
+
+**Allow** logon rights for a specific application role belong at the child-OU level, in the app-role Security GPO — not in the SOE.
 
 The model eliminates grey configurations by giving every setting a single, correct home:
 
-- Settings that apply to all servers of a given tier → SOE.
-- Settings that apply to a specific application role → child-OU app-role GPO.
-- Deny logon rights for the tier → root Account Restrictions GPO (hands off).
-- Allow logon rights for an application role → child-OU app-role GPO.
+- Deny logon rights and Restricted Groups for the tier → root Account Restrictions GPO (link order 1, enabled). **Hands off.**
+- Settings that apply to all servers of a given tier (baseline overrides, update config, account renames) → SOE GPO (link order 2, you populate and enable this).
+- Settings that apply to a specific application role → child-OU app-role Security GPO.
+- Allow logon rights for an application role → child-OU app-role Security GPO.
 
 If a setting does not fit one of these four homes, the question to ask is whether it belongs in the tier at all.
 
@@ -55,23 +59,26 @@ If a setting does not fit one of these four homes, the question to ask is whethe
 
 **Do:**
 
+- Treat the Account Restrictions GPO as untouchable — it is the foundation of the model.
 - Override in the SOE. The SOE is the only root-level GPO you add settings to.
-- Build your application-specific configuration in child-OU GPOs.
+- Build your application-specific configuration in child-OU Security GPOs.
 - Pick exactly ONE security baseline — either the Microsoft SCT baseline or an SHF (CIS/NIST). Enable one, leave the other unlinked.
 - Enable GPO links deliberately, after testing. Most root GPOs ship link-disabled for this reason.
 - Remediate any Enforced GPOs at the root of the domain *before* deploying the Tier Model.
-- Rename the SHF GPO to record the provider and version (e.g., `*- Tier 1 Servers SHF CIS Nov2026 - Computer`) so future versions can be introduced and swapped without ambiguity.
+- Rename the SHF GPO to record the provider and version (e.g., `*- Tier 1 Servers SHF CIS v3.0.0 - Computer`) so future versions can be introduced and swapped without ambiguity.
 - Use gMSA accounts for services wherever the vendor supports them.
+- Deliver all third-party tool configuration via GPO in the SOE or a child-OU GPO — never leave it as an ungoverned local configuration.
 
 **Never:**
 
 - Add, remove, or reorder GPO links at the root of a Tier Model OU.
 - Edit a provided root-level GPO directly. It is the vendor product.
-- Link-enable both the Microsoft SCT baseline and an SHF baseline simultaneously. The overlap is enormous and the interaction is unpredictable.
+- Link-enable both the Microsoft SCT baseline and an SHF baseline simultaneously. The duplicate setting processing degrades policy refresh performance.
 - Use GPO Enforcement on any link within the Tier Model OUs.
 - Use Block Inheritance on child OUs you create (it signals poor OU design — if you need to isolate a child OU, the correct answer is a different OU location or a more specific link).
 - Add WMI filters to apply a GPO to one Windows version only.
 - Create version-specific baselines (one for 2019, one for 2022, one for 2025). The Server 2025 baseline covers all.
+- Put Deny user rights or Restricted Group definitions in the SOE.
 
 ---
 
@@ -81,27 +88,54 @@ Group Policy applies from the outermost OU inward. Within an OU, a lower link-or
 
 ### Root Tier Model OU GPOs (the vendor layer)
 
-These GPOs are linked directly on the root Tier Model OU (e.g., `OU=Tier 1 Member Servers`). They define the security posture for every server in that tier. Their link order is fixed and meaningful:
+These GPOs are linked directly on the root Tier Model OU (e.g., `OU=Tier 1 Member Servers`). They define the security posture for every server in that tier. Their link order is fixed and meaningful — link order 1 is highest precedence (wins):
 
-| Priority | GPO | Purpose |
-|----------|-----|---------|
-| 1 (highest) | `*- Tier <N> Servers SOE - Computer` | Your override surface. Empty by default. |
-| 2 | `*- Tier <N> Servers SHF [Provider] [Version] - Computer` | Industry-framework baseline slot (CIS, NIST, etc.). Ships unlinked. |
-| 3 | `*- Tier <N> Servers MSFT Windows Server 2025 - Member Server` | Microsoft SCT baseline. Ships unlinked. |
-| 4+ | Defender AV, BitLocker, Windows LAPS, MDE Group Tag, Edge, IE11 | Feature GPOs. Mix of link-enabled and link-disabled. |
-| Last | `*- Tier <N> Servers Account Restrictions` | Five Deny logon rights. Ships link-enabled. |
+| Link Order | Default State | GPO | Purpose |
+|---|---|---|---|
+| 1 | **Link-enabled** | `*- Tier <N> Servers Account Restrictions` | Authoritative DENY: all five Deny logon rights + Restricted Groups. Highest precedence. This is the GPO that makes the model work. |
+| 2 | Link-disabled | `*- Tier <N> Servers SOE - Computer` | Your override surface. Overrides baselines and all GPOs below it — but NOT Account Restrictions above it. Enable after configuring. |
+| 3 | Link-disabled | `*- Tier <N> Servers SHF [Provider] [Version] - Computer` | Industry-framework baseline slot (CIS, NIST, etc.). Enable this OR the MS SCT baseline — never both. |
+| 4 | Link-disabled | `*- Tier <N> Servers MSFT Windows Server 2025 - Member Server` | Microsoft SCT baseline. Enable this OR the SHF slot — never both. |
+| 5 | Link-disabled | Defender Antivirus | Microsoft Defender AV policy. |
+| 6 | Link-disabled | BitLocker | BitLocker enforcement and recovery password escrow. |
+| 7 | **Link-enabled** | PowerShell Auditing | Script block and module logging. Safe to enable from day one. |
+| 8 | **Link-enabled** | Edge | Microsoft Edge browser policy. |
+| 9 | **Link-enabled** | IE11 | Internet Explorer 11 policy. |
+| 10 | Link-disabled | Windows LAPS | Built-in local Administrator password management. |
+| 11 | Link-disabled | MDE Tier `<N>` Group Tag | Microsoft Defender for Endpoint onboarding tag. Requires MDE license. |
+| 12 | **Link-enabled** | Domain Security | Domain-level security settings for member servers. This controls local account password policies on domain joined endpoints. |
 
-Because the SOE is at priority 1, any setting you put in the SOE overrides the same setting in the baseline GPOs below it. This is the mechanism that lets you selectively override one or two settings from a baseline without forking the baseline itself.
+The Account Restrictions GPO is enabled and effective from the moment you deploy the Tier Model. Every other GPO that could affect server connectivity or break running services ships disabled so you can enable it deliberately, after testing. Audit and logging GPOs (PowerShell Audit, Edge, IE11, Domain Security) ship enabled because they are safe to activate on any server with no service impact.
+
+Because the Account Restrictions GPO is at priority 1, **nothing at the root-OU level overrides it** — not the SOE, not any baseline. The only layer that can override Account Restrictions settings is a child-OU GPO (because child OUs are processed after parent OUs and their settings win for that specific URA — see [User Rights Assignments Are Not Cumulative](#user-rights-assignments-are-not-cumulative) below).
 
 ### Child-OU App-Role GPOs (your layer)
 
-GPOs linked on a child OU (e.g., `OU=T1-Payroll-Web,OU=Tier 1 Member Servers`) are processed *before* the parent-OU GPOs, because Group Policy inheritance flows from outermost to innermost and innermost wins. A setting configured in a child-OU GPO therefore overrides the same setting from any root Tier Model OU GPO.
+GPOs linked on a child OU (e.g., `OU=T1-Payroll-Web,OU=Tier 1 Member Servers`) are processed *after* the parent-OU GPOs during inheritance, and child-OU settings win over parent-OU settings for any specific policy value. A setting configured in a child-OU GPO therefore overrides the same setting from any root Tier Model OU GPO — including the Account Restrictions GPO.
 
-This is how the five Deny logon rights are overridden for specific scenarios (see [Section 12](#12-the-deny-model-user-rights)): the root Account Restrictions GPO sets the Deny, and a child-OU Override GPO removes a specific group from that Deny.
+This is how the Deny logon rights are overridden for specific scenarios (see [Section 12](#12-the-deny-model-user-rights)): the root Account Restrictions GPO sets the Deny at the parent OU, and a child-OU Override GPO replaces that specific URA for the servers in the child OU. Understanding *why* this works requires understanding how URA precedence works — see the next subsection.
 
 > **🖼️ Image placeholder — suggested file `images/gpo/gpo-layer-precedence.png`**
 >
-> *What this diagram should show:* A simplified OU tree with `Tier 1 Member Servers` at the root and `T1-Payroll-Web` and `T1-Payroll-DB` as child OUs. Arrows or shading indicate the GPO processing order (child OUs first, then parent), with annotations showing which GPOs link at each level and which direction wins. Label the root as "vendor layer (do not modify)" and the child OUs as "your layer."
+> *What this diagram should show:* A simplified OU tree with `Tier 1 Member Servers` at the root and `T1-Payroll-Web` and `T1-Payroll-DB` as child OUs. Arrows or shading indicate the GPO processing order (child OUs processed last, their settings win), with annotations showing which GPOs link at each level and which direction wins. Label the root as "vendor layer (do not modify)" and the child OUs as "your layer."
+
+### User Rights Assignments Are Not Cumulative
+
+This is one of the most historically misunderstood points in Group Policy — and it is fundamental to how the Tier Model's Deny override mechanism works.
+
+For most GPO settings, if two GPOs configure the same value, the higher-precedence GPO wins and the other is ignored. User Rights Assignments (URAs) work differently: **a URA does not merge across GPOs — the GPO closest to the object (highest effective precedence) completely replaces the entire membership list for that right.**
+
+Concretely: if the root Account Restrictions GPO sets `SeDenyBatchLogonRight` to deny a list of ten Tier Model groups, and a child-OU Override GPO also configures `SeDenyBatchLogonRight` with a shorter list that omits the built-in Administrators group, the child-OU GPO wins entirely. The effective deny list on servers in that child OU is the one defined by the child-OU GPO — not a union of both lists.
+
+This is **why a sanctioned override works**: by re-declaring the full deny list minus the specific principal you need to exempt, the child-OU GPO replaces the root deny precisely and predictably. It is also why you must re-declare the complete intended list in any Override template you use — omitting a principal from the child-OU list removes it from the effective deny.
+
+### GPO Configuration Halves — Why We Disable One Half per GPO
+
+Every GPO contains two halves: **Computer Configuration** and **User Configuration**. Processing both halves on every refresh adds overhead regardless of whether each half contains any settings.
+
+All Tier Model computer-OU GPOs ship with **User Configuration disabled** (`gpoStatus: UserSettingsDisabled`). This means the Windows client skips the User Configuration half entirely during Group Policy processing — reducing refresh time on every member server in the tier. When you duplicate a template GPO, confirm that User Configuration is still disabled in the copy before linking it.
+
+A GPO should use both halves only in a deliberate **loopback processing** scenario, where computer policy is used to apply user-configuration settings to users logging on to specific computers. Loopback should be used sparingly — like Block Inheritance and Enforcement, it is a tool for exceptional cases, not a routine design pattern.
 
 ### Link-Enabled vs. Link-Disabled Defaults
 
@@ -131,9 +165,9 @@ The rationale: audit and logging are safe to enable immediately and should be on
 After deploying the Tier Model, perform these steps before considering deployment complete:
 
 1. **Review which link-disabled GPOs apply to your environment.** Decide whether to use the Microsoft SCT baseline or an SHF baseline (not both — see [Section 5](#5-choosing-your-security-baseline)). Enable the one you choose.
-2. **Populate the SOE GPO.** At minimum, add your local Administrator and Guest account rename settings. Add Windows Update configuration if you manage updates via Group Policy.
-3. **Review the feature GPOs** (Defender AV, BitLocker, Windows LAPS, MDE Group Tag, Edge). For each, make the use-it-or-leave-it decision described in [Section 8](#8-review-every-provided-gpo-use-it-or-leave-it-unlinked).
-4. **Test before enabling firewall GPOs.** Enabling the firewall baseline on servers that currently run with the Windows Firewall disabled can cause an immediate outage. See [Section 14](#14-windows-firewall-deep-dive).
+2. **Configure and enable the SOE GPO link.** The SOE ships link-disabled. Populate it first (at minimum: local Administrator and Guest account renames, Windows Update settings), then enable the link. The SOE overwrites its settings over the baseline and all other root-OU GPOs — **except the Account Restrictions GPO at priority 1, which the SOE cannot override.**
+3. **If your selected baseline enables the Windows Firewall in block mode**, add the firewall profiles to the SOE set to **Enabled + Audit mode** for all three profiles before enabling the baseline link. Audit mode logs dropped packets without blocking traffic, letting you identify what would break before committing to Block mode. See [Section 14](#14-windows-firewall-deep-dive) for the full procedure.
+4. **Review the feature GPOs** (Defender AV, BitLocker, Windows LAPS, MDE Group Tag, Edge). For each, make the use-it-or-leave-it decision described in [Section 8](#8-review-every-provided-gpo-use-it-or-leave-it-unlinked).
 
 This is the complete post-deployment checklist. Every other customization belongs in child-OU app-role GPOs, created as applications are migrated into the tier.
 
@@ -147,20 +181,22 @@ You have two slots and you enable exactly one:
 
 The `*- Tier <N> Servers MSFT Windows Server 2025 - Member Server` GPO ships ready to link-enable. It is the Microsoft-recommended baseline for member servers. If your organization does not have a mandated industry framework, this is the correct choice. Link-enable it and move on.
 
-**Option B — Security Hardening Framework (SHF): CIS or NIST**
+**Option B — Security Hardening Framework (SHF): CIS, NIST, etc. **
 
-If your organization requires CIS Benchmarks, NIST 800-53, or a similar framework, use the SHF slot:
+If your organization requires CIS Benchmarks, NIST 800-53, or a similar framework, use the SHF slot. The requirement here is that the framework vendor **provides an importable GPO backup** — do not recreate a framework manually by cherry-picking settings. CIS members can download the CIS-provided GPO backup from the CIS website. NIST and other frameworks typically provide equivalent exports. If your framework vendor does not provide an importable GPO, contact them before proceeding.
 
-1. Download the framework vendor's GPO backup.
+1. Download the framework vendor's importable GPO backup.
 2. Import it into the `*- Tier <N> Servers SHF [Provider] [Version] - Computer` GPO using `Import-GPO`.
-3. Rename the GPO by replacing `[Provider]` and `[Version]` with the specific framework and version (e.g., `CIS Nov2026`). The full name becomes `*- Tier 1 Servers SHF CIS Nov2026 - Computer`. This naming convention is the version-control mechanism — when a newer CIS version ships, you create a new GPO with the new version in the name and retire the old one without ambiguity.
+3. Rename the GPO by replacing `[Provider]` and `[Version]` with the specific framework and version (e.g., `CIS v3.0.0`, or a date-based internal label such as `Nov26`). The full name becomes `*- Tier 1 Servers SHF CIS v3.0.0 - Computer`. This naming convention is the version-control mechanism — when a newer CIS version ships, you create a new GPO with the new version in the name and retire the old one without ambiguity.
 4. Leave the Microsoft SCT baseline link-disabled.
 
-**The most important rule:** do not enable both. The settings overlap heavily. Running two baselines simultaneously produces unpredictable results depending on which GPO wins for each setting, and your effective configuration becomes impossible to reason about.
+**What if you do not have an importable GPO?** If your organization has selected CIS or NIST as its framework but does not have the official vendor-provided GPO backup, do not attempt to manually recreate the framework settings. Put those settings in the SOE instead, and disclose to your auditors that you are applying the settings individually rather than via the official vendor GPO. Importing the vendor's GPO and renaming the SHF slot means the baseline audits 100% to the vendor's recommendation; any deviation goes in the SOE with a documented reason. Manual recreation cannot make that claim.
+
+**Why only one baseline?** It is not that running both produces unpredictable behavior — the higher-precedence GPO (the SOE, at link order 2) deterministically wins for any setting where both baselines differ. The real cost is **performance**: during every Group Policy refresh, the member server reprocesses every setting in every enabled GPO. Two baselines means hundreds or thousands of duplicate settings processed on every refresh interval across every server in the tier. Enable one baseline. Override specific settings in the SOE when needed. Apply application-specific overrides at the child-OU level when an application cannot comply with the baseline.
 
 **Never modify a provided vendor baseline.** If your application or environment requires a baseline setting to be different, override that setting in the SOE. The SOE is at higher link priority and wins. The baseline remains unmodified and can be replaced cleanly when a new version ships.
 
-**Never duplicate a setting across GPOs.** If Windows Update is configured in the SOE and also in the baseline, the SOE wins — but the duplicate makes it harder to understand your effective configuration and harder to audit. Set each setting in one place.
+**Never duplicate a setting across GPOs.** If Windows Update is configured in the SOE and also in the baseline, the SOE wins — but the duplicate makes it harder to understand your effective configuration and harder to audit. Never configure the same exact GPO setting in two places.
 
 ---
 
@@ -178,7 +214,7 @@ If a specific setting is needed only on a subset of servers (for example, a feat
 
 ## 7. The SOE — Your Environment's Override Surface
 
-The Standard Operating Environment GPO (`*- Tier <N> Servers SOE - Computer`) is the one root-level GPO that you are expected to populate. It is created empty and linked at the highest priority, so its settings override anything below it.
+The Standard Operating Environment GPO (`*- Tier <N> Servers SOE - Computer`) is the one root-level GPO that you are expected to populate. It ships link-disabled and is linked at priority 2. When enabled, its settings override the security baseline and all other root-OU GPOs below it in link order. It does **not** override the Account Restrictions GPO at priority 1.
 
 **Settings that belong in the SOE:**
 
@@ -187,6 +223,7 @@ The Standard Operating Environment GPO (`*- Tier <N> Servers SOE - Computer`) is
 - Any setting your chosen baseline includes that you need to override for your environment.
 - Any security or configuration setting your environment requires that is not covered by the chosen baseline.
 - Inbound firewall rules needed on every server in the tier (e.g., a backup agent's listening port that every server requires).
+- Trusted Offline Root and Enterprise Root PKI certificates and intermediary trusted chain certificates
 
 **Settings that do not belong in the SOE:**
 
@@ -200,16 +237,16 @@ The Standard Operating Environment GPO (`*- Tier <N> Servers SOE - Computer`) is
 
 For each optional capability GPO, make a binary decision: use the provided GPO, or leave it unlinked and manage the capability yourself. The table below captures each decision.
 
+> **Note:** All capabilities listed except MDE are **free, built-in** Windows features. These can help to meet baseline security and audit compliance out of the box using  enabling these GPOs. MDE requires a Microsoft Defender for Endpoint license.
+
 | Capability | Provided GPO | If you use an alternative |
 |---|---|---|
-| **Disk encryption** | Windows LAPS GPO controls the recovery password. BitLocker GPO enforces encryption. Link-enable both if using BitLocker. | If a third-party disk encryption solution manages this, leave the BitLocker GPO unlinked. Put any required configuration in the SOE. |
-| **Host firewall** | Firewall Restrictions GPO. Link-enable to enforce Windows Firewall rules centrally. | If a third-party host firewall agent is used, leave the Windows Firewall Restrictions GPO unlinked. **Do not disable the Windows Firewall.** Leave it running in audit mode (see [Section 14](#14-windows-firewall-deep-dive)). |
-| **EDR / XDR** | MDE Group Tag GPO. Link-enable if servers are onboarded to Microsoft Defender for Endpoint. | If not using MDE, leave the tag GPO unlinked. Your EDR agent's configuration goes in the SOE or a child-OU GPO. |
+| **Disk encryption** | BitLocker GPO. Enforces BitLocker encryption and escrows the BitLocker recovery password to Active Directory. Link-enable if using BitLocker. | If a third-party disk encryption solution manages this, leave the BitLocker GPO unlinked. Deliver the third-party tool's configuration via the SOE or a child-OU GPO — not as an ungoverned local configuration. |
+| **Local admin password** | Windows LAPS GPO. Manages the built-in local Administrator account password and stores it in Active Directory. Link-enable if using Windows LAPS. | If a separate password management solution manages the built-in Administrator account, leave the Windows LAPS GPO unlinked. |
+| **Host firewall** | Firewall Restrictions GPO. Link-enable to enforce Windows Firewall rules centrally. | If a third-party host firewall agent is used, leave the Windows Firewall Restrictions GPO unlinked. Deliver that agent's configuration via the SOE or a child-OU GPO. **Do not disable the Windows Firewall.** Leave it running in audit mode (see [Section 14](#14-windows-firewall-deep-dive)). |
+| **EDR / XDR** | MDE Group Tag GPO. Link-enable if servers are onboarded to Microsoft Defender for Endpoint. Requires MDE license. | If not using MDE, leave the tag GPO unlinked. Deliver your EDR agent's configuration via the SOE or a child-OU GPO — not as an ungoverned local configuration. |
 | **Web browser** | Edge GPO. Edge is installed on every supported Windows Server version. Recommend link-enabling. | If Chrome or Firefox policies are required, add them to the SOE (or a child-OU GPO for specific servers). Edge and a third-party browser policy can coexist. |
-| **Antivirus** | Defender Antivirus GPO. Link-enable if using Microsoft Defender Antivirus. | If a third-party AV agent manages protection, leave the Defender AV GPO unlinked. Configuration for the third-party agent goes in the SOE. |
-| **Local admin password** | Windows LAPS GPO. Link-enable if using Windows LAPS to manage the built-in Administrator password. | If a separate password management solution manages the built-in Administrator account, leave the Windows LAPS GPO unlinked. |
-
-The guiding principle: the Tier Model provides these GPOs so you do not have to build them. Use them when they match your tooling. Leave them unlinked when they do not — but always have a replacement in the SOE or a child-OU GPO, not an ungoverned local configuration.
+| **Antivirus** | Defender Antivirus GPO. Link-enable if using Microsoft Defender Antivirus. Application-specific Defender AV exclusions (e.g., SQL Server data directories, IIS log paths) belong in the child-OU Security GPO for that role, not in the root-level Defender AV GPO. | If a third-party AV agent manages protection, leave the Defender AV GPO unlinked. Deliver the third-party agent's configuration via the SOE or a child-OU GPO — not as an ungoverned local configuration. |
 
 ---
 
@@ -233,15 +270,19 @@ Never enforce a GPO within the Tier Model OU structure.
 
 ### Enforced GPOs at the Root of the Domain
 
-This is the most critical pre-deployment check. Any GPO that is link-Enforced at the root of the domain (`Default Domain Policy` is the common example, but it can be any GPO) bleeds down through every OU, including the Tier Model OUs, and cannot be blocked. If such a GPO conflicts with a Tier Model GPO setting, the Enforced GPO wins — regardless of where it sits in link order.
+This is the most critical pre-deployment check. The Tier Model intentionally blocks GPO inheritance at its root OUs, which means standard domain-level GPOs (linked at the domain root without Enforcement) do not flow into the Tier Model. That is by design. The problem is GPOs that are **Enforced** — an Enforced link overrides Block Inheritance and flows into every OU in the domain regardless.
+
+Any GPO that is link-Enforced at the root of the domain bleeds down into the Tier Model OUs and cannot be blocked. If such a GPO conflicts with a Tier Model GPO setting, the Enforced GPO wins — regardless of link order within the Tier Model.
 
 **Before deploying the Tier Model, audit domain-level Enforced GPOs and remediate them.** Options:
 
 1. Remove the Enforcement flag from the domain-level GPO link. This is the correct fix when Enforcement was applied as a shortcut rather than by design.
-2. Move settings that must apply to the whole domain into the domain-level GPO without Enforcement, relying on inheritance.
-3. Explicitly exclude the Tier Model OUs if the domain-level GPO's settings are not compatible with the Tier Model.
+2. Move settings that must apply to the whole domain into the domain-level GPO without Enforcement, relying on normal inheritance where Block Inheritance does not apply.
+3. Explicitly exclude the Tier Model OUs from the domain-level GPO's scope if its settings are not compatible with the Tier Model.
 
-Do not proceed with Tier Model deployment while Enforced domain-level GPOs conflict with the Tier Model. The audit script will report drift that is not fixable without resolving the Enforcement conflict.
+**Concrete check:** After deploying the Tier Model, open each Tier Model root OU in Active Directory Users and Computers, select the **Group Policy Inheritance** tab, and review which GPOs are applying. No GPO other than the Tier Model's own linked GPOs should appear on that list. Any unexpected entry is either a domain-level Enforced GPO or a GPO linked to a parent container — investigate and remediate before proceeding.
+
+Do not proceed with Tier Model deployment while Enforced domain-level GPOs conflict with the Tier Model. The audit script will not report the root enforced GPOs as built drift auditing only review the GPOs linked at the OU level.
 
 ---
 
@@ -291,39 +332,49 @@ OU=T1-Payroll-DB,  OU=Tier 1 Member Servers
 
 Both structures work. Use the parent-OU grouping when you have several roles for one application and want them visually grouped in Active Directory Users and Computers. Use the flat structure for simpler applications.
 
-GPO names at child OUs should follow the same `T#-<App>-<Role>` prefix to keep them associated with their OU. For example: `T1-Payroll-Web URA - Computer`, `T1-Payroll-DB Firewall - Computer`.
+GPO names at child OUs should follow the same `T#-<App>-<Role>` prefix to keep them associated with their OU. The primary Security GPO (containing URAs and Restricted Groups) follows the pattern `T1-Payroll-Web Security`. Additional GPOs for specific purposes use a descriptive suffix: `T1-Payroll-DB Firewall`, `T1-Payroll-DB Override Deny Network`.
 
 ---
 
 ## 12. The Deny Model (User Rights)
 
-The Tier Model enforces five "Deny" logon rights at the root Tier Model OU via the `*- Tier <N> Servers Account Restrictions` GPO:
+The Tier Model enforces five "Deny" logon rights at the root Tier Model OU via the `*- Tier <N> Servers Account Restrictions` GPO (link order 1, enabled). Each right denies the full set of Tier Model AD groups — Domain Admins, Cert Publishers, Tier 0/1/2 Admins/Operators/Service Accounts/VPN groups, and others as appropriate — plus the local Administrators/Administrator account(s) specific to that tier:
 
 | Right | Denied To |
 |---|---|
-| Deny log on locally | Accounts that should not have interactive access at the tier |
-| Deny log on as a service | Built-in Administrators group (local) |
-| Deny log on as a batch job | Built-in Administrators group (local) |
-| Deny access to this computer from the network | Local accounts |
-| Deny log on through Remote Desktop Services | Accounts that should not have RDP access at the tier |
+| Deny log on locally | Full set of Tier Model AD groups |
+| Deny log on as a service | Full set of Tier Model AD groups + local Administrators group |
+| Deny log on as a batch job | Full set of Tier Model AD groups + local Administrators group |
+| Deny access to this computer from the network | Full set of Tier Model AD groups + `NT AUTHORITY\Local account` (all local accounts) |
+| Deny log on through Remote Desktop Services | Full set of Tier Model AD groups |
 
 The root Account Restrictions GPO defines the Deny side. **You do not modify this GPO.** The Tier Model owns the Deny.
 
-Your child-OU app-role GPO owns the corresponding **Allow** logon rights. For example, a web server role GPO grants "Log on as a service" to the IIS application pool service account, and "Allow log on through Remote Desktop Services" to the Tier 1 local admins group.
+Your child-OU app-role Security GPO owns the corresponding **Allow** logon rights. For example, a web server role Security GPO grants "Log on as a service" to the IIS application pool service account, and "Allow log on through Remote Desktop Services" to the Tier 1 local admins group.
 
-### Sanctioned Override 1: Built-in Administrators Running Services
+Remember: URAs are not cumulative (see [User Rights Assignments Are Not Cumulative](#user-rights-assignments-are-not-cumulative)). When a child-OU Override GPO configures the same deny right, it replaces the entire deny list for that right on servers in that OU. The Override templates are designed for this: they ship with the full deny list except for the specific principal being exempted.
+
+### Sanctioned Override 1: Built-in Administrators Running Services or Scheduled Tasks
 
 The root GPO denies `Log on as a service` and `Log on as a batch job` to the local Administrators group. This prevents the common misconfiguration of running services or scheduled tasks as a local administrator account — a significant lateral movement risk.
 
-Override this Deny only when a vendor explicitly requires a member of the local Administrators group to run a service or scheduled task, and only when the vendor does not support gMSA accounts. In that case, link one of the Override template GPOs (`*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Service` or `- Override - Deny Batch`) at the specific child OU for that application. This removes the built-in Administrators group from the Deny right for servers in that OU only.
+Override this Deny when a vendor requires a member of the local Administrators group to run a service or scheduled task. To apply the override:
 
-Always prefer a gMSA when the vendor supports it. A gMSA eliminates this override entirely because the service account is not a member of the local Administrators group.
+1. Duplicate `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Service` (or `- Override - Deny Batch`).
+2. Rename the copy to the child-OU naming convention: e.g., `T1-Payroll-DB Override Deny Service`.
+3. Link the GPO at the child OU at **a link order below the child-OU Security GPO** — the Security GPO is always priority 1 at the child OU (it contains the Allow rights). The Override GPO at priority 2 or lower still beats the root Account Restrictions GPO for that one URA because child-OU GPOs outrank parent-OU GPOs.
 
-### Sanctioned Override 2: Windows Failover Cluster CLIUSR
+### Sanctioned Override 2: Windows Failover Cluster and Local Account Network Access
 
-The root GPO denies network access to all local accounts. This is correct for the vast majority of workloads. Windows Failover Clustering uses a special local account named `CLIUSR` that requires network access between cluster nodes to function. Without it, cluster heartbeat and resource failover break.
+The root GPO's "Deny access to this computer from the network" right is applied to `NT AUTHORITY\Local account` — the well-known SID that represents all local accounts on the computer. This is the correct default: local accounts should not authenticate over the network.
 
-If you are deploying Windows Failover Cluster nodes in the tier, link the `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Network` template GPO at the child OU for those cluster nodes. This template removes `CLIUSR` from the "Deny access to this computer from the network" right. Apply it only to the cluster nodes' child OU — never to the tier root or to non-cluster servers.
+Windows Failover Clustering requires local account network access because the cluster service uses a local account (`CLIUSR`) for inter-node communication. The `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Network` template removes `NT AUTHORITY\Local account` from the deny list — which frees **all local accounts** on the servers in that OU to access the network, not just `CLIUSR`. Use this override only where the application specifically requires it (Windows Failover Clustering being the primary case) and never on servers that are not cluster nodes.
+
+To apply the override:
+
+1. Duplicate `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Network`.
+2. Rename to the child-OU naming convention: e.g., `T1-Payroll-DB Override Deny Network`.
+3. Link at the cluster nodes' child OU at a link order below the child-OU Security GPO (priority 1).
 
 These are the **only two sanctioned overrides** of the Deny rights. Any other override requires a security review and must be documented.
 
@@ -333,19 +384,21 @@ These are the **only two sanctioned overrides** of the Deny rights. Any other ov
 
 The Tier Model ships the following template GPOs in `config/tiermodel-gpos.json`. Duplicate the relevant template GPO, rename it to your application-role naming convention, and link it at your child OU.
 
+> **All template GPOs ship with User Configuration disabled.** When you duplicate a template, confirm the copy retains `gpoStatus: UserSettingsDisabled` before linking it. This keeps policy refresh efficient — the Windows client skips the unused half entirely.
+
 | Template GPO | Purpose | How to use |
 |---|---|---|
-| `*- Tier Model Template Security Baseline - Computer` | Default Allow policy applied at each child OU. The Restricted Group sets the members of the local Administrators group. | Duplicate per child OU. Usually the only change is adding your `Tier <N> <App> Local Admins` group to the builtin Administrators Restricted Group. |
-| `*- Tier Model Template IIS URA - Computer` | User Rights Assignment starting point for IIS web server roles. | Duplicate per child OU. Review and add your IIS application pool service accounts and the `Tier <N> <App> Local Admins` Restricted Group. |
-| `*- Tier Model Template SQL URA - Computer` | User Rights Assignment starting point for SQL Server roles. | Duplicate per child OU. Review and add your SQL service accounts (prefer gMSA). Add the `Tier <N> <App> Local Admins` Restricted Group. |
-| `*- Tier Model Template IIS and SQL URA - Computer` | Combined IIS and SQL URA starting point. Included for environments where a single server runs both roles (common in test/dev). | IIS and SQL on the same server is not a security best practice. Use this template in test environments only. Prefer the separate IIS and SQL templates in production. |
-| `*- Tier Model Template Firewall Audit - Computer` | Windows Firewall GPO starting point for an application role. | Duplicate per child OU, rename to role naming convention. Export the server's Windows Firewall policy, import into the GPO. Set "no local merge" so only GPO rules apply. Enable the GPO. See [Section 14](#14-windows-firewall-deep-dive). |
-| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Batch` | Removes the built-in Administrators group from "Deny log on as a batch job." | Link at the specific child OU where a vendor service/scheduled task requires local admin membership. Use sparingly. |
-| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Network` | Removes local accounts (specifically `CLIUSR`) from "Deny access to this computer from the network." | Link at cluster node child OUs only. The template already removes `CLIUSR` — do not add other local accounts unless you have a documented security justification. |
-| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Remote Desktop` | Removes a group from "Deny log on through Remote Desktop Services." | Use only when a specific account requires RDP that the root deny explicitly blocks. |
-| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Service` | Removes the built-in Administrators group from "Deny log on as a service." | Same guidance as the Deny Batch override. Prefer gMSA over this override. |
+| `*- Tier Model Template Security Baseline - Computer` | Default Security policy applied at each child OU. Sets the local Administrators Restricted Group and grants Allow logon rights for the role. | Duplicate per child OU, rename to `T#-<App>-<Role> Security`. Add your `Tier <N> <App> Local Admins` group to the builtin Administrators Restricted Group. Link at priority 1 in the child OU. |
+| `*- Tier Model Template IIS URA - Computer` | Security policy starting point for IIS web server roles. URA and Restricted Group for IIS. | Duplicate, rename (e.g., `T1-Payroll-Web Security`). Review and add IIS application pool service accounts. Add `Tier <N> <App> Local Admins` to the Restricted Group. Link at priority 1. |
+| `*- Tier Model Template SQL URA - Computer` | Security policy starting point for SQL Server roles. URA and Restricted Group for SQL. | Duplicate, rename (e.g., `T1-Payroll-DB Security`). Add your SQL service account (gMSA preferred) to the Allow rights. Add `Tier <N> <App> Local Admins` to the Restricted Group. Link at priority 1. |
+| `*- Tier Model Template IIS and SQL URA - Computer` | Combined IIS + SQL Security policy starting point for single-server environments. | IIS and SQL on the same server is not a security best practice. Use this template in test/dev environments only. Prefer the separate IIS and SQL templates in production. |
+| `*- Tier Model Template Firewall Audit - Computer` | Windows Firewall policy starting point for an application role. | Duplicate, rename (e.g., `T1-Payroll-DB Firewall`). Follow the full procedure in [Section 14](#14-windows-firewall-deep-dive): enable block mode, export the server's firewall policy, import, set no local merge. |
+| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Batch` | Overrides the root Deny: replaces the `SeDenyBatchLogonRight` URA for servers in this OU, removing the local Administrators group from the deny list. | Duplicate, rename (e.g., `T1-Payroll-DB Override Deny Batch`). Link at the child OU at priority **below** the child-OU Security GPO (priority 2+). Use sparingly; prefer gMSA service accounts. |
+| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Network` | Overrides the root Deny: replaces `SeDenyNetworkLogonRight`, removing `NT AUTHORITY\Local account` (all local accounts) from the deny list. This frees all local accounts — not just CLIUSR — to access the network from servers in this OU. | Duplicate, rename (e.g., `T1-Payroll-DB Override Deny Network`). Link at the child OU at priority below the child-OU Security GPO. Use **only** where the application requires local account network access (Windows Failover Clustering). Never apply to non-cluster servers. |
+| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Remote Desktop` | Overrides the root Deny for `SeDenyRemoteInteractiveLogonRight` for servers in this OU. | Duplicate, rename. Link below the child-OU Security GPO. Use only when a specific account requires RDP that the root deny explicitly blocks. |
+| `*- Tier Model Template Tier <N> Servers Account Restrictions - Override - Deny Service` | Overrides the root Deny: replaces `SeDenyServiceLogonRight`, removing the local Administrators group from the deny list. | Duplicate, rename (e.g., `T1-Payroll-DB Override Deny Service`). Link at the child OU at priority below the child-OU Security GPO. Use sparingly; prefer gMSA. |
 
-**Important note on Override templates:** The Override template GPOs ship with the built-in Administrators group and local accounts already removed from the applicable Deny right. Your starting point is a clean slate — do not add groups back unless you are intentionally expanding the exception. Edit the template to remove only the specific principals that require the exception for this application role.
+**Important note on Override templates:** The templates ship with the full deny list already defined minus the principal being exempted. Your starting point is already correct — do not add groups back unless you are intentionally expanding the exception beyond what the template provides.
 
 ---
 
@@ -366,19 +419,20 @@ The Tier Model centrally manages the Windows Firewall through Group Policy. Each
 
 ### Building a Firewall GPO for an Application Role
 
-1. Stand up one server for the application role and confirm it is operating normally.
-2. Export the Windows Firewall policy from that server using `netsh advfirewall export`.
-3. Import the exported policy into the Firewall Audit template GPO you duplicated for this role.
-4. Enable the "Firewall: Do not allow users to manage the Windows Firewall" setting and set "Apply local firewall rules" to **No** (this is the "no local merge" configuration).
-5. Set all three firewall profiles (Domain, Private, Public) to **Enabled** and **Audit** mode (log dropped packets but do not block yet).
-6. Monitor the event log for blocked connections. Add rules for any legitimate traffic that is being dropped.
-7. When no legitimate traffic is being dropped, switch the profiles from Audit to **Block**.
+1. **Confirm the Windows Firewall is enabled and in block mode on the server.** The baseline GPO (MS SCT or SHF) enforces block mode; if the server is already running under the baseline, this is already the case. If not, enable the Windows Firewall manually with block mode on all three profiles before proceeding — the goal is to centrally manage an already-enforced firewall, not to capture a permissive baseline.
+2. Stand up one server for the application role and confirm it is operating normally under block mode.
+3. Export the Windows Firewall policy from that server using `netsh advfirewall export`.
+4. Import the exported policy into the Firewall Audit template GPO you duplicated for this role.
+5. Enable the "Firewall: Do not allow users to manage the Windows Firewall" setting and set "Apply local firewall rules" to **No** (this is the "no local merge" configuration).
+6. Set all three firewall profiles (Domain, Private, Public) to **Enabled** and **Audit** mode (log dropped packets but do not block yet).
+7. Monitor the event log for blocked connections. Add rules for any legitimate traffic that is being dropped.
+8. When no legitimate traffic is being dropped, switch the profiles from Audit to **Block**.
 
 ### "No Local Merge" — What It Means in Practice
 
 When "Apply local firewall rules" is set to No, the Windows Firewall evaluates only rules delivered by Group Policy. Rules created locally — by a local administrator, by an installer, or by any other process — are present in the firewall's local store but are not evaluated.
 
-This has one important security implication worth stating plainly: an attacker who has compromised a server and wants to prevent their malware's outbound traffic from being blocked by a local firewall rule cannot do so. Any rule they create locally is ignored. The only way to change the effective firewall policy is to change the GPO — which requires requesting a rule change through the AD team, the same process as requesting a port to be opened on a network firewall.
+This has one important security implication worth stating plainly: when "no local merge" is active, local rules are silently ignored — they exist in the local firewall store but are never evaluated. An attacker who has compromised a server cannot create a local firewall rule that takes effect. Any rule they add locally is ignored. The only way to change the effective firewall policy is to change the GPO — which requires requesting a rule change through the AD team, the same process as requesting a port to be opened on a network firewall.
 
 Even when a third-party host firewall agent is deployed, keep the Windows Firewall enabled in audit mode. Audit mode logs dropped packets even when no blocking occurs. This provides a record of traffic that would have been blocked, which is valuable for forensics and for verifying that a future Block transition would not break legitimate traffic.
 
@@ -394,7 +448,7 @@ A server owner or local administrator cannot self-modify the security controls t
 
 - **Local Administrators membership** is controlled by the Restricted Group setting in the child-OU app-role GPO. A local administrator cannot add themselves or others to the Administrators group in a way that survives a Group Policy refresh. Changes to local Administrators membership must be requested to the AD team, who updates the `T#-<App>-<Role>` GPO if the request is valid.
 
-- **User Rights Assignments** are set by the root Account Restrictions GPO and the child-OU URA GPO. A local administrator cannot grant themselves "Log on as a service" or remove themselves from a Deny right. The Group Policy refresh restores the GPO-defined configuration within the refresh interval.
+- **User Rights Assignments** are set by the root Account Restrictions GPO and the child-OU Security GPO. A local administrator cannot grant themselves "Log on as a service" or remove themselves from a Deny right. The Group Policy refresh restores the GPO-defined configuration within the refresh interval.
 
 - **Windows Firewall rules** (when "no local merge" is enabled) cannot be modified by local administrators in a way that affects the active ruleset. Rule changes must go through the AD team and the child-OU firewall GPO.
 
@@ -406,7 +460,7 @@ This model aligns with zero-trust principles: each host has its own trust bounda
 
 This example walks through building the complete GPO configuration for a two-tier Payroll application in Tier 1.
 
-**Starting point:** Tier 1 Member Servers root OU, with all root Tier Model GPOs in place. Security baseline (MS SCT or SHF) is chosen and link-enabled in the SOE. Account Restrictions (Deny) GPO is link-enabled.
+**Starting point:** Tier 1 Member Servers root OU, with all root Tier Model GPOs in place. Account Restrictions GPO (link order 1) is enabled and active. Security baseline (MS SCT or SHF) is chosen and link-enabled. SOE GPO is configured and enabled.
 
 **Step 1 — Create child OUs**
 
@@ -416,36 +470,43 @@ Create `OU=T1-Payroll-Web,OU=Tier 1 Member Servers` and `OU=T1-Payroll-DB,OU=Tie
 
 Create the AD security group `Tier 1 Payroll Local Admins` in the appropriate Tier 1 groups OU. Create this group *before* creating the GPOs that reference it. The GPO's Restricted Group setting resolves the group at policy application time, but creating it first ensures the reference is valid from the start.
 
-**Step 3 — Web server GPO**
+**Step 3 — Web server Security GPO**
 
-Duplicate `*- Tier Model Template IIS URA - Computer`. Rename the copy to `T1-Payroll-Web URA - Computer`. Link it to `T1-Payroll-Web` at link order 1. In the Restricted Group for builtin Administrators, add `Tier 1 Payroll Local Admins`.
+Duplicate `*- Tier Model Template IIS URA - Computer`. Rename the copy to `T1-Payroll-Web Security`. Link it to `T1-Payroll-Web` at **link order 1** (priority 1 in the child OU). In the Restricted Group for builtin Administrators, add `Tier 1 Payroll Local Admins`. Confirm User Configuration is disabled in the GPO properties.
 
-**Step 4 — Database server GPO**
+**Step 4 — Database server Security GPO**
 
-Duplicate `*- Tier Model Template SQL URA - Computer`. Rename the copy to `T1-Payroll-DB URA - Computer`. Link it to `T1-Payroll-DB` at link order 1. In the Restricted Group for builtin Administrators, add `Tier 1 Payroll Local Admins`. Add your SQL service account gMSA to the "Log on as a service" URA.
+Duplicate `*- Tier Model Template SQL URA - Computer`. Rename the copy to `T1-Payroll-DB Security`. Link it to `T1-Payroll-DB` at **link order 1** (priority 1). In the Restricted Group for builtin Administrators, add `Tier 1 Payroll Local Admins`. Add your SQL service account (gMSA) to the "Log on as a service" Allow right. The gMSA still needs this Allow right explicitly granted — a gMSA does not bypass URA rules.
 
 **Step 5 — Cluster node override (if Payroll DB uses Windows Failover Cluster)**
 
-If the Payroll DB servers are Windows Failover Cluster nodes, duplicate `*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Network`. Rename the copy to `T1-Payroll-DB Override Deny Network - Computer`. Link it to `T1-Payroll-DB` at link order 2 (below the URA GPO at priority 1). This allows the cluster's `CLIUSR` local account to access the network for cluster heartbeat and resource failover.
+If the Payroll DB servers are Windows Failover Cluster nodes, the cluster service requires local account network access. The root Account Restrictions GPO denies `NT AUTHORITY\Local account` (all local accounts) from the network; this breaks cluster heartbeat.
+
+1. Duplicate `*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny Network`.
+2. Rename the copy to `T1-Payroll-DB Override Deny Network`.
+3. Link it to `T1-Payroll-DB` at **link order 2** (below the Security GPO at priority 1).
+
+This Override GPO replaces the `SeDenyNetworkLogonRight` URA for servers in `T1-Payroll-DB`, removing `NT AUTHORITY\Local account` from the deny list. Because child-OU GPOs outrank parent-OU GPOs for URAs (and URAs replace, not merge), the Override GPO wins over the root Account Restrictions GPO for this one right — and the cluster's `CLIUSR` account, being a local account, is freed to communicate across cluster nodes.
 
 **Step 6 — Firewall GPOs**
 
 For each child OU:
 
 1. Duplicate `*- Tier Model Template Firewall Audit - Computer`.
-2. Rename: `T1-Payroll-Web Firewall - Computer` and `T1-Payroll-DB Firewall - Computer`.
-3. Export the Windows Firewall policy from a representative server for each role.
-4. Import the exported policy into the respective GPO.
-5. Enable "no local merge" (set "Apply local firewall rules" to No on all three profiles).
-6. Set all three profiles to Enabled + Audit mode.
-7. Link each GPO to its respective child OU and enable the link.
-8. Monitor for dropped legitimate traffic over several days, then transition to Block mode.
+2. Rename: `T1-Payroll-Web Firewall` and `T1-Payroll-DB Firewall`.
+3. Confirm the Windows Firewall is enabled in block mode on the representative server (the baseline GPO enforces this; verify it is effective before exporting).
+4. Export the Windows Firewall policy from a representative server for each role using `netsh advfirewall export`.
+5. Import the exported policy into the respective GPO.
+6. Enable "no local merge" (set "Apply local firewall rules" to No on all three profiles).
+7. Set all three profiles to Enabled + Audit mode.
+8. Link each GPO to its respective child OU and enable the link.
+9. Monitor for dropped legitimate traffic over several days, then transition to Block mode.
 
 > **🖼️ Image placeholder — suggested file `images/gpo/payroll-example-gpo-layers.png`**
 >
-> *What this diagram should show:* A stacked-layer diagram for the `T1-Payroll-DB` OU. From top (applied last, lowest effective priority) to bottom (applied first, highest effective priority): root Tier 1 Member Servers GPOs (SOE at top, Account Restrictions Deny at bottom), then the T1-Payroll-DB child-OU GPOs above them in processing order (URA at priority 1, Override Deny Network at priority 2, Firewall at priority 3). Annotate which settings each layer controls and indicate the "innermost wins" direction.*
+> *What this diagram should show:* A stacked-layer diagram for the `T1-Payroll-DB` OU. Show two groups of GPOs with a clear separator: (1) the root `Tier 1 Member Servers` GPOs in link-order sequence from 1 (Account Restrictions, highest) through 12 (Domain Security, lowest); (2) the `T1-Payroll-DB` child-OU GPOs in link-order sequence: priority 1 `T1-Payroll-DB Security`, priority 2 `T1-Payroll-DB Override Deny Network`, priority 3 `T1-Payroll-DB Firewall`. Annotate that child-OU GPOs win over parent-OU GPOs, and that URAs replace (not merge). Indicate the "innermost wins" direction with an arrow.*
 
-**Result:** The Payroll Web servers accept IIS traffic with local admins managed by Restricted Group. The Payroll DB servers accept SQL traffic and allow cluster heartbeat. Both sets of servers have centrally-managed firewall rules. The AD team controls all of these settings — no server owner can self-modify them.
+**Result:** The Payroll Web servers accept IIS traffic with local admins managed by Restricted Group. The Payroll DB cluster nodes accept SQL traffic and allow cluster heartbeat via the local account network override. Both sets of servers have centrally-managed firewall rules. The AD team controls all of these settings — no server owner can self-modify them.
 
 ---
 
@@ -455,7 +516,7 @@ For each child OU:
 
 When a new version of a security baseline ships — a new Microsoft SCT release, a new annual CIS Benchmark, or a NIST revision — the upgrade process is:
 
-1. **Create the new GPO.** Import the new baseline into a new GPO using the SHF naming convention with the updated version, for example: `*- Tier 1 Servers SHF CIS Mar2027 - Computer`. Do not modify the existing in-production GPO.
+1. **Create the new GPO.** Import the new baseline into a new GPO using the SHF naming convention with the updated version, for example: `*- Tier 1 Servers SHF CIS v3.0.0 - Computer` (or a date-based internal label such as `Nov26`). Do not modify the existing in-production GPO.
 2. **Link at high priority, link-disabled.** Link the new GPO at the root Tier Model OU at a higher link priority than the current production baseline, but leave the link disabled.
 3. **Scope to a pilot group.** In the GPO's Security Filtering, replace "Authenticated Users" with a security group containing a small set of test servers. Enable the link. The new baseline applies only to the pilot servers.
 4. **Test.** Verify no services break, no connectivity issues emerge, and the pilot servers behave correctly under the new baseline. Address any conflicts in the SOE.
