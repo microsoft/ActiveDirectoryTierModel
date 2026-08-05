@@ -17,6 +17,7 @@ nav:
   - Cmdlet Architecture: cmdlet-architecture.md
   - CI/CD: ci-cd.md
   - GPO Management Strategy: gpo-management-strategy.md
+  - GPO Management Guidance: gpo-management-guidance.md
   - ADMX Management: admx-management.md
   - Test Tag Matrix: test-tag-matrix.md
   - Tier Model Logging: tiermodel-logging.md

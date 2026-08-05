@@ -1,6 +1,26 @@
 # storm — History
 
-## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
+## Session 2026-08-05 — GPO Management Guidance Page
+
+Authored `docs/gpo-management-guidance.md` (18 sections, ~1,400 lines), the operational best-practices companion to `gpo-management-strategy.md`. Wired into `mkdocs.yml`, `docs/index.md`, and `README.md`. `mkdocs build --strict` passes with zero warnings.
+
+**Files created/modified:**
+- `docs/gpo-management-guidance.md` (new)
+- `mkdocs.yml` (nav entry added after GPO Management Strategy)
+- `docs/index.md` (Component Management bullet added)
+- `README.md` (Core Documentation bullet added)
+
+## Learnings
+
+- **2026-08-05 — GPO Guidance page:** `docs/gpo-management-guidance.md` is the operational best-practices companion to `docs/gpo-management-strategy.md` (which covers JSON mechanics/schema). Key rules encoded in the page:
+  - Root Tier Model OU GPOs = vendor layer, untouchable. SOE GPO = only root GPO the operator populates.
+  - Pick exactly ONE security baseline (MS SCT or SHF). Never enable both simultaneously.
+  - The Windows Server 2025 MS SCT baseline GPO applies correctly to all prior OS versions (2016/2019/2022). Do not create per-OS baselines and do not use WMI filters.
+  - Five Deny logon rights are owned by the root Account Restrictions GPO. Allow rights are owned by the child-OU app-role GPO. Two sanctioned overrides: built-in Administrators for service/batch (prefer gMSA), and CLIUSR for Windows Failover Cluster network deny.
+  - Windows Firewall "no local merge" = only GPO rules evaluated; local rules ignored even if created by a local admin.
+  - Baseline upgrade lifecycle: replace-with-new → pilot scoped to test servers → expand to Authenticated Users → delete old GPO. Never edit a live production root GPO in place.
+  - Diagrams left as text placeholders under `images/gpo/` for the user to create: `gpo-layer-precedence.png`, `firewall-no-local-merge.png`, `payroll-example-gpo-layers.png`.
+  - The page is the authoritative public answer to per-OS-baseline requests, WMI-filter proposals, and requests to modify provided GPOs.
 
 **Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
 

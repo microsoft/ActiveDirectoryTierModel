@@ -21,6 +21,7 @@ Welcome to the Active Directory Tier Model documentation.
 ## Component Management
 
 - **[GPO Management Strategy](gpo-management-strategy.md)** - Group Policy Object configuration and deployment
+- **[GPO Management Guidance](gpo-management-guidance.md)** - Best practices, baseline selection, the SOE override model, firewall lockdown, and upgrade lifecycle
 - **[ADMX Management](admx-management.md)** - Managing ADMX templates and administrative templates
 
 ## Operations & Testing
