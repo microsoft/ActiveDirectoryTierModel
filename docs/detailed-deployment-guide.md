@@ -493,6 +493,14 @@ After completing all deployment steps, run a comprehensive audit to ensure the e
 - Zero high-severity findings
 - Complete audit report
 
+## Enable the Account Restrictions GPO (Before Go-Live)
+
+Before you begin using the Tier Model in production, enable the domain-root **`*- Tier Model Account Restrictions`** GPO. It ships **link-disabled** by design and is the control that prevents built-in Tier Model groups and well-known Tier 0 groups from logging on to endpoints outside the Tier Model.
+
+> ⚠️ **Understand this GPO before enabling it.** Once linked, it applies to **all production endpoints outside the Tier Model — both client and server — but not domain controllers** (Domain Controllers and RODCs are explicitly excluded from the GPO). Because it is linked at the domain root, you must evaluate any OU with Block Inheritance or an existing Enforced GPO so that it reaches every such endpoint at priority 1.
+>
+> See **[GPO Management Guidance — Enable the Account Restrictions GPO First](gpo-management-guidance.md#2-enable-the-account-restrictions-gpo-first)** for the full explanation, including the block-inheritance and enforcement evaluation.
+
 ## Troubleshooting
 
 ### Component Dependencies
