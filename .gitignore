@@ -424,3 +424,7 @@ FodyWeavers.xsd
 
 # Test-run scratch directory (Pester GPO mock artifacts written/cleaned by Invoke-AllTests.ps1)
 Temp/
+site/
+
+# Editable draw.io diagram sources (only exported PNGs under docs/images/ are tracked)
+.diagrams/

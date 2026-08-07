@@ -21,6 +21,7 @@ Welcome to the Active Directory Tier Model documentation.
 ## Component Management
 
 - **[GPO Management Strategy](gpo-management-strategy.md)** - Group Policy Object configuration and deployment
+- **[GPO Management Guidance](gpo-management-guidance.md)** - Best practices, baseline selection, the SOE override model, firewall lockdown, and upgrade lifecycle
 - **[ADMX Management](admx-management.md)** - Managing ADMX templates and administrative templates
 
 ## Operations & Testing
@@ -29,6 +30,10 @@ Welcome to the Active Directory Tier Model documentation.
 - **[Test Tag Matrix](test-tag-matrix.md)** - Test organization, tagging, and execution strategies
 - **[Test Coverage](test-coverage.md)** - Comprehensive test coverage analysis and roadmap
 - **[CI/CD Integration](ci-cd.md)** - Continuous Integration and Deployment pipelines
+
+## Monitoring
+
+- **[Sentinel Monitoring](sentinel-monitoring.md)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
 
 ## Reference
 

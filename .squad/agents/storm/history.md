@@ -1,85 +1,14 @@
 # storm — History
 
-## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
+## Session 2026-08-05 — GPO Management Guidance Page (Revision Pass)
 
-**Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.
+Revision pass on `docs/gpo-management-guidance.md` applying all owner peer-review corrections (2026-08-05T16:09:55+08:00):
 
-The Windows LAPS feature (T001–T021) is now complete and committed to feature/windows-laps branch:
-- Beast (T001–T013): Implementation + audit cmdlet ✅
-- Wolverine (T014–T020): Test suite (113 tests, 90.92% coverage, 1401/1401 green) ✅
-- Storm (T021): Documentation (8 files, README metrics) ✅
-
-Orchestration logs: 2026-07-16T09-34-10Z-wolverine.md and 2026-07-16T09-34-10Z-storm.md  
-Session log: 2026-07-16T09-34-10Z-winlaps-feature-complete.md
-
-Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
-
----
-
-## Sessions
-
-**2026-07-28T16:53+08:00 — BUG-003 / OQ-4 dMSA Functional Level Resolution:** Beast confirmed dMSA requires ONLY DFL=Windows2025Domain for same-domain deployments; FFL 2025 NOT required. No FFL check needed in dMSA documentation. See `.squad/decisions.md` OQ-4 resolution.
-
-### Session 2025-07-18 — Phase 16 Documentation Updates
-
-Updated all documentation files for Phase 16 MSA/gMSA/dMSA feature rollout:
-- Updated `docs/test-tag-matrix.md`: Added MsaAcl, GmsaAcl, DmsaAcl component tags; added MsaPrereq, GmsaPrereq, DmsaPrereq prerequisite tags
-- Updated `docs/detailed-deployment-guide.md`: Added Steps 7-9 for MSA/gMSA/dMSA ACL deployments (Plan → Deploy → Audit substeps); updated Component Dependencies section
-- Updated `docs/deployment-methodology.md`: Added MSA/gMSA/dMSA to Deployment Order of Precedence (steps 7-9); updated Information Messages and Warning Messages to include MSA/gMSA/dMSA
-- Updated `docs/drift-detection-details.md`: Added scoped audit examples for `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa`; added MSA/gMSA/dMSA drift interpretation table entries; added MSA/gMSA/dMSA component-specific details with Test-TierModel* cmdlet references
-- Updated `docs/cmdlet-architecture.md`: Added Phase 7-9 sections documenting 12 new cmdlets (4 per type: Get-TierModel*Acl, Get-TierModel*AclFd, New-TierModel*Acl, Test-TierModel*Acl); documented ACL model (two ACEs per delegation on object class)
-- Updated `docs/test-coverage.md`: Added 12 new cmdlets to coverage table marked "⏳ Pending" with estimated line counts (~240, ~195, ~159, ~318 lines per pattern); updated total file count to 58; updated pending re-measure note with Phase 16 details
-- Updated `README.md`: Updated project description to include "MSA/gMSA/dMSA Permissions"; updated test file counts (15 unit tests, 21 total test files); updated Test Coverage Highlights with 58 production files; added optional features table to Deployment Scripts section showing `-IncludeMsa`, `-IncludeGmsa`, `-IncludeDmsa` switches
-
-## Learnings
-
-- Parameter naming convention: Follow PowerShell PascalCase convention consistently. `-IncludeGmsa` is more readable and maintainable than mixed-case `-IncludeGMSA`.
-- Rights model clarity: Explicit statement of the two-ACE pattern (scoped CreateChild/DeleteChild + GenericAll on descendants) prevents implementation ambiguity and supports auditability.
-- Edge cases matter: Operational concerns (Protected Users, KDS provisioning) must be documented alongside functional requirements to set correct expectations for operations teams.
-- 2026-05-29T10:10:00Z — Spec documentation merged and archived by Scribe. All parameter fixes, edge cases, and rights model clarifications preserved in decisions registry.
-- **2025-07-18 — Documentation consistency:** MSA/gMSA/dMSA features marked as "Optional" requiring explicit `-Include*` switches throughout all docs; all 7 documentation files updated in a single coordinated pass; test coverage file marked as "Pending re-measure" to signal to team that measurements will shift when tests are run
-
-## Pending: Windows LAPS Decryptor Configuration Documentation (T021)
-
-**2026-07-16 NOTE (Scribe):** T013 Windows LAPS audit feature is COMPLETE + LAB-VERIFIED. Both deploy and audit are now committed (feature code in 4fcdfa3). 
-
-**Documentation needed for T021:**
-- Decryptor GPO configuration step within `-IncludeWinLaps` audit flow (new Test-TierModelWinLapsDecryptor cmdlet, drift detection, GPO registry value validation)
-- Audit examples: `-IncludeWinLaps` standalone + FullDeployment modes, opt-in behavior
-- Known limitation: Tier 0 Admins cannot decrypt Tier 1/2 PAW passwords (separate ADPasswordEncryptionPrincipal principals required)
-- Design decisions: per-tier isolation, root OU ACL placement, decryptorGroup display-name format
-- Prerequisites for audit: schema, LAPS module, DFL ≥2016, all 7 LAPS GPOs must exist
-
-**T013 Summary:** 379-check full audit verified live (OU 31, Group 26, User 2, ACL 101, GPO 146, ADMX 60, WinLaps ACL 7, Decryptor 6), 100% compliant, 0 drift. Opt-in via -IncludeWinLaps. Ready for Joel's UAT. T021 docs will add -IncludeWinLaps examples and decryptor audit methodology.
-
----
-
-### Session 2026-07-16 — T021 Windows LAPS Documentation
-
-Wrote all T021 documentation for the Windows LAPS feature (module v1.2.0):
-
-**Files changed:**
-- `README.md` — Updated description, version (1.1.0→1.2.0), test counts (Unit: 17/1,122, Integration: 7/279, Manual: 331, Total: 25/1,732), production files (58→63), coverage (91.6%→90.92%), scripts table (+`-IncludeWinLaps`)
-- `docs/detailed-deployment-guide.md` — Added Step 10 (WinLaps standalone + full deployment), prerequisites table, schema hard-stop callout, decryptor note, tier isolation note; updated Component Dependencies
-- `docs/deployment-methodology.md` — Added Phase 10 to Deployment Order; updated INFO/WARN messages; added WinLaps rows to Object Validation Matrix; added 8 new function contracts; added WinLaps test files to test file list
-- `docs/cmdlet-architecture.md` — Added Phase 10 section with all 5 cmdlets (roles, params, delegation model table, tier isolation note)
-- `docs/test-coverage.md` — Updated header/totals (63 files, 90.92%); added 5 WinLaps cmdlets to tier tables, detailed rows, and Public Functions section; updated Coverage Summary table (47 public functions)
-- `docs/drift-detection-details.md` — Added `-IncludeWinLaps` to full + scoped audit examples; added LapsPermission and LapsDecryptor to drift interpretation table; added Windows LAPS ACL Delegations component-specific details section; updated Notes
-- `docs/test-tag-matrix.md` — Added WinLapsAcl, WinLapsDecryptor component tags; WinLapsPrereq prerequisite tag; added WinLaps test files table
-- `docs/faq.md` — Updated version to v1.2.0; updated FullDeployment vs switches answer to mention optional features; added new Windows LAPS FAQ section (8 Q&As)
-- `docs/quick-deployment-guide.md` — Added optional features callout box to Step 2
-
-**Test counts used:**
-- Unit: 17 files, 1,122 tests (Pester confirmed 2026-07-16)
-- Integration: 7 files, 279 tests (Pester confirmed 2026-07-16)
-- Manual: 1 file, 331 tests (Joel's xlsx tracker — kept as-is per instructions)
-- Total: 25 files, 1,732 tests
-
-## Learnings
-
-- Parameter naming convention: Follow PowerShell PascalCase convention consistently. `-IncludeGmsa` is more readable and maintainable than mixed-case `-IncludeGMSA`.
-- Rights model clarity: Explicit statement of the two-ACE pattern (scoped CreateChild/DeleteChild + GenericAll on descendants) prevents implementation ambiguity and supports auditability.
-- Edge cases matter: Operational concerns (Protected Users, KDS provisioning) must be documented alongside functional requirements to set correct expectations for operations teams.
-- 2026-05-29T10:10:00Z — Spec documentation merged and archived by Scribe. All parameter fixes, edge cases, and rights model clarifications preserved in decisions registry.
-- **2025-07-18 — Documentation consistency:** MSA/gMSA/dMSA features marked as "Optional" requiring explicit `-Include*` switches throughout all docs; all 7 documentation files updated in a single coordinated pass; test coverage file marked as "Pending re-measure" to signal to team that measurements will shift when tests are run
-- **2026-07-16 — WinLaps documentation:** Windows LAPS feature is Windows LAPS ONLY (never legacy ms-Mcs-AdmPwd*); schema prerequisite is a hard stop (tool never extends schema); decryptor is per-tier (single principal per GPO, CNG-DPAPI enforcement); DC OU has no decryptor (DSRM uses Domain Admins); audit is always OPT-IN via -IncludeWinLaps
+- **§1 Overview & Philosophy:** Rewrote to establish Account Restrictions GPO at link order 1 (highest, enabled day one) as the model's foundation. SOE at link order 2, overrides baselines but NOT Account Restrictions. Four-home model corrected throughout.
+- **§2 Golden Rules:** Added "never put Deny URAs or RG definitions in the SOE." Updated SHF name example to `CIS v3.0.0`. Changed "unpredictable" baseline reasoning to performance rationale. Made third-party config delivery prescriptive (via GPO, never local).
+- **§3 Precedence Table:** Corrected inverted table — Account Restrictions = order 1 (enabled), SOE = order 2 (disabled), SHF = 3, MS SCT = 4, feature GPOs 5–12 with accurate enabled/disabled states. Added new subsections: "User Rights Assignments Are Not Cumulative" (replace-not-merge; why overrides work) and "GPO Configuration Halves — Why We Disable One Half per GPO" (UserSettingsDisabled performance, loopback guidance).
+- **§4 Post-Deployment:** Added explicit "Enable the SOE link" step. Added firewall audit-mode step before enabling baseline. Added explicit statement that SOE does not override Account Restrictions.
+- **§5 Choosing Your Security Baseline:** Added requirement for vendor-provided importable GPO (CIS provides one behind membership). Added "if you don't import, you can't claim the framework" guidance and auditor disclosure note. Fixed dual-baseline rationale from "unpredictable" to "performance/processing cost." Added application-specific override path at child OU level.
+- **§7 SOE:** Added explicit statement that SOE is at priority 2 and does not override Account Restrictions at priority 1.
+- **§8 Review GPOs table:** Fixed first row — separated BitLocker (disk encryption) from Windows LAPS (local admin password). Adde
+[truncated summary]
