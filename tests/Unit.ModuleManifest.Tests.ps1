@@ -38,8 +38,8 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
             $script:Manifest.ModuleVersion | Should -Match '^\d+\.\d+\.\d+$'
         }
         
-        It 'Has current version 1.2.2' {
-            $script:Manifest.ModuleVersion | Should -Be '1.2.2'
+        It 'Has current version 1.2.3' {
+            $script:Manifest.ModuleVersion | Should -Be '1.2.3'
         }
         
         It 'Has valid GUID' {

@@ -1110,7 +1110,7 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
         $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.8.0'
     }
 
-    It "Should accept a supported 5.x installed side-by-side with an unsupported 6.x (non-blocking warning)" {
+    It "Should accept a supported 5.x installed side-by-side with an unsupported 6.x (non-blocking advisory in EnvironmentSnapshot)" {
         InModuleScope TierModel {
             Mock Get-Module {
                 return @(
@@ -1123,8 +1123,9 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
         ($result.Errors -join ' ') | Should -Not -Match 'No supported Pester'
         ($result.Errors -join ' ') | Should -Not -Match 'Pester module is not installed'
         $result.EnvironmentSnapshot.PesterVersion | Should -Be '5.9.0'
-        ($result.Remediation -join ' ') | Should -Match 'installed side-by-side'
-        ($result.Remediation -join ' ') | Should -Match 'Import-Module Pester -MaximumVersion 5\.99\.99'
+        $result.EnvironmentSnapshot.PesterAdvisory | Should -Match 'installed side-by-side'
+        $result.EnvironmentSnapshot.PesterAdvisory | Should -Match 'Import-Module Pester -MaximumVersion 5\.99\.99'
+        ($result.Remediation -join ' ') | Should -Not -Match 'installed side-by-side'
     }
 
     It "Should report RSAT-AD remediation when ActiveDirectory module is missing (line 209)" {
@@ -1312,5 +1313,78 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
         $result.Valid | Should -Be $false
         ($result.Errors -join ' ') | Should -Match 'Unexpected error during prerequisites check'
         ($result.Remediation -join ' ') | Should -Match 'Review the error details'
+    }
+
+    # ── BUG-006: Canonical ACL gate ───────────────────────────────────────────
+    Context "Canonical ACL gate — Test-TierModelPrerequisites" -Tag 'CanonicalAcl', 'Prereq' {
+
+        BeforeEach {
+            # Ensure ActiveDirectory module appears loaded so the gate's guard fires.
+            # The BeforeAll mock covers $Name -eq 'ActiveDirectory'; we also need the
+            # bare call (no -ListAvailable) used inside the gate condition to return truthy.
+            InModuleScope TierModel {
+                Mock Get-Module {
+                    return [PSCustomObject]@{ Name = 'ActiveDirectory'; Version = [version]'1.0.1.0' }
+                } -ParameterFilter { $Name -eq 'ActiveDirectory' }
+            }
+        }
+
+        It "Non-canonical ACL with named principal sets Valid=false and adds expected errors" {
+            InModuleScope TierModel {
+                Mock Test-TierModelCanonicalAcl {
+                    return [PSCustomObject]@{
+                        IsCanonical             = $false
+                        DistinguishedName       = 'DC=test,DC=local'
+                        FirstOffendingPrincipal = 'CONTOSO\Global_HelpDesk'
+                    }
+                }
+            }
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            $result.Valid | Should -Be $false
+            ($result.Errors -join "`n") | Should -Match 'Non-canonical ACL detected at the root of the domain'
+            ($result.Errors -join "`n") | Should -Match "First offending entry: 'CONTOSO\\Global_HelpDesk'"
+            ($result.Remediation -join "`n") | Should -Match 'Reorder the domain root ACL'
+            ($result.Remediation -join "`n") | Should -Match 'See Canonical ACLs: https://microsoft\.github\.io/ActiveDirectoryTierModel/'
+            $result.EnvironmentSnapshot.RootAclCanonical | Should -Be $false
+        }
+
+        It "Non-canonical ACL with null principal uses fallback error message" {
+            InModuleScope TierModel {
+                Mock Test-TierModelCanonicalAcl {
+                    return [PSCustomObject]@{
+                        IsCanonical             = $false
+                        DistinguishedName       = 'DC=test,DC=local'
+                        FirstOffendingPrincipal = $null
+                    }
+                }
+            }
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            $result.Valid | Should -Be $false
+            ($result.Errors -join "`n") | Should -Match 'First offending entry: an explicit Deny is ordered after an Allow\.'
+        }
+
+        It "Canonical ACL does not add Non-canonical error and sets RootAclCanonical=true" {
+            InModuleScope TierModel {
+                Mock Test-TierModelCanonicalAcl {
+                    return [PSCustomObject]@{
+                        IsCanonical             = $true
+                        DistinguishedName       = 'DC=test,DC=local'
+                        FirstOffendingPrincipal = $null
+                    }
+                }
+            }
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            ($result.Errors -join "`n") | Should -Not -Match 'Non-canonical ACL'
+            $result.EnvironmentSnapshot.RootAclCanonical | Should -Be $true
+        }
+
+        It "Exception from Test-TierModelCanonicalAcl sets RootAclCheckError and does not hard-fail with Non-canonical error" {
+            InModuleScope TierModel {
+                Mock Test-TierModelCanonicalAcl { throw 'LDAP connection refused' }
+            }
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            $result.EnvironmentSnapshot.RootAclCheckError | Should -Match 'LDAP connection refused'
+            ($result.Errors -join "`n") | Should -Not -Match 'Non-canonical ACL'
+        }
     }
 }

@@ -199,10 +199,11 @@ function Test-TierModelPrerequisites {
         }
         elseif (([version]$highestPester.Version).Major -ne $supportedPesterMajor) {
             # A supported 5.x is present, but a newer unsupported major is installed alongside it.
-            # Non-blocking: side-by-side versions coexist without impact on deployment. Warn that
-            # PowerShell auto-loads the highest version, so the supported line must be imported explicitly.
+            # Non-blocking, test-time-only advisory: recorded in EnvironmentSnapshot so operators can
+            # act on it without it appearing in the deploy/audit fail-fast output.
+            # Remediation is reserved for blocking prerequisites surfaced by Write-TierModelFailFast.
             $unsupportedMajor = ([version]$highestPester.Version).Major
-            $null = $result.Remediation.Add("Pester $([version]$highestPester.Version) is installed side-by-side with the supported $([version]$supportedPester.Version); Pester $unsupportedMajor.x has breaking changes that are not yet supported. This does not block deployment, but PowerShell auto-loads the highest version - explicitly import the supported line before running tests: Import-Module Pester -MaximumVersion $supportedPesterMajor.99.99")
+            $result.EnvironmentSnapshot.PesterAdvisory = "Pester $([version]$highestPester.Version) is installed side-by-side with the supported $([version]$supportedPester.Version); Pester $unsupportedMajor.x has breaking changes that are not yet supported. This does not block deployment, but PowerShell auto-loads the highest version - explicitly import the supported line before running tests: Import-Module Pester -MaximumVersion $supportedPesterMajor.99.99"
         }
         $result.EnvironmentSnapshot.PesterVersion = if ($supportedPester) { ([version]$supportedPester.Version).ToString() } elseif ($highestPester) { ([version]$highestPester.Version).ToString() } else { 'Not installed' }
         
@@ -730,7 +731,33 @@ function Test-TierModelPrerequisites {
             $result.EnvironmentSnapshot.WinLapsSchemaPresent = $winLapsSchemaPresent
             $result.EnvironmentSnapshot.LapsModulePresent = $lapsModulePresent
         }
-        
+
+        # --- Canonical ACL gate: domain root DACL must be in canonical form ---
+        # A non-canonical DACL causes .NET ObjectSecurity.AddAccessRule to throw
+        # InvalidOperationException, blocking all OU ACL delegation at Step 4.
+        # Check unconditionally (all deploy modes share this gate).
+        if (Get-Module ActiveDirectory -ErrorAction SilentlyContinue) {
+            try {
+                $canon = Test-TierModelCanonicalAcl -PreferredDc $PreferredDc
+                $result.EnvironmentSnapshot.RootAclCanonical = $canon.IsCanonical
+
+                if ($canon -and -not $canon.IsCanonical) {
+                    $result.Valid = $false
+                    $null = $result.Errors.Add("Non-canonical ACL detected at the root of the domain. The permissions are incorrectly ordered (an explicit Deny is applied after an Allow) and must be resolved before the Tier Model deployment can continue.")
+                    if ($null -ne $canon.FirstOffendingPrincipal) {
+                        $null = $result.Errors.Add("First offending entry: '$($canon.FirstOffendingPrincipal)' (explicit Deny ordered after an Allow).")
+                    } else {
+                        $null = $result.Errors.Add("First offending entry: an explicit Deny is ordered after an Allow.")
+                    }
+                    $null = $result.Remediation.Add("Reorder the domain root ACL into canonical form, then re-run Deploy. Back up the domain controller first - this change is not easily reversible.")
+                    $null = $result.Remediation.Add("See Canonical ACLs: https://microsoft.github.io/ActiveDirectoryTierModel/")
+                }
+            } catch {
+                $result.EnvironmentSnapshot.RootAclCheckError = $_.Exception.Message
+                Write-Warning "Could not evaluate the domain root ACL canonical order ($($_.Exception.Message)); skipping the canonical-ACL pre-flight check."
+            }
+        }
+
         # Convert ArrayLists to regular arrays for consistent output
         $result.Errors = @($result.Errors)
         $result.Remediation = @($result.Remediation)

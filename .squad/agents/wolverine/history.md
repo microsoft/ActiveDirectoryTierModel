@@ -1,5 +1,7 @@
 # wolverine — History
 
+**2026-08-11 — BUG-006 canonical-ACL tests implemented:** Created `tests/Unit.CanonicalAcl.Tests.ps1` (18 tests, ByBytes path, offline fixtures) + 4 gate tests in `Unit.Prerequisites.Tests.ps1`; under Pester 5.9.0 (supported): TOTAL=1457 PASS=1457 FAIL=0; COVERAGE=91.13%; CanonicalAcl.ps1 33/56=58.93% (ByServer branch offline-untestable), Prerequisites.ps1 409/481=85.03%. Reviewed APPROVE. FINALIZATION COMPLETE: PENDING owner code review + PR. No commit (per owner request).
+
 ## Learnings
 
 **2026-07-28 — BUG-008 & BUG-004 Lab Validation (this session):**
