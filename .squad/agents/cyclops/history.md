@@ -18,6 +18,18 @@ Next gate: Joel's manual UAT, then PR merge, v1.2.0 release.
 
 ---
 
+## Session 2026-08-11 — Canonical ACL Gate Review (BUG-006)
+
+**Verdict:** ✅ **APPROVE WITH NITS** — both nits fixed (Write-Warning in catch block, doc disclaimer removed).
+
+Beast's implementation: detect-only, fails-closed, zero objects (all modes).  
+Wolverine's tests: 22 new tests (18 ByBytes + 4 gate), 1,457/1,457 all green, 91.13% coverage.  
+Storm's docs: finalization pass (README metrics, docs/canonical-acl.md, CHANGELOG).  
+
+**FINALIZATION COMPLETE:** All deliverables reviewed, approved, and nits fixed. PENDING owner code review + PR tomorrow. No commit (per owner request).
+
+---
+
 ## Sessions
 
 ### 2026-07-13 (Windows LAPS Architecture Design)
