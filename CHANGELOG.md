@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-08-12
+
+### Added
+- **Non-canonical root ACL pre-flight check** (`Test-TierModelCanonicalAcl`) and a `Test-TierModelPrerequisites` gate that hard-stop Deploy and Audit (all modes, zero objects) with a friendly message when the domain root DACL is not in canonical form. Detect-only — never rewrites ACLs.
+- **New documentation page:** Canonical ACLs (`docs/canonical-acl.md`) — explains the condition, the ADUC Reorder fix, effective-permission impact, DC backup guidance, and when to open a Microsoft support case.
+
+### Changed
+- The non-blocking Pester 6.x side-by-side advisory now records to `EnvironmentSnapshot.PesterAdvisory` instead of `Remediation`, so it no longer appears in unrelated Deploy/Audit fail-fast output.
+
+### Tests
+- Added 26 unit tests (`Unit.CanonicalAcl.Tests.ps1` + canonical-ACL gate tests in `Unit.Prerequisites.Tests.ps1`). Full suite: 1,461 automated tests passing under Pester 5.x; docs-scope coverage 88.74%.
+
 ## [1.2.2] - 2026-07-31
 
 ### Added

@@ -23,4 +23,5 @@ nav:
   - Tier Model Logging: tiermodel-logging.md
   - Test Coverage: test-coverage.md
   - Language Support: language-support.md
+  - Canonical ACLs: canonical-acl.md
   - Sentinel Monitoring: sentinel-monitoring.md

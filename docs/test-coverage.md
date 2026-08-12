@@ -9,9 +9,11 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** July 31, 2026 (1,435 tests / 0 failed — v1.2.2 English-language enforcement) | **Overall: 88.72%** | **Target: 95%**
+**Last measured:** August 11, 2026 (1,461 tests / 0 failed — non-canonical root ACL pre-flight gate) | **Overall: 88.74%** | **Target: 95%**
 
 > ✅ **v1.2.2 measured:** English-language enforcement (#23) added two fail-fast checks (host OS + Active Directory) to `Test-TierModelPrerequisites.ps1` with 10 new unit tests; the file's new code is fully covered (file 82.7% → 84.62%). English (en-US) deployment/audit behavior is unchanged; overall docs-scope coverage held at 88.72%.
+>
+> ✅ **v1.2.3 measured:** Non-canonical root ACL pre-flight gate — new `Test-TierModelCanonicalAcl.ps1` (92.86%; only 4 lines of the live-LDAP ByServer read uncovered) plus a gate in `Test-TierModelPrerequisites.ps1` (84.62% → 85.03%). 26 new unit tests. Overall docs-scope held 88.72% → 88.74%.
 
 > ✅ **v1.2.0 measured:** 5 new Windows LAPS cmdlets added with comprehensive test coverage. New files span 81.6–92.7%. 2 new test files: Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1.
 
@@ -20,7 +22,7 @@
 | Tier | Files | Count |
 |------|-------|-------|
 | ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink` | 12 |
-| 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor` | 31 |
+| 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor`, `Test-TierModelCanonicalAcl` | 32 |
 | 🟠 80-89% | `Deploy-TierModel`, `New-Tier*`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites`, `Test-TierModelWinLapsAcl` | 19 |
 | 🔴 50-79% | `Audit-TierModel.ps1` (73.1%) | 1 |
 | 🚨 0-25% | **No critical gaps!** 🎉 | 0 |
@@ -34,8 +36,8 @@
 | `modules/TierModel/public/Import-TierModelGpo.ps1` | 89 | 21 | 110 | 🟠 80.9% ✦ |
 | `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 🟠 81.4% ✦ |
 | `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 396 | 72 | 468 | 🟠 84.62% ✦ |
-| `modules/TierModel/TierModel.psm1` | 582 | 121 | 703 | 🟠 82.8% ✦ |
+| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 409 | 72 | 481 | 🟠 85.03% ✦ |
+| `modules/TierModel/TierModel.psm1` | 581 | 122 | 703 | 🟠 82.65% ✦ |
 | `modules/TierModel/public/New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 🟠 83.3% |
 | `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |
 | `modules/TierModel/public/Update-TierModelGPOConfig.ps1` | 87 | 17 | 104 | 🟠 83.7% |
@@ -56,6 +58,7 @@
 | `modules/TierModel/public/Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 🟡 91.6% |
 | `modules/TierModel/public/Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 🟡 92.7% |
 | `modules/TierModel/public/Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
+| `modules/TierModel/public/Test-TierModelCanonicalAcl.ps1` | 52 | 4 | 56 | 🟡 92.86% ✦ |
 | `modules/TierModel/public/Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
 | `modules/TierModel/public/Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 🟡 92.9% |
 | `modules/TierModel/public/Get-TierModelUser.ps1` | 107 | 8 | 115 | 🟡 93.0% |
@@ -117,7 +120,7 @@
 | `Test-TierModelOuExists.ps1` | 9 | ✅ 100% |
 | `Write-TierModelLog.ps1` | 37 | ✅ 100% |
 
-### 🟡 Near Target: 90-99% Coverage (31 files)
+### 🟡 Near Target: 90-99% Coverage (32 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
@@ -128,6 +131,7 @@
 | `Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 91.6% |
 | `Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 92.7% |
 | `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
+| `Test-TierModelCanonicalAcl.ps1` | 52 | 4 | 56 | 🟡 92.86% ✦ |
 | `Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
 | `Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
 | `Get-TierModelUser.ps1` | 107 | 8 | 115 | 93.0% |
@@ -160,8 +164,8 @@
 | `Test-TierModelOu.ps1` | 194 | 46 | 240 | 80.8% |
 | `Import-TierModelGpo.ps1` | 89 | 21 | 110 | 80.9% ✦ |
 | `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 81.4% ✦ |
-| `TierModel.psm1` | 582 | 121 | 703 | 82.8% ✦ |
-| `Test-TierModelPrerequisites.ps1` | 396 | 72 | 468 | 84.62% ✦ |
+| `TierModel.psm1` | 581 | 122 | 703 | 82.65% ✦ |
+| `Test-TierModelPrerequisites.ps1` | 409 | 72 | 481 | 85.03% ✦ |
 | `New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 83.3% |
 | `Update-TierModelGPOConfig.ps1` | 87 | 17 | 104 | 83.7% |
 | `Get-TierModelUserFd.ps1` | 83 | 15 | 98 | 84.7% |
@@ -216,7 +220,7 @@ Files below 95% target, sorted by missed lines descending (most impactful work f
 
 | Priority | File | Current | Missed | Gap to 95% | Notes |
 |----------|------|---------|--------|------------|-------|
-| 1 | `TierModel.psm1` | 82.8% ✦ | 121 | at hard limit | 7 structural barriers — see Hard Coverage Limits |
+| 1 | `TierModel.psm1` | 82.65% ✦ | 122 | at hard limit | 7 structural barriers — see Hard Coverage Limits |
 | 2 | `Test-TierModelOu.ps1` | 80.8% | 46 | +14.2% | |
 | 3 | `Test-TierModelOuAcl.ps1` | 86.2% | 44 | +8.8% | |
 | 4 | `Audit-TierModel.ps1` | 85.6% | 67 | +9.4% | |
