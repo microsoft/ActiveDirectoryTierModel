@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "comment": "Domain-root SACL audit rule for Sentinel monitoring. Optional add-on — loaded only when -EnableAuditing is specified.",
+  "domainAuditRule": {
+    "comment": "Canonical audit ACE applied to the domain root DN ({{DOMAIN_DN}}). Trustee is Everyone (S-1-1-0), AuditFlags=Success, InheritanceType=All, non-inherited. Rights are the union target; any customer rights already present beyond these 9 are PRESERVED (UNION converge).",
+    "targetDn": "{{DOMAIN_DN}}",
+    "trusteeSid": "S-1-1-0",
+    "auditFlag": "Success",
+    "inheritance": "All",
+    "rights": [
+      "CreateChild",
+      "DeleteChild",
+      "WriteProperty",
+      "Self",
+      "Delete",
+      "DeleteTree",
+      "WriteDacl",
+      "WriteOwner",
+      "ExtendedRight"
+    ]
+  }
+}

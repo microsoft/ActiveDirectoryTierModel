@@ -3,77 +3,158 @@
 Modular TierModel deployment using dedicated cmdlets per entity type.
 
 .DESCRIPTION
-Performs TierModel component deployment including organizational units, groups, users,
-GPOs, OU ACL delegations, and ADMX configurations. Uses modular cmdlet architecture
-for improved maintainability and testing. Supports planning mode (default) and
-execution mode (with -ConfirmApply).
+Performs TierModel component deployment across all supported entity types: organizational
+units, security groups, user accounts, OU ACL delegations, Group Policy Objects, and ADMX
+configurations. Also supports optional add-on features: MSA/gMSA/dMSA managed-service-account
+ACL delegations (-IncludeMsa / -IncludeGmsa / -IncludeDmsa), Windows LAPS DACL delegations
+(-IncludeWinLaps), and domain-root AD object auditing for Sentinel monitoring (-EnableAuditing).
+
+Uses a modular cmdlet architecture for maintainability and testing. Default mode is planning
+(shows what would change without writing anything). Pass -ConfirmApply to execute.
+
+Scope parameters (-OuOnly, -GroupOnly, etc.) run a single entity type in isolation.
+-FullDeployment runs all entity types in dependency order with consolidated reporting.
+Optional add-on switches (-Include* / -EnableAuditing) may run standalone or alongside
+-FullDeployment, but cannot be combined with any single-scope (-*Only) parameter.
 
 .PARAMETER PreferredDc
 The preferred domain controller to use for all Active Directory operations.
 Must be accessible and have appropriate permissions for creating AD objects.
 
 .PARAMETER OuOnly
-Deploy only organizational units. When specified, only OU creation and
-configuration will be performed based on TierModel specification.
+Deploy only organizational units. OU creation and configuration will be performed
+based on the TierModel specification. Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER GroupOnly
-Deploy only security groups. When specified, only group creation and
-membership configuration will be performed. (Not yet implemented in v0.2)
+Deploy only security groups. Group creation and membership configuration will be
+performed. Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER UserOnly
-Deploy only user accounts. When specified, only user account creation
-and configuration will be performed. (Not yet implemented in v0.2)
+Deploy only user accounts. User account creation and configuration will be performed.
+Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER GposOnly
-Deploy only Group Policy Objects. When specified, only GPO creation,
-configuration, and linking will be performed. (Not yet implemented in v0.2)
+Deploy only Group Policy Objects. GPO creation, configuration, and linking will be
+performed. Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER OuAclsOnly
-Deploy only OU ACL delegations. When specified, only organizational unit
-access control list delegations will be applied. (Not yet implemented in v0.2)
+Deploy only OU ACL delegations. Organizational unit access control list delegations
+will be applied. Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER AdmxOnly
-Deploy only ADMX template configurations. When specified, only administrative
-template imports and configurations will be applied. (Not yet implemented in v0.2)
+Deploy only ADMX template configurations. Administrative template imports and
+configurations will be applied. Cannot be combined with -Include* or -EnableAuditing.
 
 .PARAMETER FullDeployment
 Perform comprehensive deployment of all TierModel components in dependency order:
-OUs -> Groups -> Users -> OU ACL Delegations -> GPOs -> ADMX.
-Provides consolidated reporting at completion.
+OUs -> Groups -> Users -> OU ACL Delegations -> GPOs -> ADMX -> optional add-ons.
+Provides consolidated reporting at completion. Compatible with -Include* and -EnableAuditing.
 
 .PARAMETER ConfirmApply
-Execute the deployment plan. Without this switch, the script runs in planning
-mode only, showing what changes would be made without applying them.
+Execute the deployment plan. Without this switch the script runs in planning mode only,
+showing what changes would be made without applying them. When -EnableAuditing is also
+specified, two Y confirmations are required: an auditing-specific warning about event log
+volume is presented first, followed by the standard deployment confirmation. Both must be
+accepted; either cancellation aborts before any changes are made.
+
+.PARAMETER IncludeMsa
+Deploy Managed Service Account (MSA) ACL delegations from the tiermodel-msa.json
+configuration segment. May be run standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
+.PARAMETER IncludeGmsa
+Deploy group Managed Service Account (gMSA) ACL delegations from the tiermodel-gmsa.json
+configuration segment. May be run standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
+.PARAMETER IncludeDmsa
+Deploy delegated Managed Service Account (dMSA) ACL delegations from the tiermodel-dmsa.json
+configuration segment. Requires Domain Functional Level Windows Server 2025; the script
+performs a pre-flight DFL check and fails fast if the requirement is not met.
+May be run standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
+.PARAMETER IncludeWinLaps
+Deploy Windows LAPS DACL delegations (read-password, reset-password, computer self-permission)
+from the tiermodel-winlaps.json configuration segment. Requires the Windows LAPS schema
+extensions to be present in Active Directory.
+May be run standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
+.PARAMETER EnableAuditing
+Enable domain-root Active Directory object auditing for Sentinel monitoring. Applies a
+canonical SACL audit ACE (Everyone / AuditFlags=Success / InheritanceType=All) covering
+nine rights (CreateChild, DeleteChild, WriteProperty, Self, Delete, DeleteTree, WriteDacl,
+WriteOwner, ExtendedRight) to the domain root distinguished name. Uses UNION converge logic:
+any rights the customer already has on a matching ACE are preserved and our nine are
+guaranteed. Requires SeSecurityPrivilege (Domain Admin qualifies).
+
+When combined with -ConfirmApply, prompts a second, auditing-specific Y confirmation BEFORE
+the standard deployment confirmation. The warning reads: "Enabling auditing will increase
+the events being generated in the Domain Controller Event Logs..." and requires explicit
+acceptance that event log sizing and retention are sufficient.
+
+May be run standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
+Note: the SACL alone does not generate Security events. The DC advanced-audit GPO
+(Directory Service Changes) must also be configured and its link enabled (on by default
+in the TierModel GPO set) for Sentinel to receive events.
+
+.PARAMETER AdmlLanguage
+The ADML language culture code used when importing ADMX/ADML administrative templates.
+Defaults to 'en-US'. Must match the language folder present in the ADMX source path.
 
 .PARAMETER Logging
-Enable detailed logging to files. When specified, deployment operations and
-results will be logged to files in the LogPath directory (or current directory).
+Enable structured logging to a timestamped file. When specified, all deployment operations
+and results are written to a log file in the directory specified by -LogPath (or the current
+working directory if -LogPath is omitted).
 
 .PARAMETER LogPath
-Directory path where log files will be created when Logging is enabled.
-If not provided, logs are created in the current directory. Directory will be
-created automatically if it doesn't exist.
+Directory path where the log file will be created when -Logging is enabled.
+The directory will be created automatically if it does not exist.
+If not provided, the log file is created in the current working directory.
 
 .PARAMETER OutputFileBase
-Base filename for generated deployment reports and logs (without extension or timestamp).
-The actual filename will include a timestamp and appropriate extension.
-Used when Logging is enabled or when generating deployment reports.
+Base filename for generated log files (without extension or timestamp).
+The actual filename will include a timestamp suffix and appropriate extension.
+Required when -Logging is specified and no default base name has been configured.
 
 .EXAMPLE
 .\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly
-Generate deployment plan for organizational units only (planning mode).
+Generate a deployment plan for organizational units only (planning mode — no changes made).
 
 .EXAMPLE
 .\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly -ConfirmApply -Logging -LogPath "C:\Logs"
-Deploy organizational units and log all operations to C:\Logs directory.
+Deploy organizational units and write a structured log to C:\Logs.
 
 .EXAMPLE
 .\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -ConfirmApply -Logging -OutputFileBase "TierModel-Deploy"
-Perform full TierModel deployment with logging enabled using custom log filename base.
+Full TierModel deployment (all entity types) with logging to a timestamped file.
+
+.EXAMPLE
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -EnableAuditing
+Plan mode: show the domain-root audit rule that would be configured (no changes made).
+
+.EXAMPLE
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -EnableAuditing -ConfirmApply
+Apply the domain-root audit SACL standalone. Presents the auditing event-log warning first
+(Prompt 1), then the standard deployment confirmation (Prompt 2). Both must be 'Y' to proceed.
+
+.EXAMPLE
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -EnableAuditing -ConfirmApply
+Full deployment including the domain-root audit SACL. Same two-prompt confirmation sequence:
+auditing warning (Prompt 1), then deployment confirmation (Prompt 2).
 
 .NOTES
-Version: 2.0
-Requires: TierModel PowerShell module, appropriate Active Directory permissions
+Version: 1.3.0
+Requires: TierModel PowerShell module (v1.3.0+), PowerShell 7.0+, appropriate Active Directory
+permissions. SeSecurityPrivilege required for -EnableAuditing (Domain Admin qualifies).
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -93,6 +174,7 @@ param(
     [switch]$IncludeGmsa,
     [switch]$IncludeDmsa,
     [switch]$IncludeWinLaps,
+    [switch]$EnableAuditing,
     
     [Parameter()]
     [string]$AdmlLanguage = 'en-US',
@@ -113,17 +195,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one deployment scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
-$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps)
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps, $EnableAuditing)
 $activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
-    Write-Error "You must specify exactly one deployment scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps)." -ErrorAction Stop
+    Write-Error "You must specify exactly one deployment scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, -EnableAuditing)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one deployment scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
 }
 elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
-    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, and -IncludeWinLaps can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
+    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, and -EnableAuditing can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Deploy TierModel orchestration starting." -ForegroundColor Cyan
@@ -233,6 +315,31 @@ if ($IncludeDmsa) {
         )
         return
     }
+}
+
+# Second confirmation gate: -EnableAuditing requires an explicit additional acknowledgement
+# about Event Log sizing BEFORE the general deploy confirmation.
+# Behavior: -EnableAuditing -ConfirmApply = 2 prompts (audit then deploy)
+#           -FullDeployment -EnableAuditing -ConfirmApply = 2 prompts
+#           -FullDeployment -ConfirmApply (no auditing) = 1 prompt
+#           no -ConfirmApply = 0 prompts (plan only)
+if ($EnableAuditing -and $ConfirmApply) {
+    Write-Host ""
+    Write-Host "WARNING: Enabling auditing will increase the events being generated in the Domain Controller Event Logs." -ForegroundColor Yellow
+    Write-Host "By confirming 'Y' you accept that the current event logs are configured with enough size" -ForegroundColor Yellow
+    Write-Host "and log retention to not rollover before being shipped for long term retention." -ForegroundColor Yellow
+    Write-Host ""
+
+    $auditConfirmation = Read-Host "Type 'Y' to accept the auditing event log impact, any other key to cancel"
+
+    if ($auditConfirmation -ne 'Y') {
+        Write-Host ""
+        Write-Host "Deployment cancelled by user." -ForegroundColor Red
+        Write-Host "Run without -ConfirmApply to see the deployment plan first." -ForegroundColor Cyan
+        exit 0
+    }
+
+    Write-Host ""
 }
 
 # Confirmation prompt for ConfirmApply to prevent accidental execution
@@ -1108,6 +1215,8 @@ function Write-IncludeAclPlanActions {
             }
         } elseif ($_.Action -eq 'ConfigureLapsDecryptor') {
             Write-Host "  ■ Configure : $($_.Data.gpoName)" -ForegroundColor Yellow
+        } elseif ($_.Action -eq 'ConfigureAuditRule') {
+            Write-Host "  ■ Configure : $($_.TargetDn)" -ForegroundColor Yellow
         }
     }
 }
@@ -1122,21 +1231,39 @@ function Add-IncludeAclPhaseToDeploymentPlan {
 
     $actionCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'TotalActions') {
         [int]$Plan.Summary.TotalActions
+    } elseif ($Plan.Summary -is [hashtable] -and $Plan.Summary.ContainsKey('TotalActions')) {
+        [int]$Plan.Summary['TotalActions']
     } else {
-        @($Plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
+        @($Plan.Actions | Where-Object { $_.Action -in @('CreateAcl', 'ConfigureAuditRule') }).Count
     }
     $createCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'CreateActions') {
         [int]$Plan.Summary.CreateActions
+    } elseif ($Plan.Summary -is [hashtable] -and $Plan.Summary.ContainsKey('CreateActions')) {
+        [int]$Plan.Summary['CreateActions']
     } else {
         @($Plan.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
     }
+    # ConfigureActions (e.g. audit SACL converge) fold into ConfigureCount, not CreateCount
+    $configureCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'ConfigureActions') {
+        [int]$Plan.Summary.ConfigureActions
+    } elseif ($Plan.Summary -is [hashtable] -and $Plan.Summary.ContainsKey('ConfigureActions')) {
+        [int]$Plan.Summary['ConfigureActions']
+    } else {
+        @($Plan.Actions | Where-Object { $_.Action -eq 'ConfigureAuditRule' }).Count
+    }
+    # When ConfigureActions is present, TotalActions already includes them; avoid double-counting CreateCount
+    if ($configureCount -gt 0) { $createCount = 0 }
+
     $existingCount = if ($Plan.Summary -and $Plan.Summary.PSObject.Properties.Name -contains 'ExistingCount') {
         [int]$Plan.Summary.ExistingCount
+    } elseif ($Plan.Summary -is [hashtable] -and $Plan.Summary.ContainsKey('ExistingCount')) {
+        [int]$Plan.Summary['ExistingCount']
     } else {
         0
     }
 
     $DeploymentPlan.CreateCount += $createCount
+    $DeploymentPlan.ConfigureCount += $configureCount
     $DeploymentPlan.TotalActions += $actionCount
     $DeploymentPlan.AlreadyExistCount += $existingCount
     $DeploymentPlan.Actions += @($Plan.Actions)
@@ -1712,6 +1839,37 @@ if ($FullDeployment) {
                 }
             }
         }
+
+        if ($EnableAuditing) {
+            if (-not $ConfirmApply) {
+                Write-Host "Phase 11: Domain Audit Rule (SACL)" -ForegroundColor Cyan
+            }
+
+            $auditFdPlanParams = @{
+                Config           = $config
+                DomainController = $PreferredDc
+                IncludeDetails   = $true
+            }
+            if ($ConfirmApply) { $auditFdPlanParams['Silent'] = $true }
+            $auditFdPlan = Get-TierModelAuditRuleFd @auditFdPlanParams
+
+            if ($auditFdPlan.Errors -and $auditFdPlan.Errors.Count -gt 0) {
+                if (-not $ConfirmApply) {
+                    Write-Host "  ❌ Audit rule planning errors:" -ForegroundColor Red
+                    $auditFdPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                }
+            } else {
+                Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $deploymentPlan -PhaseNumber 11 -PhaseName 'Domain Audit Rule' -Plan $auditFdPlan
+                if (-not $ConfirmApply) {
+                    if ($auditFdPlan.Summary.TotalActions -gt 0) {
+                        Write-Host "  Actions planned: $($auditFdPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                        Write-IncludeAclPlanActions -Actions $auditFdPlan.Actions
+                    } else {
+                        Write-Host "  ✅ Domain audit rule already up to date" -ForegroundColor Green
+                    }
+                }
+            }
+        }
     }
     
     # Show deployment plan summary (only if not applying changes)
@@ -1919,6 +2077,18 @@ if ($FullDeployment) {
                         Write-Host "  ✅ Windows LAPS ACL delegations already up to date" -ForegroundColor Green
                     }
                 }
+                if ($EnableAuditing) {
+                    Write-Host "  Deploying domain audit rule (SACL)..." -ForegroundColor Cyan
+                    $auditExecPlan = Get-TierModelAuditRuleFd -Config $config -DomainController $PreferredDc -IncludeDetails -Silent
+                    if ($auditExecPlan.Errors -and $auditExecPlan.Errors.Count -gt 0) {
+                        Write-Host "  ❌ Audit rule planning errors:" -ForegroundColor Red
+                        $auditExecPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
+                    } elseif (@($auditExecPlan.Actions).Count -gt 0) {
+                        $auditExecResult = New-TierModelAuditRule -Plan $auditExecPlan -DomainController $PreferredDc -Config $config
+                    } else {
+                        Write-Host "  ✅ Domain audit rule already up to date" -ForegroundColor Green
+                    }
+                }
             }
         } elseif ($activeIncludeCount -gt 0 -and $standardDeployHadErrors) {
             Write-Host "`n⚠️  Skipping optional MSA/gMSA/dMSA/WinLaps features due to errors in standard deployment." -ForegroundColor Yellow
@@ -1939,6 +2109,7 @@ if ($FullDeployment) {
         if (Get-Variable gmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $gmsaExecResult }
         if (Get-Variable dmsaExecResult -ErrorAction SilentlyContinue) { $allResults += $dmsaExecResult }
         if (Get-Variable winLapsExecResult -ErrorAction SilentlyContinue) { $allResults += $winLapsExecResult }
+        if (Get-Variable auditExecResult -ErrorAction SilentlyContinue) { $allResults += $auditExecResult }
         
         # Calculate consolidated counts
         $totalApplied = 0
@@ -2549,6 +2720,34 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
                 }
             } else {
                 Write-Host "  ✅ Windows LAPS ACL delegations already up to date" -ForegroundColor Green
+            }
+        }
+    }
+
+    if ($EnableAuditing) {
+        Write-Host "`nPhase: Domain Audit Rule (SACL)" -ForegroundColor Cyan
+        $auditPlan = Get-TierModelAuditRule -Config $config -DomainController $PreferredDc
+        if ($auditPlan.Errors -and $auditPlan.Errors.Count -gt 0) {
+            Write-Host "Planning Errors:" -ForegroundColor Red
+            $auditPlan.Errors | ForEach-Object { Write-Host "  ❌ $($_.Message)" -ForegroundColor Red }
+            $standaloneTotalErrors += $auditPlan.Errors.Count
+        } else {
+            Add-IncludeAclPhaseToDeploymentPlan -DeploymentPlan $standaloneDeploymentPlan -PhaseNumber 5 -PhaseName 'Domain Audit Rule' -Plan $auditPlan
+            if ($auditPlan.Summary.TotalActions -gt 0) {
+                Write-Host "  Actions planned: $($auditPlan.Summary.TotalActions)" -ForegroundColor Yellow
+                if (-not $ConfirmApply) {
+                    Write-IncludeAclPlanActions -Actions $auditPlan.Actions
+                }
+                if ($ConfirmApply) {
+                    $auditResult = New-TierModelAuditRule -Plan $auditPlan -DomainController $PreferredDc -Config $config
+                    $standaloneResults += $auditResult
+                    $standaloneTotalApplied += if ($auditResult.Applied) { @($auditResult.Applied).Count } else { 0 }
+                    $standaloneTotalErrors += if ($auditResult.Errors) { @($auditResult.Errors).Count } else { 0 }
+                    $standaloneTotalDuration += if ($auditResult.DurationMs) { $auditResult.DurationMs } else { 0 }
+                    if ($auditResult.PSObject.Properties.Name -contains 'Converged' -and -not $auditResult.Converged) { $standaloneConverged = $false }
+                }
+            } else {
+                Write-Host "  ✅ Domain audit rule already up to date" -ForegroundColor Green
             }
         }
     }
