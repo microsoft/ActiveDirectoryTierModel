@@ -22,14 +22,20 @@ Updated published test numbers in README.md, docs/test-coverage.md, and CHANGELO
 
 **STATUS (2026-08-11 end-of-session):** Doc + Beast's gate implementation lab-validated. Pending owner code review. No commit (per owner request).
 
-## Session 2026-08-14 — Pending: Audit Documentation Tasks (Beast Batch Coordination)
+## Session 2026-08-14 — Beast Batch Complete + Pending Audit Docs (2026-08-14T18:49:54+08:00)
 
-**Pending after Beast batch completion (2026-08-14T18:21:32+08:00):**
-- Update `docs/sentinel-monitoring.md` with audit configuration details
-- Update remaining audit-related documentation for the feature/domain-auditing wave
-- Coordinate with Joel on pending UAT sign-off before final commit
+**Beast batch status (as of 2026-08-14T18:49:54+08:00):** ✅ COMPLETE
+- Header/label cleanup in Audit-TierModel.ps1 (PSScriptAnalyzer clean, staged on DC01)
+- Granular per-right audit output in Test-TierModelAuditRule.ps1 (PSScriptAnalyzer clean, lab-validated 3 scenarios, staged on DC01)
+- Orchestration log written; decisions merged; inbox cleared
 
-**BLOCKED ON:** Joel's manual UAT of double-Y interactive confirm flow (`-EnableAuditing -ConfirmApply`)
+**Pending tasks (post-UAT):**
+- Update `docs/sentinel-monitoring.md`: remove old script refs, document -EnableAuditing requirement, note DC advanced-audit-policy GPO/link dependency + SACL replication delay
+- Update `README.md` and `CHANGELOG.md` with audit feature release notes
+- Update `docs/faq.md` with audit troubleshooting
+- Coordinate with Wolverine on Pester test timing
+
+**BLOCKED ON:** Joel's manual UAT (interactive `-EnableAuditing -ConfirmApply` double-Y flow + visual review of granular output) sign-off before final PR
 
 ## Session 2026-08-05 — GPO Management Guidance Page (Revision Pass)
 
