@@ -22,4 +22,13 @@
   - `TIERLAB\Tier0Admins` on `OU=Tier 0 Member Servers` — root cause: `Tier0Admins` has a **GenericAll** ACE (non-inherited) on that OU from OU delegation. `Find-LapsADExtendedRights` expands GenericAll → effective LAPS rights holder. Config only expects Tier0ServerOperators there.
   - `TIERLAB\Tier1Admins` on `OU=Tier 1 Member Servers` — same root cause (GenericAll OU delegation ACE).
 - These are NOT inherited from domain root or parent OUs — they are direct GenericAll ACEs set as part of the Tier Model's OU de
+
+## Session 2026-08-14 — Pending: Pester Tests + Cleanup (Beast Batch Coordination)
+
+**Pending after Beast batch completion (2026-08-14T18:21:32+08:00):**
+- Implement full Pester test suite for audit-script wiring (follow Phase 16 conventions)
+- Fix Temp\ teardown in test cleanup blocks to ensure no temp files persist
+- Coordinate with Beast/Storm on integration testing timeline
+
+**BLOCKED ON:** Storm docs + Joel's manual UAT sign-off
 [truncated summary]

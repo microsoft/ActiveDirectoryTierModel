@@ -22,6 +22,15 @@ Updated published test numbers in README.md, docs/test-coverage.md, and CHANGELO
 
 **STATUS (2026-08-11 end-of-session):** Doc + Beast's gate implementation lab-validated. Pending owner code review. No commit (per owner request).
 
+## Session 2026-08-14 — Pending: Audit Documentation Tasks (Beast Batch Coordination)
+
+**Pending after Beast batch completion (2026-08-14T18:21:32+08:00):**
+- Update `docs/sentinel-monitoring.md` with audit configuration details
+- Update remaining audit-related documentation for the feature/domain-auditing wave
+- Coordinate with Joel on pending UAT sign-off before final commit
+
+**BLOCKED ON:** Joel's manual UAT of double-Y interactive confirm flow (`-EnableAuditing -ConfirmApply`)
+
 ## Session 2026-08-05 — GPO Management Guidance Page (Revision Pass)
 
 Revision pass on `docs/gpo-management-guidance.md` applying all owner peer-review corrections (2026-08-05T16:09:55+08:00):
