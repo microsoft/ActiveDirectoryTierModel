@@ -1,6 +1,24 @@
 # wolverine — History Archive
 
-Archived 2026-07-28. Recent history kept in history.md.
+Archived 2026-07-28, 2026-08-15. Recent history kept in history.md.
+
+---
+
+## Session 2026-08-15: Scribe Orchestration Finalization
+
+**Date:** 2026-08-15T06:02:33Z  
+**Scope:** Post-audit finalization — history archival, log generation  
+**Trigger:** history.md exceeded 15,360-byte retention threshold (15,906 bytes)  
+**Status:** ✅ PROCESSED
+
+### Summary
+Scribe finalized session tasks: history.md archived (15,906 bytes → summarized). Pester v5 pin fix (2026-08-15 morning) confirmed working — CLR detection + re-spawn + `$PSModuleAutoLoadingPreference='None'` + hard post-import assertion (3-layer defence). Measured 1,533 tests / 0 failed; coverage 89.65% (final post-fix baseline). Temp\ clean. Docs updated: README.md, test-coverage.md, test-tag-matrix.md.
+
+### Key entries archived
+- 2026-08-15: Pester v5 CLR pin (adversarial proof: pre-loaded v6 → clean spawn → v5.9.0 pinned → 1,533 pass/0 fail)
+- 2026-08-15: Coverage refresh authoritative numbers (1,220 Unit + 313 Integration = 1,533; 89.65% overall)
+- 2026-08-11: BUG-006 canonical-ACL tests (18 ByBytes, 4 gate integration, 1,457 total green)
+- 2026-07-28 and earlier: BUG validation waves (BUG-008/004, WinLaps audit, audit shorthand)
 
 ---
 

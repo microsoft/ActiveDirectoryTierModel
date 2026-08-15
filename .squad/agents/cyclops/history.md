@@ -52,6 +52,10 @@ Storm's docs: finalization pass (README metrics, docs/canonical-acl.md, CHANGELO
 - Coordinated with Wolverine on mock scope fixes
 - CI fully green, 1292/1292 tests passing
 
+## Session 2026-08-14 — Domain-Root Audit SACL Spec (`-EnableAuditing`)
+
+Authored full Spec-Kit for `specs/004-domain-auditing/` (spec.md, plan.md, tasks.md, checklists/requirements.md). Design locked from decisions.md and UNION converge ruling. Key architecture signals: SACL/DACL distinction enforced throughout; `GetAuditRules()` enumeration gotcha documented; same-`$acl`-object constraint for read-modify-write; UNION target (not overwrite-to-exactly-9); `SeSecurityPrivilege` check before any SACL read; 4-cmdlet surface. Inbox note at `.squad/decisions/inbox/cyclops-audit-spec.md`. OI-001 (retire vs archive `optional/Enable-TierModelAuditing.ps1`) flagged for Joel.
+
 ## Learnings
 **2026-07-28 — UI Bugs BUG-002 & BUG-005 Campaign Review APPROVE Verdict:**
 - BUG-002 source corroboration: Deploy-TierModel.ps1 L2022–2048 UserOnly block invokes Invoke-UserDeployment with -Silent, then checks .Errors and renders ❌ glyphs with red foreground when errors present; inner function returns error plan before New-TierModelUser is called (L638–645) with -Apply =  already passed. Zero AD writes on dirty deps confirmed. When deps satisfied, errors empty, apply proceeds, AD writes confirmed (T3 independent AD query verified).

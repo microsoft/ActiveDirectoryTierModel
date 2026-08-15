@@ -1,5 +1,118 @@
 # storm — History
 
+## Session 2026-08-15 — Domain-Auditing Feature Documentation Rebuild (2026-08-15T14:29:48+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+
+**Context:** Documentation updates from Session 2026-08-14 were lost in a `git reset` after a PowerShell terminal crash. This session rebuilds both docs from the stored history notes (which were approved by Joel). The feature branch `feature/domain-auditing` (module v1.3.0) is committed at 6d6ad8e.
+
+**Tasks completed:**
+
+1. **docs/sentinel-monitoring.md** — Rebuilt "Before you begin" bullet (lines 29–40, formerly 29–39):
+   - **Removed:** Stale broken link to deleted `optional/Enable-TierModelAuditing.ps1` script
+   - **Removed:** "Coming in a future release" placeholder note (feature has shipped in v1.3.0)
+   - **Added:** Clear two-part monitoring prerequisite documentation:
+     - Part 1: Domain-root SACL audit rule via `Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply` (NEW in v1.3.0; selects what to audit: Everyone, Success, All-inheritance, 9 rights)
+     - Part 2: DC Advanced Audit Policy GPO (`*- Tier 0 DCs Advanced Audit Policy - Computer`; pre-deployed, linked by default; enables event generation)
+   - **Kept:** Event-log sizing/rollover warning (still valid and important)
+   - **Added:** Explicit replication-delay note (15 minutes for SACL convergence)
+   - Tone and structure consistent with existing page
+
+2. **docs/detailed-deployment-guide.md** — Rebuilt Step 11 section (new, inserted after Windows LAPS section, before "After completing all deployment steps"):
+   - **Step 11 title:** "Configure Domain-Root Auditing (Optional)"
+   - **Step 11.1:** Plan audit SACL deployment (no writes, no prompts; shows Phase 11 action and ACE details)
+   - **Step 11.2:** Deploy audit SACL with `-ConfirmApply` (explains two-Y sequence: auditing-impact Y FIRST, then standard deploy Y SECOND)
+   - **Step 11.3:** Audit compliance with `Audit-TierModel.ps1 -EnableAuditing` (granular per-right ✅/❌ output)
+   - **Composition:** `-FullDeployment -EnableAuditing` (clean, documented)
+   - **Mutual exclusion:** Explained `-EnableAuditing` incompatibility with `-*Only` switches
+   - **Prerequisites:** SeSecurityPrivilege, preferred DC binding, Tier Model pre-deployed
+   - **Cross-link:** Sentinel monitoring prerequisite reminder with link to sentinel-monitoring.md
+   - **Idempotency note:** Re-runs skip converged domain root, exit cleanly
+   - Matches existing guide structure, heading levels, markdown style
+
+3. **Verified absence of deleted-script references:**
+   - Grep of both updated docs for `Enable-TierModelAuditing`: **ZERO matches** ✅
+   - No broken links remain
+   - All content is current and accurate to v1.3.0
+
+**Status:** ✅ COMPLETE — Documentation fully rebuilt from approved Session 2026-08-14 notes. No code changes. No commits (per owner direction). Ready for owner verification.
+
+---
+
+## Session 2026-08-14 — Domain-Auditing Feature Documentation (2026-08-14T19:09:17+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+
+**Context:** Feature branch `feature/domain-auditing` (module v1.3.0) introduces the new `-EnableAuditing` deployment parameter and three new cmdlets (`Get-/New-/Test-TierModelAuditRule`), fully replacing the deleted `optional/Enable-TierModelAuditing.ps1` script.
+
+**Tasks completed:**
+
+1. **docs/sentinel-monitoring.md** — Removed all references to the now-deleted `optional/Enable-TierModelAuditing.ps1` script. Replaced with updated prerequisites section documenting:
+   - `Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply` as the new way to enable domain-root SACL auditing
+   - Two-part relationship: SACL audit rule (domain root, Everyone, 9 rights, Success) + DC Advanced Audit Policy GPO (`*- Tier 0 DCs Advanced Audit Policy - Computer`, linked by default)
+   - Note that both MUST be in place for Sentinel monitoring to function
+   - SACL replication delay (allow 15 minutes for convergence)
+   - Brief warning about event-log sizing and collection
+
+2. **docs/detailed-deployment-guide.md** — Added comprehensive Step 11 section covering domain-root auditing configuration:
+   - Step 11.1: Plan audit SACL deployment (what gets reviewed, no prompts, no writes)
+   - Step 11.2: Deploy audit SACL with `-ConfirmApply` (explains the two-prompt sequence: audit-specific Y gate THEN standard deploy Y gate)
+   - Step 11.3: Audit audit SACL compliance (`-EnableAuditing` on Audit-TierModel.ps1)
+   - Composition with `-FullDeployment`
+   - Prerequisites: SeSecurityPrivilege, preferred DC binding, mutual exclusion with `-*Only`
+   - Sentinel monitoring prerequisite reminder (GPO + SACL)
+   - Matches existing guide structure/tone
+
+3. **Verified absence of stale references** — Grepped entire `docs/` folder; confirmed no remaining references to `Enable-TierModelAuditing` or `optional/Enable-TierModelAuditing.ps1` (aside from removed instances). Files checked: all `.md` files in `docs/`.
+
+**Status:** ✅ COMPLETE — All documentation updates done. No code changes. No commits (per owner direction). Ready for owner review.
+
+**Learnings:**
+
+- **Two-part monitoring prerequisite:** The new audit feature is tightly coupled to the pre-existing DC Advanced Audit Policy GPO. Both pieces must be active simultaneously — SACL selects what to audit, GPO enables event generation. Clearly documenting this relationship prevents operator confusion about why monitoring doesn't work if only one piece is in place.
+- **Confirmation UX complexity:** The new `-EnableAuditing -ConfirmApply` flow shows TWO distinct prompts in sequence (audit-specific warning first, then standard deployment confirmation). This is important to document so operators understand why they see two Y prompts and what each means.
+- **Replication timing:** Added explicit guidance that SACL changes replicate via normal AD replication and operators should allow 15 minutes for convergence. This prevents premature "auditing not working" escalations.
+- **Script retirement signal:** Removing the old standalone script reference entirely (not archiving) sends a clear signal that the feature is now built-in. No partial migrations or legacy paths.
+
+---
+
+## Session 2026-08-11 — Canonical ACL doc (BUG-006)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+
+**Context:** Feature branch `feature/domain-auditing` (module v1.3.0) introduces the new `-EnableAuditing` deployment parameter and three new cmdlets (`Get-/New-/Test-TierModelAuditRule`), fully replacing the deleted `optional/Enable-TierModelAuditing.ps1` script.
+
+**Tasks completed:**
+
+1. **docs/sentinel-monitoring.md** — Removed all references to the now-deleted `optional/Enable-TierModelAuditing.ps1` script. Replaced with updated prerequisites section documenting:
+   - `Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply` as the new way to enable domain-root SACL auditing
+   - Two-part relationship: SACL audit rule (domain root, Everyone, 9 rights, Success) + DC Advanced Audit Policy GPO (`*- Tier 0 DCs Advanced Audit Policy - Computer`, linked by default)
+   - Note that both MUST be in place for Sentinel monitoring to function
+   - SACL replication delay (allow 15 minutes for convergence)
+   - Brief warning about event-log sizing and collection
+
+2. **docs/detailed-deployment-guide.md** — Added comprehensive Step 11 section covering domain-root auditing configuration:
+   - Step 11.1: Plan audit SACL deployment (what gets reviewed, no prompts, no writes)
+   - Step 11.2: Deploy audit SACL with `-ConfirmApply` (explains the two-prompt sequence: audit-specific Y gate THEN standard deploy Y gate)
+   - Step 11.3: Audit audit SACL compliance (`-EnableAuditing` on Audit-TierModel.ps1)
+   - Composition with `-FullDeployment`
+   - Prerequisites: SeSecurityPrivilege, preferred DC binding, mutual exclusion with `-*Only`
+   - Sentinel monitoring prerequisite reminder (GPO + SACL)
+   - Matches existing guide structure/tone
+
+3. **Verified absence of stale references** — Grepped entire `docs/` folder; confirmed no remaining references to `Enable-TierModelAuditing` or `optional/Enable-TierModelAuditing.ps1` (aside from removed instances). Files checked: all `.md` files in `docs/`.
+
+**Status:** ✅ COMPLETE — All documentation updates done. No code changes. No commits (per owner direction). Ready for owner review.
+
+**Learnings:**
+
+- **Two-part monitoring prerequisite:** The new audit feature is tightly coupled to the pre-existing DC Advanced Audit Policy GPO. Both pieces must be active simultaneously — SACL selects what to audit, GPO enables event generation. Clearly documenting this relationship prevents operator confusion about why monitoring doesn't work if only one piece is in place.
+- **Confirmation UX complexity:** The new `-EnableAuditing -ConfirmApply` flow shows TWO distinct prompts in sequence (audit-specific warning first, then standard deployment confirmation). This is important to document so operators understand why they see two Y prompts and what each means.
+- **Replication timing:** Added explicit guidance that SACL changes replicate via normal AD replication and operators should allow 15 minutes for convergence. This prevents premature "auditing not working" escalations.
+- **Script retirement signal:** Removing the old standalone script reference entirely (not archiving) sends a clear signal that the feature is now built-in. No partial migrations or legacy paths.
+
+---
+
 ## Session 2026-08-11 — Canonical ACL doc (BUG-006)
 
 Created `docs/canonical-acl.md` and updated `mkdocs.yml` nav. Lab-validated with Beast's gate implementation. Finalization complete: reviewed APPROVE (nits fixed: Write-Warning in catch block, doc disclaimer removed). PENDING owner code review + PR. No commit (per owner request).

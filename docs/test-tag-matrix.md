@@ -26,6 +26,7 @@ This document defines Pester tags used across all TierModel test suites.
 | DmsaAcl | Delegated Managed Service Account ACL delegation operations |
 | WinLapsAcl | Windows LAPS ACL delegation operations |
 | WinLapsDecryptor | Windows LAPS GPO decryptor (ADPasswordEncryptionPrincipal) operations |
+| AuditRule | Domain audit rule (SACL) configuration and drift detection |
 | Resolution | Name resolution and placeholder expansion |
 | Manifest | Module manifest validation |
 | Module | Module loading and integration tests |
@@ -141,6 +142,9 @@ Invoke-Pester -Tag Structure
 |-----------|------|-----------|
 | `Unit.WinLapsAclOperations.Tests.ps1` | Unit, WinLapsAcl, WinLapsDecryptor, WinLapsPrereq | Windows LAPS ACL delegation + GPO decryptor |
 | `Integration.WinLapsDeployment.Tests.ps1` | Integration, WinLapsAcl, WinLapsDecryptor | Windows LAPS end-to-end deployment + idempotency |
+| `Unit.AuditRuleOperations.Tests.ps1` | Unit, AuditRule | Domain audit rule (SACL) plan/apply/drift cmdlets + config segment |
+| `Integration.Audit.Tests.ps1` (AuditRule) | Integration, Audit, AuditRule | `-EnableAuditing` standalone/FullDeployment/combined audit paths |
+| `Integration.Deploy.Tests.ps1` (AuditRule) | Integration, Deploy, AuditRule | `-EnableAuditing` scope validation + Phase 11 deployment paths |
 
 For additional documentation, see:
 - [Deployment Methodology](deployment-methodology.md) - Comprehensive testing strategy

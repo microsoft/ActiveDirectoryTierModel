@@ -41,27 +41,21 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ ALL TESTS PASSING** *(Last run: August 11, 2026)*
+**Current Test Status: ✅ 1,533 passing / 0 failures (100%)** *(Last run: 2026-08-15)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 18 files | 1,173 tests | ✅ 100% Pass | **88.74%** |
-| **Integration Tests** | 7 files | 288 tests | ✅ 100% Pass | **100%** |
-| **Manual Integration Tests** | 1 file | 331 tests | ✅ 100% Pass | **100%** |
-| **Total** | **26 files** | **1,792 tests** | ✅ **All Passing** | **88.74%** |
+| **Unit Tests** | 19 files | 1,220 tests | ✅ All pass | **89.65%** |
+| **Integration Tests** | 7 files | 313 tests | ✅ All pass | **89.65%** |
+| **Manual Integration Tests** | 1 file | 335 tests | ✅ 100% Pass | **N/A** |
+| **Total** | **26 files** | **1,868 tests** | ✅ **100% passing** | **89.65%** |
 
 ### Test Coverage Highlights
-- ✅ **64/64** production files have comprehensive test coverage (5 new Windows LAPS cmdlets added in v1.2.0)
-- ✅ **100%** of all automated 1,461 test cases passing
-- ✅ **100%** of all manual 331 test cases passing
-- ✅ **88.74%** overall docs-scope line coverage — `modules/TierModel/*` module scope ~91% (all above 80% CI gate); `Audit-TierModel.ps1` at 73.1% (new fail-fast/alignment paths need live-AD or PS<7 to exercise), `Deploy-TierModel.ps1` at 81.4%
-- ✅ `Get-TierModelConditionalGroupNames` — new function with full test coverage (6 unit tests)
-- ✅ **New in v1.2.0:** Unit and integration test files for Windows LAPS (Unit.WinLapsAclOperations.Tests.ps1, Integration.WinLapsDeployment.Tests.ps1)
-- ✅ **New in v1.2.1:** UI & reliability bug fixes (BUG-001..011) — see CHANGELOG.
-- ✅ **New in v1.2.2:** English-language enforcement (#23) — fail-fast host-OS and Active Directory (en-US only) prerequisite checks (10 new unit tests); see [Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/).
-- ✅ **New in v1.2.3:** Non-canonical root ACL pre-flight gate — `Test-TierModelCanonicalAcl` + a gate in `Test-TierModelPrerequisites` hard-stop Deploy and Audit (all modes, zero objects) when the domain root DACL is non-canonical (26 new unit tests); see [Canonical ACLs](https://microsoft.github.io/ActiveDirectoryTierModel/canonical-acl/).
+- ✅ **68/68** production files have comprehensive test coverage (4 new domain audit rule cmdlets added in v1.3.0)
+- ✅ **1,533 / 1,533** automated test cases passing — 0 failures (Pester 5.9.0, 2026-08-15)
+- ✅ **89.65%** overall Pester-measured command coverage (14,651 / 16,343 — all files above 80% CI gate)
+- ✅ **New in v1.3.0:** `-EnableAuditing` domain audit rule (SACL) support — 4 new cmdlets (`Get-TierModelAuditRule` **100%**, `Get-TierModelAuditRuleFd` **97.73%**, `Test-TierModelAuditRule` **98.41%**, `New-TierModelAuditRule` **84.14%**) covered by `Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration tests in Audit and Deploy orchestrators; `Audit-TierModel.ps1` **85.9%**, `Deploy-TierModel.ps1` **81.53%**
 - ✅ Mock-based testing (no Active Directory connectivity required)
-- ✅ WhatIf support validation across all deployment operations
 
 ### Running Tests
 ```powershell

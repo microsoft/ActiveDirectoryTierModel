@@ -552,6 +552,16 @@ SeDenyNetworkLogonRight = *S-1-5-113
 "@
         }
     }
+
+    AfterAll {
+        # Teardown: Test-TierModelGPOContent writes <GPOName>_Mock.inf files to the repo-root
+        # Temp\ directory. Remove those leaked artifacts so they don't accumulate across runs.
+        $repoTemp = Join-Path (Split-Path $PSScriptRoot -Parent) 'Temp'
+        if (Test-Path $repoTemp) {
+            Get-ChildItem -Path $repoTemp -Filter '*_Mock.inf' -File -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+    }
     
     Context "GPO Content Validation - Success Cases" {
         
@@ -653,6 +663,15 @@ Describe "Test-TierModelGPOContent – Extended Coverage" -Tag "Unit", "GPO", "C
         Mock Write-TierModelLog -ModuleName TierModel { }
         Mock New-TierModelGptTmplContent -ModuleName TierModel {
             return "[Unicode]`r`nUnicode=yes`r`n[Privilege Rights]`r`nSeServiceLogonRight = *S-1-5-80-0`r`n"
+        }
+    }
+
+    AfterAll {
+        # Teardown: remove leaked <GPOName>_Mock.inf artifacts written to repo-root Temp\
+        $repoTemp = Join-Path (Split-Path $PSScriptRoot -Parent) 'Temp'
+        if (Test-Path $repoTemp) {
+            Get-ChildItem -Path $repoTemp -Filter '*_Mock.inf' -File -ErrorAction SilentlyContinue |
+                Remove-Item -Force -ErrorAction SilentlyContinue
         }
     }
 

@@ -1133,3 +1133,243 @@ Describe 'Audit-TierModel.ps1 - MSA/gMSA/dMSA Include Switches' -Tag 'Integratio
         }
     }
 }
+
+Describe 'Audit-TierModel.ps1 - EnableAuditing (Domain Audit Rule)' -Tag 'Integration', 'Audit', 'AuditRule' {
+
+    BeforeEach {
+        Mock -CommandName Test-TierModelPrerequisites {
+            return [PSCustomObject]@{ Valid = $true; Errors = @(); Remediation = @() }
+        }
+        $mockConfig = $script:MockConfig
+        Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+    }
+
+    BeforeAll {
+        function New-MockAuditRuleResult {
+            param([int]$TotalChecked = 1, [int]$Compliant = 1, [int]$Missing = 0, [int]$Drift = 0, [int]$Errors = 0)
+            return [PSCustomObject]@{
+                TotalChecked  = $TotalChecked
+                Compliant     = $Compliant
+                Missing       = $Missing
+                Mismatched    = 0
+                Errors        = $Errors
+                Drift         = $Drift
+                Findings      = @([PSCustomObject]@{
+                    Type = if ($Drift -gt 0) { 'MissingAuditRule' } else { 'Compliant' }
+                    ResourceType = 'DomainAuditRule'
+                    Identifier = 'DomainRoot -> DC=test,DC=local'
+                })
+                DurationMs    = 10
+                CorrelationId = [System.Guid]::NewGuid().ToString()
+            }
+        }
+    }
+
+    Context 'Scope validation' {
+
+        It 'Should reject -EnableAuditing combined with -OuOnly' {
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -OuOnly } |
+                Should -Throw -ExpectedMessage '*can only be used standalone or combined with -FullDeployment*'
+        }
+
+        It 'Should require exactly one scope when neither scope nor include is specified' {
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc } |
+                Should -Throw -ExpectedMessage '*must specify exactly one audit scope parameter*'
+        }
+
+        It 'Should accept standalone -EnableAuditing without throwing' {
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult }
+
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-Null } |
+                Should -Not -Throw
+        }
+    }
+
+    Context 'Standalone -EnableAuditing' {
+
+        It 'Should call Test-TierModelAuditRule when -EnableAuditing is specified standalone' {
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult } -Verifiable
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelAuditRule -Times 1
+        }
+
+        It 'Should emit the standalone Domain Audit Rule headers' {
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'Standalone Domain Audit Rule Audit'
+            $output | Should -Match 'Domain Audit Rule Results'
+        }
+
+        It 'Should report 0 drift for a COMPLIANT result' {
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult -Compliant 1 -Drift 0 }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'COMPLIANT'
+            $output | Should -Match 'Total Drift: 0'
+        }
+
+        It 'Should report drift count > 0 for a DRIFT result' {
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult -Compliant 0 -Missing 1 -Drift 1 }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'DRIFT ITEMS'
+            $output | Should -Match 'Total Drift: 1'
+        }
+    }
+
+    Context '-FullDeployment -EnableAuditing' {
+
+        It 'Should call Test-TierModelAuditRule and include Domain Audit Rule in the consolidated report' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult } -Verifiable
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -EnableAuditing 6>&1 | Out-String
+
+            Should -Invoke Test-TierModelAuditRule -Times 1
+            $output | Should -Match 'Domain Audit Rule'
+        }
+
+        It 'Should not call Test-TierModelAuditRule during a plain -FullDeployment (no -EnableAuditing)' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelAuditRule { return New-MockAuditRuleResult }
+
+            & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment 6>&1 | Out-Null
+
+            Should -Invoke Test-TierModelAuditRule -Times 0
+        }
+    }
+}
+
+Describe 'Audit-TierModel.ps1 - EnableAuditing Combined Coverage' -Tag 'Integration', 'Audit', 'AuditRule' {
+
+    BeforeEach {
+        Mock -CommandName Test-TierModelPrerequisites {
+            return [PSCustomObject]@{ Valid = $true; Errors = @(); Remediation = @() }
+        }
+        $mockConfig = $script:MockConfig
+        Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+    }
+
+    BeforeAll {
+        function New-MockFlatAudit {
+            param([int]$Drift = 0)
+            [PSCustomObject]@{
+                TotalChecked = 1; Compliant = (1 - [math]::Min($Drift,1)); Missing = $Drift
+                Mismatched = 0; Errors = 0; Drift = $Drift
+                Findings = @(); DurationMs = 5; CorrelationId = [System.Guid]::NewGuid().ToString()
+            }
+        }
+    }
+
+    Context 'Standalone -Include* combined with -EnableAuditing' {
+
+        It 'Should emit the combined ACL & Decryptor / Domain Audit Rule headers and run all audits' {
+            Mock -CommandName Test-TierModelMsaAcl          { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelGmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelDmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsAcl      { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsDecryptor { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelAuditRule       { New-MockFlatAudit } -Verifiable
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc `
+                -IncludeMsa -IncludeGmsa -IncludeDmsa -IncludeWinLaps -EnableAuditing 6>&1 | Out-String
+
+            Should -Invoke Test-TierModelMsaAcl          -Times 1
+            Should -Invoke Test-TierModelWinLapsAcl      -Times 1
+            Should -Invoke Test-TierModelWinLapsDecryptor -Times 1
+            Should -Invoke Test-TierModelAuditRule       -Times 1
+            $output | Should -Match 'ACL & Decryptor / Domain Audit Rule Audit'
+            $output | Should -Match 'ACL & Decryptor / Domain Audit Rule Results'
+        }
+
+        It 'Should surface a drift item from the audit rule in the combined standalone total' {
+            Mock -CommandName Test-TierModelMsaAcl          { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelGmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelDmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsAcl      { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsDecryptor { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelAuditRule       { New-MockFlatAudit -Drift 1 }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc `
+                -IncludeWinLaps -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'DRIFT ITEMS'
+        }
+
+        It 'Should warn (not throw) when the standalone audit rule check fails' {
+            Mock -CommandName Test-TierModelAuditRule { throw 'boom-standalone' }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'Domain Audit Rule audit failed'
+        }
+    }
+
+    Context 'FullDeployment -Include* combined with -EnableAuditing' {
+
+        It 'Should wrap and consolidate all optional features including the Domain Audit Rule' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelMsaAcl          { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelGmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelDmsaAcl         { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsAcl      { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelWinLapsDecryptor { New-MockFlatAudit }
+            Mock -CommandName Test-TierModelAuditRule       { New-MockFlatAudit } -Verifiable
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa -IncludeWinLaps -EnableAuditing 6>&1 | Out-String
+
+            Should -Invoke Test-TierModelMsaAcl          -Times 1
+            Should -Invoke Test-TierModelWinLapsDecryptor -Times 1
+            Should -Invoke Test-TierModelAuditRule       -Times 1
+            $output | Should -Match 'Domain Audit Rule'
+        }
+
+        It 'Should warn (not throw) when the FullDeployment audit rule check fails' {
+            Mock -CommandName Test-TierModelOu       { return New-MockAuditResult -EntityType 'OU' }
+            Mock -CommandName Test-TierModelGroup    { return New-MockAuditResult -EntityType 'Group' }
+            Mock -CommandName Test-TierModelUser     { return New-MockAuditResult -EntityType 'User' }
+            Mock -CommandName Test-TierModelOuAcl    { return New-MockAuditResult -EntityType 'OU ACL' }
+            Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' }
+            Mock -CommandName Test-TierModelAdmx     { return New-MockAuditResult -EntityType 'ADMX' }
+            Mock -CommandName Test-TierModelAuditRule { throw 'boom-full' }
+
+            $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -EnableAuditing 6>&1 | Out-String
+
+            $output | Should -Match 'Domain Audit Rule audit failed'
+        }
+    }
+
+    Context '-EnableAuditing with output file generation' {
+
+        It 'Should generate a JSON report when -OutputFormat and -OutputFileBase are supplied' {
+            Mock -CommandName Test-TierModelAuditRule { New-MockFlatAudit }
+            Mock Set-Content { }
+
+            { & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing `
+                -OutputFormat Json -OutputFileBase 'audit-rule-report' -LogPath $script:TestOutputDir 6>&1 | Out-Null } |
+                Should -Not -Throw
+        }
+    }
+}

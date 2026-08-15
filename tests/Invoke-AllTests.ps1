@@ -93,7 +93,36 @@ try {
     Write-Host "🧪 TierModel Test Runner" -ForegroundColor Cyan
     Write-Host "=========================" -ForegroundColor Cyan
     Write-Host ""
-    
+
+    # ===================================================================
+    # PESTER 6.x CLR ASSEMBLY EVICTION — MUST HAPPEN BEFORE ANYTHING ELSE
+    # ===================================================================
+    # Problem (pwsh 7.6.5 + side-by-side Pester 6.0.0): Once a .NET assembly
+    # is loaded into the process AppDomain, Import-Module -Force cannot evict
+    # it. If the caller's terminal session ever imported Pester 6.x (explicitly
+    # or via auto-load), the CLR has 6.x locked in. Attempting to then load
+    # Pester 5.x throws "Assembly with same name is already loaded."
+    #
+    # Solution: Detect the v6 CLR assembly and re-spawn this script in a
+    # clean child process where no Pester assembly is pre-loaded. The child
+    # runs with -NoProfile to prevent profile scripts from re-loading v6.
+    # ===================================================================
+    $v6Assembly = [System.AppDomain]::CurrentDomain.GetAssemblies() |
+        Where-Object { $_.GetName().Name -eq 'Pester' -and $_.GetName().Version.Major -ge 6 } |
+        Select-Object -First 1
+
+    if ($v6Assembly) {
+        Write-Warning "Pester $($v6Assembly.GetName().Version) CLR assembly is already loaded in this process — it cannot be evicted. Re-spawning Invoke-AllTests.ps1 in a clean child process to guarantee Pester 5.x binds."
+        $myScript = $MyInvocation.MyCommand.Path
+        $respawnArgs = @('-NoProfile', '-NonInteractive', '-File', $myScript)
+        if ($TestType -ne 'All')  { $respawnArgs += '-TestType', $TestType }
+        if ($Detailed)            { $respawnArgs += '-Detailed' }
+        if ($FailedOnly)          { $respawnArgs += '-FailedOnly' }
+        if ($PassThru)            { $respawnArgs += '-PassThru' }
+        & pwsh @respawnArgs
+        exit $LASTEXITCODE
+    }
+
     # Clean up any temp directories from previous test runs
     $tempDir = Join-Path (Split-Path $scriptRoot -Parent) "Temp"
     if (Test-Path $tempDir) {
@@ -106,33 +135,94 @@ try {
         }
     }
     Write-Host ""
-    
-    # Check Pester version. Require a supported 5.x release; Pester 6.x has breaking
-    # changes (new mock engine / Should-* assertions) that are not yet supported. Pester
-    # versions install side-by-side, so select and explicitly import the highest 5.x even
-    # when a newer major is also installed (PowerShell would otherwise auto-load the highest).
-    $allPester = @(Get-Module Pester -ListAvailable | Where-Object { $null -ne $_ })
-    if (-not $allPester) {
-        Write-Error "Pester module not found. Install with: Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force. For help, see: https://github.com/pester/Pester"
-        return
-    }
-    $supportedPester = $allPester | Where-Object { $_.Version.Major -eq 5 } | Sort-Object Version -Descending | Select-Object -First 1
-    $highestPester = ($allPester | Sort-Object Version -Descending | Select-Object -First 1).Version
-    if (-not $supportedPester) {
-        Write-Error "No supported Pester 5.x release found (highest installed: $highestPester). Pester $($highestPester.Major).x has breaking changes that are not yet supported. Install 5.x side-by-side: Install-Module -Name Pester -MinimumVersion 5.0.0 -MaximumVersion 5.99.99 -Force"
-        return
-    }
 
-    # Explicitly load the supported 5.x line so Invoke-Pester does not auto-load a newer major.
-    Remove-Module Pester -Force -ErrorAction SilentlyContinue
-    Import-Module Pester -RequiredVersion $supportedPester.Version -Force
-    $pesterModule = $supportedPester
+    # ===================================================================
+    # PESTER VERSION POLICY — DO NOT CHANGE WITHOUT TESTING THE FULL SUITE
+    # ===================================================================
+    # Joel Platek directive (2026-08-15): Invoke-AllTests.ps1 MUST execute
+    # under a Pester 5.x.x release and MUST NEVER bind to Pester 6.x, even
+    # when v6 is installed side-by-side and even when PowerShell 7.6.5+
+    # auto-loading would otherwise pull in the highest installed version.
+    #
+    # Why: Pester 6.x has breaking changes — overhauled mock engine, removed
+    # Assert-MockCalled, redesigned Should-* assertion syntax. Our 1,500+
+    # test cases are authored for the Pester 5.x API and WILL NOT be updated
+    # to chase 6.x breaking changes at this time. Pester 5.9.0 is fully
+    # supported and produces 0 failures on the current suite.
+    #
+    # KNOWN-GOOD: 5.9.0 — validated 2026-08-15, 1533/1533 pass, 0 failures.
+    #
+    # STRATEGY (defence in depth against pwsh 7.6.5 autoloading v6):
+    #   1. Disable module auto-loading before ANY Pester discovery.
+    #   2. Remove ALL currently-loaded Pester modules (any version, inc. v6).
+    #   3. Hard-import exactly the known-good version.
+    #   4. Hard-assert Major -eq 5 after import; abort if wrong version bound.
+    #   5. Restore auto-loading preference after import (tests themselves may
+    #      need auto-loading for other modules, e.g. ActiveDirectory).
+    # ===================================================================
+    $KnownGoodPesterVersion = '5.9.0'
+
+    # Step 1 — disable auto-loading so Get-Module -ListAvailable and
+    # Import-Module cannot be short-circuited by pwsh picking the highest.
+    $savedAutoLoad = $PSModuleAutoLoadingPreference
+    $PSModuleAutoLoadingPreference = 'None'
+
+    try {
+        # Step 2 — purge any already-loaded Pester (any version, inc. v6).
+        Get-Module Pester | Remove-Module -Force -ErrorAction SilentlyContinue
+
+        # Step 3 — discover what is installed.
+        # PSModuleAutoLoadingPreference = None means we must pass -ListAvailable explicitly.
+        $allPester = @(Get-Module Pester -ListAvailable | Where-Object { $null -ne $_ })
+        if (-not $allPester) {
+            Write-Error "Pester not found. Install: Install-Module -Name Pester -RequiredVersion $KnownGoodPesterVersion -Force"
+            return
+        }
+
+        $highestPester = ($allPester | Sort-Object Version -Descending | Select-Object -First 1).Version
+
+        # Warn if Pester 6.x (or any non-5.x) is present — it CANNOT run this suite.
+        if ($highestPester.Major -ne 5) {
+            Write-Warning "Pester $highestPester is installed side-by-side. Pester $($highestPester.Major).x has breaking changes incompatible with this test suite and WILL NOT be used. Pinning to $KnownGoodPesterVersion."
+        }
+
+        # Find the pinned known-good version.
+        $pinnedPester = $allPester | Where-Object { $_.Version.ToString() -eq $KnownGoodPesterVersion } | Select-Object -First 1
+
+        if ($pinnedPester) {
+            $selectedPester = $pinnedPester
+        } else {
+            # Fallback: highest available 5.x. Warn loudly — suite may not be fully green.
+            $selectedPester = $allPester | Where-Object { $_.Version.Major -eq 5 } | Sort-Object Version -Descending | Select-Object -First 1
+            if (-not $selectedPester) {
+                Write-Error "No Pester 5.x installed. Install the known-good version: Install-Module -Name Pester -RequiredVersion $KnownGoodPesterVersion -Force"
+                return
+            }
+            Write-Warning "Pester $KnownGoodPesterVersion (known-good) is NOT installed. Falling back to $($selectedPester.Version) — suite may not be fully green. To restore 100% pass rate: Install-Module -Name Pester -RequiredVersion $KnownGoodPesterVersion -Force"
+        }
+
+        # Step 3b — import the selected 5.x explicitly.
+        # $PSModuleAutoLoadingPreference = 'None' suppresses IMPLICIT loading (command-triggered);
+        # explicit Import-Module calls are unaffected by the preference, so -RequiredVersion
+        # is safe here and is the most reliable way to pin the exact version.
+        Import-Module Pester -RequiredVersion $selectedPester.Version -Force -ErrorAction Stop
+
+        # Step 4 — HARD ASSERT: verify the version that actually loaded.
+        $loadedPester = Get-Module Pester
+        if ($null -eq $loadedPester -or $loadedPester.Version.Major -ne 5) {
+            $actual = if ($loadedPester) { $loadedPester.Version } else { '(none)' }
+            throw "FATAL: Pester 5.x failed to bind. Loaded version: $actual. Aborting — v6.x CANNOT run this suite."
+        }
+        $pesterModule = $loadedPester
+    } finally {
+        # Step 5 — restore auto-loading so test files can import other modules normally.
+        $PSModuleAutoLoadingPreference = $savedAutoLoad
+    }
 
     Write-Host "📋 Pester Version: $($pesterModule.Version)" -ForegroundColor Green
-
-    if ($highestPester.Major -ne 5) {
-        Write-Warning "Pester $highestPester is installed side-by-side; $($highestPester.Major).x has untested breaking changes. Using supported $($pesterModule.Version)."
-    }
+    Write-Host "   Module path:     $($pesterModule.ModuleBase)" -ForegroundColor Gray
+    # Emit the runtime-confirmed major as an extra safety signal.
+    Write-Host "   Major confirmed: $($pesterModule.Version.Major) (must be 5)" -ForegroundColor $(if ($pesterModule.Version.Major -eq 5) { 'Green' } else { 'Red' })
     
     Write-Host ""
     
