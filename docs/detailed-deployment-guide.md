@@ -480,9 +480,88 @@ Verify Windows LAPS ACL and decryptor compliance:
 
 ---
 
+## Step 11: Configure Domain-Root Auditing (Optional)
+
+This step configures domain-root object auditing for Microsoft Sentinel monitoring. It deploys a SACL (System Access Control List) audit rule on the domain root to generate the Security events that feed the Sentinel Tier Model solution. Enable with `-EnableAuditing` switch.
+
+> **Sentinel monitoring prerequisite:** This step addresses the SACL component of the two-part monitoring requirement. The DC Advanced Audit Policy GPO (`*- Tier 0 DCs Advanced Audit Policy - Computer`, linked by default) is the second piece — it **enables** event generation on each Domain Controller. Both the SACL **and** the GPO link must be in place for Sentinel to receive events. See [Sentinel Monitoring — Before you begin](sentinel-monitoring.md#before-you-begin) for the full context.
+
+### Prerequisites
+
+Before running this step, the following must already be in place:
+
+| Dependency | Reason |
+|-----------|--------|
+| Tier Model deployed | The auditing configuration assumes Tier Model groups and OUs exist |
+| **SeSecurityPrivilege** (Domain Admin) | Writing SACL audit rules requires the `SeSecurityPrivilege` privilege; Domain Admin holds this |
+| Preferred DC binding | SACL reads and writes should bind to a single preferred DC; replication handles convergence (allow 15 minutes) |
+
+### 11.1 Plan Domain-Root Auditing
+
+Review the audit SACL that will be applied to the domain root:
+
+```powershell
+.\Deploy-TierModel.ps1 -EnableAuditing -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- Phase 11: Domain Audit Rule (SACL) shown with action `■ Add audit rule on domain root`
+- Audit rule details: Trustee `Everyone (S-1-1-0)`, AuditFlags `Success`, InheritanceType `All`, Rights = 9 (Property Read, Property Write, Delete Child, List Child, Extended Right, Delete, Delete Tree, Change Owner, Change Permission)
+- No prompts, no changes applied to Active Directory
+- Deployment summary
+
+### 11.2 Deploy Domain-Root Auditing
+
+Execute the audit SACL deployment:
+
+```powershell
+.\Deploy-TierModel.ps1 -EnableAuditing -PreferredDc DC01.contoso.com -ConfirmApply
+```
+
+**Expected Output (Two-Y confirmation flow):**
+1. **Auditing-specific confirmation prompt:** "This will add/modify SACL audit rules on the domain root. Auditing increases Security event-log volume. Confirm? [Y/N]" — Type **Y** to accept auditing impact warning.
+2. **Standard deployment confirmation prompt:** "Apply changes? [Y/N]" — Type **Y** to deploy the SACL audit rule.
+- SACL audit rule written to the domain root
+- Replication begins immediately; converges to all DCs within 15 minutes
+- Deployment summary
+
+### 11.3 Audit Domain-Root Auditing
+
+Verify audit SACL compliance:
+
+```powershell
+.\Audit-TierModel.ps1 -EnableAuditing -PreferredDc DC01.contoso.com
+```
+
+**Expected Output:**
+- Phase 11: Domain Audit Rule (SACL) shown with per-right status
+- Each of the 9 target rights shown with ✅ (compliant) or ❌ (missing)
+- Audit rule details: existing ACE composition, status (Complete, Partial, or Absent)
+- No drift detected if all 9 rights are compliant
+- Audit summary
+
+### Composing -EnableAuditing with Full Deployment
+
+`-EnableAuditing` composes cleanly with `-FullDeployment`:
+
+```powershell
+# Plan full deployment including domain-root auditing
+.\Deploy-TierModel.ps1 -FullDeployment -EnableAuditing -PreferredDc DC01.contoso.com
+
+# Apply full deployment including domain-root auditing
+.\Deploy-TierModel.ps1 -FullDeployment -EnableAuditing -PreferredDc DC01.contoso.com -ConfirmApply
+
+# Audit everything including domain-root auditing
+.\Audit-TierModel.ps1 -FullDeployment -EnableAuditing -PreferredDc DC01.contoso.com
+```
+
+> **Mutual exclusion:** `-EnableAuditing` is mutually exclusive with other `-*Only` switches (`OuOnly`, `GroupOnly`, `UserOnly`, etc.). To deploy auditing alongside targeted component steps, use `-FullDeployment -EnableAuditing` instead.
+
+> **Idempotency:** The audit rule converges to the canonical state (all 9 rights present in a single SACL entry) and is fully idempotent. Re-running `Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply` on an already-audited domain root skips the write and exits cleanly.
+
+---
 
 
-After completing all deployment steps, run a comprehensive audit to ensure the entire Tier Model is compliant:
 
 ```powershell
 .\Audit-TierModel.ps1 -FullDeployment -PreferredDc DC01.contoso.com

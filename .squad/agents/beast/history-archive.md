@@ -1,6 +1,25 @@
 # beast — History Archive
 
-Archived 2026-07-28. Recent history kept in history.md.
+Archived 2026-07-28, 2026-08-15. Recent history kept in history.md.
+
+---
+
+## Session 2026-08-15: Scribe Orchestration Finalization
+
+**Date:** 2026-08-15T06:02:33Z  
+**Scope:** Post-audit finalization — decision inbox merge, archive processing, log generation  
+**Trigger:** history.md exceeded 15,360-byte retention threshold (19,134 bytes)  
+**Status:** ✅ PROCESSED
+
+### Summary
+Scribe finalized post-audit session tasks: zero inbox files required merging (inbox empty). Decisions.md remains at 19,134 bytes (below 20,480 archive threshold). No decisions required archival. Orchestration logs written for wolverine/storm/scribe. Session log created. History archives written.
+
+### Key entries archived
+- 2026-08-14: -EnableAuditing production build (4 cmdlets, schema, deploy integration)
+- 2026-08-14: Audit-TierModel.ps1 wiring (header, per-right output, PSScriptAnalyzer clean)
+- 2026-08-14: Spike validation (SACL read/write API, merge behaviour, converge recipe lab-proven)
+- 2026-08-11: BUG-006 canonical-ACL gate tests (18 ByBytes tests, 1,457 total green)
+- 2026-07-28 and earlier: Windows LAPS implementation (full wave T001–T021 shipped)
 
 ---
 

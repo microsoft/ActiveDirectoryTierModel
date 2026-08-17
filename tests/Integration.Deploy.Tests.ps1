@@ -3024,3 +3024,135 @@ Describe "Deploy-TierModel - Feature Prerequisite Fail-Fast (BUG-003)" -Tag "Int
         $output | Should -Not -Match 'Deployment Plan'
     }
 }
+
+Describe 'Deploy-TierModel - EnableAuditing (Domain Audit Rule)' -Tag 'Integration', 'Deploy', 'AuditRule' {
+
+    BeforeAll {
+        function New-MockAuditRulePlan {
+            param([int]$TotalActions = 1)
+            $actions = @()
+            if ($TotalActions -gt 0) {
+                $actions = @([PSCustomObject]@{
+                    Action       = 'ConfigureAuditRule'
+                    ResourceType = 'DomainAuditRule'
+                    TargetDn     = 'DC=test,DC=local'
+                    Data         = [PSCustomObject]@{
+                        TrusteeSid        = 'S-1-1-0'
+                        Status            = 'ABSENT'
+                        ManagedAceCount   = 0
+                        UnionTargetRights = 'CreateChild, DeleteChild'
+                        MissingRights     = 'CreateChild'
+                    }
+                })
+            }
+            [PSCustomObject]@{
+                Actions       = $actions
+                Summary       = @{ TotalActions = $TotalActions; ConfigureActions = $TotalActions; ExistingCount = 0 }
+                Errors        = @()
+                DurationMs    = 5
+                Converged     = $true
+                CorrelationId = [System.Guid]::NewGuid().ToString()
+            }
+        }
+
+        function New-MockAuditRuleApplyResult {
+            [PSCustomObject]@{
+                Applied       = @([PSCustomObject]@{ Action = 'ConfigureAuditRule'; TargetDn = 'DC=test,DC=local' })
+                Executed      = 1
+                Failed        = 0
+                Skipped       = @()
+                Errors        = @()
+                DurationMs    = 5
+                Converged     = $true
+                CorrelationId = [System.Guid]::NewGuid().ToString()
+            }
+        }
+    }
+
+    BeforeEach {
+        Mock Read-Host { return 'N' }
+        Mock Get-TierModelAuditRule   { New-MockAuditRulePlan }
+        Mock Get-TierModelAuditRuleFd { New-MockAuditRulePlan }
+        Mock New-TierModelAuditRule   { New-MockAuditRuleApplyResult }
+    }
+
+    Context 'Scope validation' {
+
+        It 'Should reject -EnableAuditing combined with -OuOnly' {
+            { & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -OuOnly -ErrorAction Stop } |
+                Should -Throw -ExpectedMessage '*can only be used standalone or combined with -FullDeployment*'
+        }
+    }
+
+    Context 'Standalone -EnableAuditing planning mode (no -ConfirmApply)' {
+
+        It 'Should call Get-TierModelAuditRule and display the Domain Audit Rule phase' {
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ErrorAction Stop 6>&1 | Out-String
+
+            Should -Invoke Get-TierModelAuditRule -Times 1
+            $output | Should -Match 'Phase: Domain Audit Rule \(SACL\)'
+        }
+
+        It 'Should render the ConfigureAuditRule action line via Write-IncludeAclPlanActions' {
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ErrorAction Stop 6>&1 | Out-String
+
+            $output | Should -Match 'Configure : DC=test,DC=local'
+        }
+
+        It 'Should NOT display the event-log warning or prompt in planning mode' {
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ErrorAction Stop 6>&1 | Out-String
+
+            $output | Should -Not -Match 'increase the events being generated'
+        }
+
+        It 'Should NOT apply the rule (New-TierModelAuditRule not invoked) in planning mode' {
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke New-TierModelAuditRule -Times 0
+        }
+    }
+
+    Context 'Standalone -EnableAuditing apply mode (-ConfirmApply)' {
+
+        It 'Should display the event-log warning and prompt when -ConfirmApply is set' {
+            Mock Read-Host { return 'Y' }
+
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+            $output | Should -Match 'increase the events being generated'
+        }
+
+        It 'Should apply the rule via New-TierModelAuditRule when both gates are accepted' {
+            Mock Read-Host { return 'Y' }
+
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ConfirmApply -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke New-TierModelAuditRule -Times 1
+        }
+
+        It 'Should cancel deployment when the audit event-log gate is declined' {
+            Mock Read-Host { return 'N' }
+
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -EnableAuditing -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+            $output | Should -Match 'Deployment cancelled'
+            Should -Invoke New-TierModelAuditRule -Times 0
+        }
+    }
+
+    Context '-FullDeployment -EnableAuditing' {
+
+        It 'Should invoke Get-TierModelAuditRuleFd and add Phase 11 to the deployment plan' {
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -EnableAuditing -ErrorAction Stop 6>&1 | Out-String
+
+            Should -Invoke Get-TierModelAuditRuleFd -Times 1
+            $output | Should -Match 'Phase 11: Domain Audit Rule \(SACL\)'
+        }
+
+        It 'Should not invoke Get-TierModelAuditRuleFd during a plain -FullDeployment (no -EnableAuditing)' {
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke Get-TierModelAuditRuleFd -Times 0
+        }
+    }
+}

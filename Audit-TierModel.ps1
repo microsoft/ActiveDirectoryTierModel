@@ -49,6 +49,16 @@ registry policy on each non-DC LAPS GPO (via Test-TierModelWinLapsDecryptor).
 Requires Windows LAPS schema extended and LAPS PowerShell module installed.
 A plain -FullDeployment without -IncludeWinLaps does NOT audit LAPS.
 
+.PARAMETER EnableAuditing
+Audit the domain-root Active Directory object auditing SACL (Everyone / AuditFlags=Success /
+InheritanceType=All, 9 rights: CreateChild, DeleteChild, WriteProperty, Self, Delete,
+DeleteTree, WriteDacl, WriteOwner, ExtendedRight) via Test-TierModelAuditRule.
+Can be used standalone (without any scope parameter) or combined with -FullDeployment.
+A plain -FullDeployment without -EnableAuditing does NOT audit the domain-root SACL.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+Requires SeSecurityPrivilege to read the SACL (Domain Admin qualifies).
+
 .PARAMETER OutputFormat
 Specifies the format for audit report output. Valid options:
 - Text: Human-readable text format
@@ -88,6 +98,11 @@ Standalone audit of Windows LAPS ACL delegations and GPO decryptor settings.
 Expects 0 drift when the tier model with WinLaps has been fully deployed.
 
 .EXAMPLE
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -EnableAuditing
+Standalone audit of the domain-root SACL audit rule. Expects Compliant / 0 drift
+when -EnableAuditing has been applied via Deploy-TierModel.ps1.
+
+.EXAMPLE
 .\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -IncludeWinLaps
 Full TierModel audit including Windows LAPS ACL delegations and decryptor GPO settings.
 
@@ -112,6 +127,7 @@ param(
     [switch]$IncludeGmsa,
     [switch]$IncludeDmsa,
     [switch]$IncludeWinLaps,
+    [switch]$EnableAuditing,
     
     [Parameter()]
     [ValidateSet('Text', 'Json', 'Html', 'NUnitXml')]
@@ -134,17 +150,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one audit scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
-$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps)
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps, $EnableAuditing)
 $activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
-    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps)." -ErrorAction Stop
+    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, -EnableAuditing)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one audit scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
 }
 elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
-    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, and -IncludeWinLaps can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
+    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, and -EnableAuditing can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Audit TierModel orchestration starting." -ForegroundColor Cyan
@@ -712,6 +728,31 @@ if ($FullDeployment) {
                 Write-Host "  Warning: WinLaps Decryptor audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
+
+        if ($EnableAuditing) {
+            try {
+                $auditRuleAudit = Test-TierModelAuditRule -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($auditRuleAudit) {
+                    $auditRuleWrapped = [PSCustomObject]@{
+                        EntityType = 'Domain Audit Rule'
+                        Summary = @{
+                            TotalAcls  = $auditRuleAudit.TotalChecked
+                            Compliant  = $auditRuleAudit.Compliant
+                            Missing    = $auditRuleAudit.Missing
+                            Mismatched = $auditRuleAudit.Mismatched
+                            Errors     = $auditRuleAudit.Errors
+                            Drift      = $auditRuleAudit.Drift
+                        }
+                        Findings      = $auditRuleAudit.Findings
+                        DurationMs    = $auditRuleAudit.DurationMs
+                        CorrelationId = $auditRuleAudit.CorrelationId
+                    }
+                    $auditResults += $auditRuleWrapped
+                }
+            } catch {
+                Write-Host "  Warning: Domain Audit Rule audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
     }
     
     # Show consolidated audit report at the end
@@ -773,7 +814,7 @@ if ($FullDeployment) {
                 'OU ACL' { 
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule' } {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
                 default { 
@@ -871,6 +912,7 @@ if ($FullDeployment) {
                 'dMSA ACL' { 'dMSA ACL' }
                 'WinLaps ACL' { 'WinLaps ACL' }
                 'WinLaps Decryptor' { 'WinLaps Decryptor' }
+                'Domain Audit Rule' { 'Domain Audit Rule' }
                 default { 'OU ACL' }
             }
         } elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0) { "OU" }
@@ -907,7 +949,7 @@ if ($FullDeployment) {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule' } {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
@@ -1131,13 +1173,27 @@ else {
 # === Standalone -Include* Audit Mode (no scope parameter) ===
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     # Build a feature-aware label for headers
-    $featureLabel = @()
-    if ($IncludeMsa)      { $featureLabel += 'MSA' }
-    if ($IncludeGmsa)     { $featureLabel += 'gMSA' }
-    if ($IncludeDmsa)     { $featureLabel += 'dMSA' }
-    if ($IncludeWinLaps)  { $featureLabel += 'WinLaps' }
-    $standaloneLabelStr = $featureLabel -join '/'
-    Write-Host "`n=== Standalone $standaloneLabelStr ACL & Decryptor Audit ===" -ForegroundColor Magenta
+    $aclLabel = @()
+    if ($IncludeMsa)      { $aclLabel += 'MSA' }
+    if ($IncludeGmsa)     { $aclLabel += 'gMSA' }
+    if ($IncludeDmsa)     { $aclLabel += 'dMSA' }
+    if ($IncludeWinLaps)  { $aclLabel += 'WinLaps' }
+    $hasAclIncludes   = $aclLabel.Count -gt 0
+
+    # Build top header: conditionalize "ACL & Decryptor" on whether ACL includes are selected
+    if ($hasAclIncludes -and $EnableAuditing) {
+        $topHeader     = "Standalone $($aclLabel -join '/') ACL & Decryptor / Domain Audit Rule Audit"
+        $resultsHeader = "$($aclLabel -join '/') ACL & Decryptor / Domain Audit Rule Results"
+    } elseif ($hasAclIncludes) {
+        $topHeader     = "Standalone $($aclLabel -join '/') ACL & Decryptor Audit"
+        $resultsHeader = "$($aclLabel -join '/') ACL & Decryptor Audit Results"
+    } else {
+        # -EnableAuditing only — no ACL includes
+        $topHeader     = 'Standalone Domain Audit Rule Audit'
+        $resultsHeader = 'Domain Audit Rule Results'
+    }
+    # $standaloneLabelStr kept for reference; headers built via $topHeader / $resultsHeader above
+    Write-Host "`n=== $topHeader ===" -ForegroundColor Magenta
     
     # Load config
     $config = Get-TierModelConfig
@@ -1224,8 +1280,21 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             Write-Host "  ❌ WinLaps Decryptor audit failed: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
-    
-    Write-Host "`n=== $standaloneLabelStr Audit Results ===" -ForegroundColor Magenta
+
+    if ($EnableAuditing) {
+        try {
+            $auditRuleAudit = Test-TierModelAuditRule -Config $config -DomainController $PreferredDc
+            if ($auditRuleAudit) {
+                $standaloneTotalChecked += $auditRuleAudit.TotalChecked
+                $standaloneTotalDrift   += $auditRuleAudit.Drift
+                $standaloneTotalErrors  += $auditRuleAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ Domain Audit Rule audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    Write-Host "`n=== $resultsHeader ===" -ForegroundColor Magenta
     Write-Host "Overall Status: $(if ($standaloneTotalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $standaloneTotalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($standaloneTotalDrift -eq 0) { 'Green' } else { 'Red' })
     Write-Host "  Total Checked: $standaloneTotalChecked" -ForegroundColor White
     Write-Host "  Total Drift: $standaloneTotalDrift" -ForegroundColor $(if ($standaloneTotalDrift -gt 0) { 'Red' } else { 'Green' })

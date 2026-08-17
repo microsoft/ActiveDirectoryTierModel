@@ -193,6 +193,24 @@
         },
         "additionalProperties": false
       }
+    },
+    "domainAuditRule": {
+      "type": "object",
+      "description": "Domain-root SACL audit rule for Sentinel monitoring. Applies a single canonical audit ACE to the domain root DN.",
+      "required": ["targetDn", "trusteeSid", "auditFlag", "inheritance", "rights"],
+      "properties": {
+        "comment": {"type": "string"},
+        "targetDn": {"type": "string"},
+        "trusteeSid": {"type": "string"},
+        "auditFlag": {"type": "string", "enum": ["Success", "Failure", "Success, Failure"]},
+        "inheritance": {"type": "string"},
+        "rights": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

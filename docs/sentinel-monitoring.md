@@ -27,10 +27,10 @@ This matters directly: a DC that stops sending logs silently undermines the "eve
 The following must be in place before installing the solution.
 
 - **Tier Model deployed** — The Active Directory Tier Model must already be deployed and audited. See the [Detailed Deployment Guide](detailed-deployment-guide.md) and [Drift Detection](drift-detection-details.md).
-- **AD auditing enabled** — Active Directory object auditing must be configured so the relevant Security events are generated. Use the helper script [`optional/Enable-TierModelAuditing.ps1`](https://github.com/microsoft/ActiveDirectoryTierModel/blob/main/optional/Enable-TierModelAuditing.ps1) in this repository to enable the required audit policy.
+- **AD object auditing configured** — Two interdependent pieces enable Tier Model monitoring in Sentinel (both are required):
+  1. **Domain-root SACL audit rule** (v1.3.0+): Run `Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply` to configure the SACL on the domain root. This selects **what** to audit: Everyone, Success, All-inheritance, 9 rights (Property Read, Property Write, Delete Child, List Child, Extended Right, Delete, Delete Tree, Change Owner, Change Permission). The SACL replicates via normal AD replication; allow 15 minutes for convergence.
+  2. **DC Advanced Audit Policy GPO** (pre-deployed, linked by default): The GPO `*- Tier 0 DCs Advanced Audit Policy - Computer` in `config/tiermodel-gpos.json` is linked by default to the Tier 0 DCs OU and **enables** event generation on each DC. Both the GPO **and its link must be enabled** for Sentinel to receive events.
 
-  > **Coming in a future release.** Enabling the required Active Directory object auditing will be built into the Tier Model deployment in a future feature release. Until then, run `optional/Enable-TierModelAuditing.ps1` manually.
-  >
   > ⚠️ **Understand the impact before you increase auditing.** Additional auditing increases the volume of events written to each Domain Controller's Security event log. That log has a fixed size limit — if it fills faster than events are collected, the oldest events are overwritten and permanently lost. Before enabling extra auditing, make sure every Domain Controller's Security log is sized appropriately and is being forwarded to Sentinel promptly, so events are captured before they roll over. Overwritten events become exactly the blind spot described in [The non-negotiable requirement](#the-non-negotiable-requirement) above.
 
 - **All DCs onboarded to Sentinel** — Every Domain Controller's Security logs must be flowing into the Sentinel workspace. Follow Microsoft's guidance for [Windows Security Events via AMA](https://learn.microsoft.com/azure/sentinel/data-connectors/windows-security-events-via-ama).

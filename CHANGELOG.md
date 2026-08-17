@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-17
+
+### Added
+- **`-EnableAuditing` deployment parameter** on `Deploy-TierModel.ps1` (issue #38). Configures an Active Directory **domain-root object-auditing SACL** (trustee Everyone/S-1-1-0, Success, All-inheritance, 9 rights) that feeds the Microsoft Sentinel Tier Model monitoring solution. Runs standalone (`Deploy-TierModel.ps1 -EnableAuditing -ConfirmApply`) or with `-FullDeployment -EnableAuditing`. Mutually exclusive with the `-*Only` switches. Requires `SeSecurityPrivilege`.
+- Four new module cmdlets (exported from TierModel 1.3.0): `Get-TierModelAuditRule` (planner), `New-TierModelAuditRule` (applier, idempotent UNION-converge — preserves out-of-scope ACEs), `Test-TierModelAuditRule` (drift detection with granular per-right PASS/FAIL), `Get-TierModelAuditRuleFd` (FullDeployment wrapper).
+- New config `config/tiermodel-audit.json` (domain-root audit rule) + `domainAuditRule` schema segment in `config/tiermodel.schema.json`.
+- **Second confirmation gate:** when `-EnableAuditing` is combined with `-ConfirmApply`, an auditing-impact warning + 'Y' prompt is shown FIRST (event-log volume acknowledgement), then the standard deployment 'Y'.
+- `-EnableAuditing` support in `Audit-TierModel.ps1` (mirrors the deployment scope) with granular per-right ✅/❌ output aligned to the GPO URA validation model.
+- Documentation: new "Step 11: Configure Domain-Root Auditing" in the Detailed Deployment Guide; Sentinel Monitoring guide updated to document the two-part requirement (the `-EnableAuditing` SACL AND the default-linked `*- Tier 0 DCs Advanced Audit Policy - Computer` GPO).
+
+### Changed
+- Module version 1.2.3 → **1.3.0** (+4 exported cmdlets).
+- Test runner `tests/Invoke-AllTests.ps1` now hard-pins execution to Pester 5.x and blocks Pester 6.x from binding (6.x has breaking changes not yet supported).
+
+### Removed
+- Deleted the legacy standalone `optional/Enable-TierModelAuditing.ps1` — its functionality is now built into `Deploy-TierModel.ps1 -EnableAuditing`.
+
+### Tests
+- New `tests/Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration coverage in the Audit and Deploy suites. Full suite: **1,533 automated tests passing** under Pester 5.x; overall command coverage **89.65%** (new audit cmdlets 84–100%; `Audit-TierModel.ps1` 85.9%, `Deploy-TierModel.ps1` 81.53%).
+
 ## [1.2.3] - 2026-08-12
 
 ### Added
