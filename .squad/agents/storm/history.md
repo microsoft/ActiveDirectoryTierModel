@@ -1,5 +1,27 @@
 # storm — History
 
+## Session 2026-08-17 — CHANGELOG v1.3.0 Release Notes (2026-08-17T10:22:31+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+
+**Context:** Feature branch `feature/domain-auditing` is ready for v1.3.0 release documentation. Commits 6d6ad8e + dbda98b contain the -EnableAuditing parameter, four new audit rule cmdlets, config files, documentation, and comprehensive test coverage.
+
+**Task completed:**
+
+1. **CHANGELOG.md — New `## [1.3.0] - 2026-08-17` entry** inserted directly below `## [Unreleased]` (empty) and above `## [1.2.3]`, matching the exact "Keep a Changelog" format and voice of existing entries.
+
+   **Subsections documented:**
+   - **Added:** `-EnableAuditing` parameter on Deploy-TierModel.ps1 (issue #38); four new cmdlets (Get/New/Test-TierModelAuditRule, Get-TierModelAuditRuleFd); config files (tiermodel-audit.json + schema); second confirmation gate with auditing-impact warning; Audit-TierModel.ps1 -EnableAuditing support; documentation (Step 11 in detailed deployment guide, Sentinel monitoring updates).
+   - **Changed:** Module version 1.2.3 → 1.3.0 (+4 exported cmdlets); Pester 5.x hard-pin, 6.x block in test runner.
+   - **Removed:** Legacy `optional/Enable-TierModelAuditing.ps1` (functionality now built into -EnableAuditing).
+   - **Tests:** New Unit.AuditRuleOperations.Tests.ps1 (47 tests); 1,533 total tests passing under Pester 5.x; 89.65% command coverage (audit cmdlets 84–100%, Audit-TierModel 85.9%, Deploy-TierModel 81.53%).
+
+2. **Verification:** `Select-String -Path CHANGELOG.md -Pattern '## \[1.3.0\]'` returned exactly one match at line 10, positioned between [Unreleased] (line 9) and [1.2.3] (line 42).
+
+**Status:** ✅ COMPLETE — CHANGELOG.md ready for v1.3.0 release. No commits made (per owner direction).
+
+---
+
 ## Session 2026-08-15 — Domain-Auditing Feature Documentation Rebuild (2026-08-15T14:29:48+08:00)
 
 **Requested by:** Joel Platek (@VAsHachiRoku)
