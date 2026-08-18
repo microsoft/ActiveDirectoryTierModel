@@ -219,7 +219,7 @@ Write-Host "TierModel module loaded successfully." -ForegroundColor Green
 # Validate prerequisites
 Write-Host "Validating prerequisites..." -ForegroundColor Cyan
 try {
-    $prereqResult = Test-TierModelPrerequisites -PreferredDc $PreferredDc
+    $prereqResult = Test-TierModelPrerequisites -PreferredDc $PreferredDc -SkipRootCanonicalCheck
     
     # Handle array results
     if ($prereqResult -is [array] -and $prereqResult.Count -gt 0) {
@@ -538,6 +538,142 @@ function Invoke-GpoAudit {
     return $audit
 }
 
+function Invoke-CanonicalAclAudit {
+    <#
+    .SYNOPSIS
+    Audits canonical DACL order on the domain root and all Tier Model OUs present in AD.
+    .DESCRIPTION
+    Checks the domain root and each configured Tier Model OU for non-canonical DACLs using
+    Test-TierModelCanonicalAcl. Non-canonical DACLs are classified as:
+      Case 1 (domain root) — blocker, operator must remediate manually before re-running Deploy.
+      Case 2 (Tier OU)     — drift, operator should delete the OU and redeploy.
+    Read-only throughout. Makes no writes to Active Directory.
+    #>
+    param(
+        [Parameter(Mandatory)] [object]$Config,
+        [Parameter(Mandatory)] [string]$DomainController
+    )
+
+    $correlationId      = [System.Guid]::NewGuid().ToString()
+    $startTime          = Get-Date
+    $findings           = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $totalChecked       = 0
+    $compliant          = 0
+    $mismatched         = 0
+    $errors             = 0
+    $skipped            = 0   # Tier OUs absent in AD (not yet deployed); not included in TotalChecked
+    $ouPresent          = 0   # Tier OUs that were found in AD and had their DACL checked
+    $totalOuConfigured  = $Config.organizationUnits.Count
+
+    # Resolve domain DN once for placeholder substitution
+    $domainDn = (Get-ADDomain -Server $DomainController).DistinguishedName
+
+    # --- Domain root check (Case 1) ---
+    try {
+        $rootResult = Test-TierModelCanonicalAcl -PreferredDc $DomainController
+        $totalChecked++
+        if ($rootResult.IsCanonical) {
+            $compliant++
+        } else {
+            $mismatched++
+            $principal = if ($rootResult.FirstOffendingPrincipal) { $rootResult.FirstOffendingPrincipal } else { '(unknown)' }
+            Write-Warning "AuditNonCanonicalAclDomainRoot: Non-canonical DACL detected on domain root $($rootResult.DistinguishedName). First offending entry: $principal"
+            $findings.Add([PSCustomObject]@{
+                Type                    = 'Mismatch'
+                ResourceType            = 'DomainRoot'
+                Identifier              = $rootResult.DistinguishedName
+                Case                    = 'Case1'
+                LogCode                 = 'AuditNonCanonicalAclDomainRoot'
+                FirstOffendingPrincipal = $rootResult.FirstOffendingPrincipal
+                Details                 = "Non-canonical DACL on domain root. An explicit Deny ACE sits below an explicit Allow ACE. This blocks OU ACL delegation. Remediate manually before re-running Deploy (see docs/canonical-acl.md). First offending entry: $principal"
+            })
+        }
+    } catch {
+        Write-Warning "AuditNonCanonicalAcl: check skipped for '$domainDn': $($_.Exception.Message)"
+        $errors++
+    }
+
+    # --- Tier Model OU checks (Case 2) ---
+    # Build DN per OU using the same Resolve-TierModelPlaceholder logic as New-TierModelOu;
+    # skip any OU not yet present in AD (existence is Invoke-OuAudit's responsibility).
+    foreach ($ouDef in $Config.organizationUnits) {
+        $resolvedPath = Resolve-TierModelPlaceholder -Path $ouDef.path -DomainDN $domainDn
+        $ouDn = "OU=$($ouDef.name),$resolvedPath"
+
+        $existsCheck = Test-TierModelOuExists -DistinguishedName $ouDn -DomainController $DomainController
+        if (-not $existsCheck.Exists) { $skipped++; continue }
+
+        $ouPresent++
+        try {
+            $ouResult = Test-TierModelCanonicalAcl -PreferredDc $DomainController -DistinguishedName $ouDn
+            $totalChecked++
+            if ($ouResult.IsCanonical) {
+                $compliant++
+            } else {
+                $mismatched++
+                $principal = if ($ouResult.FirstOffendingPrincipal) { $ouResult.FirstOffendingPrincipal } else { '(unknown)' }
+                Write-Warning "AuditNonCanonicalAclTierOu: Non-canonical DACL detected on Tier OU $ouDn. First offending entry: $principal"
+                $findings.Add([PSCustomObject]@{
+                    Type                    = 'Mismatch'
+                    ResourceType            = 'TierModelOU'
+                    Identifier              = $ouDn
+                    Case                    = 'Case2'
+                    LogCode                 = 'AuditNonCanonicalAclTierOu'
+                    FirstOffendingPrincipal = $ouResult.FirstOffendingPrincipal
+                    Details                 = "Non-canonical DACL on Tier Model OU '$($ouDef.name)'. Indicates a failed or pre-fix Deploy run (disable-inheritance promoted a Deny ACE). Delete this OU and redeploy with the patched New-TierModelOu.ps1. First offending entry: $principal"
+                })
+            }
+        } catch {
+            Write-Warning "AuditNonCanonicalAcl: check skipped for '$ouDn': $($_.Exception.Message)"
+            $errors++
+        }
+    }
+
+    $durationMs = [long](New-TimeSpan -Start $startTime -End (Get-Date)).TotalMilliseconds
+
+    # Console summary — explicit breakdown so "Total Checked" is never ambiguous
+    $compliancePct = if ($totalChecked -gt 0) {
+        [math]::Round(($compliant / $totalChecked) * 100, 2)
+    } else { 100 }
+
+    Write-Host ""
+    Write-Host "Canonical ACL Audit Summary:" -ForegroundColor White
+    Write-Host "  Total Checked: $totalChecked  (domain root + $ouPresent of $totalOuConfigured Tier OUs present)" -ForegroundColor Gray
+    Write-Host "  Skipped (not present in AD): $skipped Tier OU(s)" -ForegroundColor $(if ($skipped -gt 0) { 'DarkYellow' } else { 'Gray' })
+    Write-Host "  Compliant: $compliant" -ForegroundColor Gray
+    Write-Host "  Non-Canonical (Drift): $mismatched" -ForegroundColor $(if ($mismatched -eq 0) { 'Green' } else { 'Yellow' })
+    Write-Host "  Errors: $errors" -ForegroundColor $(if ($errors -eq 0) { 'Gray' } else { 'Red' })
+    Write-Host "  Compliance: $compliancePct% (of checked objects)" -ForegroundColor $(if ($compliancePct -ge 90) { 'Green' } elseif ($compliancePct -ge 70) { 'Yellow' } else { 'Red' })
+    Write-Host ""
+
+    foreach ($f in $findings) {
+        $caseLabel = if ($f.Case -eq 'Case1') { 'Case 1 - Domain Root' } else { 'Case 2 - Tier OU' }
+        $color     = if ($f.Case -eq 'Case1') { 'Red' } else { 'Yellow' }
+        Write-Host "[$caseLabel] $($f.Identifier): $($f.Details)" -ForegroundColor $color
+    }
+
+    if ($mismatched -eq 0 -and $errors -eq 0) {
+        Write-Host "  ✅ All $totalChecked checked object(s) have canonical DACLs." -ForegroundColor Green
+        if ($skipped -gt 0) {
+            Write-Host "  ⏭️  $skipped Tier OU(s) skipped — not present in AD (create them, then re-audit)." -ForegroundColor Gray
+        }
+    }
+    Write-Host ""
+
+    return [PSCustomObject]@{
+        TotalChecked  = $totalChecked
+        Compliant     = $compliant
+        Mismatched    = $mismatched
+        Missing       = 0
+        Errors        = $errors
+        Drift         = $mismatched
+        Skipped       = $skipped
+        Findings      = $findings
+        DurationMs    = $durationMs
+        CorrelationId = $correlationId
+    }
+}
+
 # Execute audit based on scope
 if ($FullDeployment) {
     Write-Host "FullAudit sequence:" -ForegroundColor Magenta
@@ -552,6 +688,33 @@ if ($FullDeployment) {
         Write-Host "  Warning: OU audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
     }
     
+    # Phase 1b: OU Canonical ACLs — runs immediately after Phase 1 so non-canonical DACL
+    # findings contextualise any Phase 4 (OU ACL Delegation) failures.
+    Write-Host "Phase 1b: Auditing OU Canonical ACLs..." -ForegroundColor Cyan
+    try {
+        $canonicalAudit = Invoke-CanonicalAclAudit -Config $config -DomainController $PreferredDc
+        if ($canonicalAudit) {
+            $canonicalWrapped = [PSCustomObject]@{
+                EntityType = 'OU Canonical ACL'
+                Summary = @{
+                    TotalAcls  = $canonicalAudit.TotalChecked
+                    Compliant  = $canonicalAudit.Compliant
+                    Missing    = 0
+                    Mismatched = $canonicalAudit.Mismatched
+                    Errors     = $canonicalAudit.Errors
+                    Drift      = $canonicalAudit.Drift
+                    Skipped    = $canonicalAudit.Skipped
+                }
+                Findings      = $canonicalAudit.Findings
+                DurationMs    = $canonicalAudit.DurationMs
+                CorrelationId = $canonicalAudit.CorrelationId
+            }
+            $auditResults += $canonicalWrapped
+        }
+    } catch {
+        Write-Host "  Warning: Canonical ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
     # Phase 2: Groups
     Write-Host "Phase 2: Auditing Groups..." -ForegroundColor Cyan
     try {
@@ -814,7 +977,7 @@ if ($FullDeployment) {
                 'OU ACL' { 
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule', 'OU Canonical ACL' } {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
                 default { 
@@ -913,6 +1076,7 @@ if ($FullDeployment) {
                 'WinLaps ACL' { 'WinLaps ACL' }
                 'WinLaps Decryptor' { 'WinLaps Decryptor' }
                 'Domain Audit Rule' { 'Domain Audit Rule' }
+                'OU Canonical ACL' { 'OU Canonical ACL' }
                 default { 'OU ACL' }
             }
         } elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0) { "OU" }
@@ -949,7 +1113,7 @@ if ($FullDeployment) {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
-                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule' } {
+                { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule', 'OU Canonical ACL' } {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
                 }
@@ -1045,8 +1209,22 @@ else {
             Write-Host "Error during OU audit: $($_.Exception.Message)" -ForegroundColor Red
             # Continue script execution - error is logged but not fatal
         }
+
+        # === Canonical ACL Check (§7 — runs after OU existence audit in OuOnly scope) ===
+        Write-Host "=== Canonical ACL Check ===" -ForegroundColor Magenta
+        try {
+            $canonicalResult = Invoke-CanonicalAclAudit -Config $config -DomainController $PreferredDc
+            if ($canonicalResult.Drift -gt 0 -or $canonicalResult.Errors -gt 0) {
+                $auditSummary.DriftCount   += $canonicalResult.Drift
+                $auditSummary.MismatchCount += $canonicalResult.Mismatched
+                $auditSummary.ErrorCount   += $canonicalResult.Errors
+            }
+            $auditSummary.TotalChecked += $canonicalResult.TotalChecked
+        } catch {
+            Write-Host "  Warning: Canonical ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
-    if ($GroupOnly) { 
+    if ($GroupOnly) {
         Write-Host "=== Group-Only Audit ===" -ForegroundColor Magenta
         $groupResult = Invoke-GroupAudit -Config $config -DomainController $PreferredDc
         
@@ -1206,6 +1384,7 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
     if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
     if ($IncludeWinLaps) { $prereqSplat['IncludeWinLaps'] = $true }
+    $prereqSplat['SkipRootCanonicalCheck'] = $true
     $prereqs = Test-TierModelPrerequisites @prereqSplat
     
     if (-not $prereqs.Valid) {

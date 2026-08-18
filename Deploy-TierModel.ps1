@@ -1905,27 +1905,30 @@ if ($FullDeployment) {
             $ouExecutionResult = Invoke-OuDeployment -Config $config -DomainController $PreferredDc -Apply -Silent
             Write-Host "" # Blank line for readability
 
-            # HARD-STOP GATE (BUG-010): OU inheritance settings (GPO block / security block) are verified
-            # during creation. If any could not be confirmed, halt BEFORE Groups so a tier boundary is
-            # never silently left open. Brand-new-deployment safeguard; existing/live OUs are never modified
-            # (raise a change, remediate manually, then confirm with the audit script).
-            $ouInheritanceErrors = @()
+            $ouCanonCount = if ($ouExecutionResult -and ($ouExecutionResult.PSObject.Properties.Name -contains 'CanonicalRemediations')) { [int]$ouExecutionResult.CanonicalRemediations } else { 0 }
+            Write-Host "  Canonical remediation: $ouCanonCount OU DACL(s) auto-corrected during disable-inheritance." -ForegroundColor Cyan
+
+            # HARD-STOP GATE: Halt before Groups (Phase 2) on ANY OU error code.
+            # Auto-remediated canonical issues are silent (not in Errors), so no false-halts.
+            # Catches: CreateOuFailed, CanonicalRemediationFailed, PfadApplyFailed,
+            #          DisableSecurityInheritanceUnverified, BlockGpoInheritanceUnverified.
+            $ouHardErrors = @()
             if ($ouExecutionResult -and ($ouExecutionResult.PSObject.Properties.Name -contains 'Errors')) {
-                $ouInheritanceErrors = @($ouExecutionResult.Errors | Where-Object {
+                $ouHardErrors = @($ouExecutionResult.Errors | Where-Object {
                     $ouErrCode = if ($_ -is [hashtable]) { $_['Code'] } elseif ($_ -and $_.PSObject.Properties.Name -contains 'Code') { $_.Code } else { $null }
-                    $ouErrCode -eq 'BlockGpoInheritanceUnverified' -or $ouErrCode -eq 'DisableSecurityInheritanceUnverified'
+                    $null -ne $ouErrCode
                 })
             }
-            if (@($ouInheritanceErrors).Count -gt 0) {
-                Write-Host "❌ OU inheritance could not be verified - halting deployment before Groups (Phase 2)." -ForegroundColor Red
-                foreach ($ouErr in $ouInheritanceErrors) {
+            if (@($ouHardErrors).Count -gt 0) {
+                Write-Host "❌ OU deployment errors — halting before Groups (Phase 2)." -ForegroundColor Red
+                foreach ($ouErr in $ouHardErrors) {
                     $ouErrMsg = if ($ouErr -is [hashtable]) { $ouErr['Message'] } elseif ($ouErr.PSObject.Properties.Name -contains 'Message') { $ouErr.Message } else { "$ouErr" }
                     Write-Host "    - $ouErrMsg" -ForegroundColor Red
                 }
                 Write-Host ""
                 Write-Host "Remediation steps:" -ForegroundColor Yellow
-                Write-Host "  - This is a brand-new deployment safeguard: one or more OU inheritance settings could not be confirmed." -ForegroundColor Yellow
                 Write-Host "  - Delete the affected OU(s) listed above and re-run the deployment to recreate them cleanly." -ForegroundColor Yellow
+                Write-Host "  - Do NOT modify these OUs manually. Delete and re-run." -ForegroundColor Yellow
                 Write-Host "  - Do NOT modify live/production OUs outside an approved change window; confirm with the audit script." -ForegroundColor Yellow
                 Write-Host ""
                 Write-Host "Deploy script completed." -ForegroundColor Green
@@ -2224,9 +2227,13 @@ else {
                 Write-Host "Duration: $($ouResult.DurationMs)ms" -ForegroundColor Gray
                 Write-Host "Converged: $($ouResult.Converged)" -ForegroundColor $(if ($ouResult.Converged) { 'Green' } else { 'Yellow' })
             }
+            if ($ConfirmApply) {
+                $canonCount = if ($ouResult.PSObject.Properties.Name -contains 'CanonicalRemediations') { [int]$ouResult.CanonicalRemediations } else { 0 }
+                Write-Host "Canonical remediation: $canonCount OU DACL(s) auto-corrected during disable-inheritance." -ForegroundColor Cyan
+            }
         }
     }
-    if ($GroupOnly) { 
+    if ($GroupOnly) {
         Write-Host "=== Groups-Only Deployment ===" -ForegroundColor Magenta
         if ($Logging) {
             Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "Starting Groups-Only deployment"

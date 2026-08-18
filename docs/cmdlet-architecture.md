@@ -261,9 +261,36 @@ Per-OU delegation (7 OUs from `config/tiermodel-winlaps.json`):
 
 `ADPasswordEncryptionPrincipal` accepts a single principal per GPO. The configuration assigns each tier's GPO to that tier's admin/operator group. A Tier 0 admin holds `GenericAll` on lower-tier PAW OUs for management purposes but **cannot** use that to decrypt Tier 1 or Tier 2 PAW passwords — CNG-DPAPI decryption requires the exact encryption principal. This is the design intent.
 
-## Related Documentation
+## Phase 1 (OU Creation) — with Canonical ACL Remediation
 
-For additional documentation, see:
+Phase 1 creates Tier OUs, disables security inheritance, and applies accidental-deletion protection. As of the issue #41 fix, `New-TierModelOu` uses a **phased flow** with a built-in canonical-ACL verify-and-remediate loop.
+
+### Cmdlets
+
+- **New-TierModelOu** — Create Tier OUs (phased flow)
+  - Phase 1: create the OU via `New-ADOrganizationalUnit`
+  - Phase 2: disable security inheritance via DC-pinned `System.DirectoryServices.Protocols` (`SetAccessRuleProtection(true, true)`), then **immediately read back the DACL** and check canonical order; if non-canonical, call `Repair-TierModelCanonicalAcl` to re-sort before proceeding
+  - Phase 3: apply `ProtectedFromAccidentalDeletion` — this is what requires a canonical DACL, and Phase 2's remediation guarantees it
+  - Surfaces an INFO line at the end of the OU-creation phase: `Canonical remediation: N OU DACL(s) auto-corrected during disable-inheritance.`
+  - Parameters: `-Plan`, `-DomainController`, `-Config`, `-WhatIf`
+
+- **Repair-TierModelCanonicalAcl** — Re-sort a DACL to canonical order (**new public cmdlet**)
+  - **Role:** Canonical DACL re-sort primitive. Reorders ACEs into the Windows-canonical four-rank order (explicit Deny → explicit Allow → inherited Deny → inherited Allow). Permission-neutral: never adds, removes, or modifies ACEs — only their relative positions change. ACE count before and after the sort is identical (multiset-preserving). Sort is stable: equal-rank ACEs retain their original relative order.
+  - **Called by:** `New-TierModelOu` Phase-2 verify-and-remediate loop (load-bearing — this is what prevents the downstream `New-ADOrganizationalUnit -ProtectedFromAccidentalDeletion` failure under an inherited-Deny condition).
+  - **Available standalone** for operator use: manual remediation of Case 1 (non-canonical domain root), ad-hoc Tier OU repairs, or offline analysis.
+  - **Parameter sets:**
+    - `ByServer` (live write): `-PreferredDc <string> -DistinguishedName <string>` — reads the current SD from the DC, sorts if non-canonical, writes back, reads again to verify.
+    - `ByBytes` (offline): `-SecurityDescriptorBytes <byte[]> [-DistinguishedName <string>]` — sorts entirely in memory, returns `SortedSdBytes` (null when already canonical). No AD connectivity required.
+  - **Returns:** `PSCustomObject` with `IsCanonical`, `WasAlreadyCanonical`, `DistinguishedName`, `AceCountBefore`, `AceCountAfter`, `SortedSdBytes` (ByBytes only; null if already canonical or ByServer), `Warnings` (non-empty when same SID has both Deny and Allow on overlapping rights), `DurationMs`.
+  - Example (standalone domain-root repair):
+    ```powershell
+    Repair-TierModelCanonicalAcl -PreferredDc dc01.contoso.com `
+        -DistinguishedName 'DC=contoso,DC=com'
+    ```
+
+---
+
+
 - [Deployment Methodology](deployment-methodology.md)
 - [Test Tag Matrix](test-tag-matrix.md)
 - [CI/CD](ci-cd.md)

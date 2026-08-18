@@ -1,8 +1,15 @@
 # Canonical ACLs — Fixing a Non-Canonical Domain Root
 
-> **This page describes a deployment blocker.** If the Tier Model stopped
-> with a message about a non-canonical ACL at the domain root, you are in the right
-> place. Read this page fully before you touch anything in production.
+> **This page describes a deployment blocker and the Tier Model's automatic protection against it.**
+> If the Tier Model stopped with a message about a non-canonical ACL at the domain root, you are in
+> the right place. Read this page fully before you touch anything in production.
+>
+> **There are two distinct cases.** The domain root and any pre-existing OU must be corrected
+> manually (Case 1). OUs the Tier Model *creates during deployment* are protected by a
+> built-in verify-and-remediate loop that runs on every OU — this is the **normal operating path**
+> under an inherited-Deny condition, not a rare backstop (Case 2). See
+> [When does this happen — and who has to fix it?](#when-does-this-happen--and-who-has-to-fix-it)
+> to determine which case applies to you.
 
 ---
 
@@ -100,6 +107,170 @@ The result: the Deny for `Global_HelpDesk` landed **below** the Allow for
 Windows cannot reliably enforce access when the order is wrong. In the broken order,
 entry `[2]` (the Deny) may be **skipped or treated as ineffective** by some evaluators
 — which is precisely why Windows flags it and why the Tier Model refuses to proceed.
+
+---
+
+## When does this happen — and who has to fix it?
+
+Not every domain is affected. Understanding the two cases that can produce a
+non-canonical DACL will tell you which one applies to your environment and what —
+if anything — you personally need to do.
+
+### Case 1 — Pre-existing objects the Tier Model does not create (you fix manually)
+
+This is the scenario the rest of this page addresses. **The domain root (and any
+OU that existed before the Tier Model ran) started life with only inherited Allow ACEs,
+so canonical order held naturally.** A non-canonical condition only appears if someone
+later *added* an explicit Deny at or above the domain root after those Allow entries
+were already in place.
+
+When the Tier Model's pre-flight check finds a non-canonical DACL on a pre-existing
+object — including the domain root — **it hard-stops and points you here.** The Tier
+Model does not touch pre-existing objects. You must resolve the condition manually
+using the Reorder procedure described in this page before re-running the deployment.
+
+### Case 2 — OUs the Tier Model creates during deployment (verify-and-remediate is the normal path)
+
+There is a second, subtler way a non-canonical DACL can appear: *during* deployment,
+as a direct consequence of the Tier Model protecting its own tier boundaries. This is
+**not a rare edge case** — under an inherited-Deny condition it fires on essentially
+every disable-inheritance OU. Lab proof: 7 of 7 disable-inheritance OUs required
+automatic remediation per deployment run when a Deny ACE existed above the Tier OUs;
+0 remediations when no inherited Deny was present.
+
+Here is the chain of events:
+
+1. **A Deny exists somewhere above the Tier OUs.** Perhaps the security team added an
+   explicit Deny at the domain root or an intermediate OU — for example, to block
+   `CONTOSO\Global_HelpDesk` from resetting passwords across the whole domain.
+   At this point the Deny is an *inherited* ACE on every child OU, which is fine:
+   inherited ACEs carry their own rank slot and canonical order is preserved.
+
+2. **The Tier Model disables security inheritance on a Tier OU (Phase 2).** Protecting
+   a tier boundary requires blocking inheritance. The Tier Model does this via a
+   DC-pinned `System.DirectoryServices.Protocols` write that calls
+   `SetAccessRuleProtection(true, true)`. When Active Directory processes this, it
+   **promotes every currently-inherited ACE to an explicit copy** and writes them back
+   to the object. The DC preserves the ACE's position in the list — so the inherited
+   Deny that sat safely in slot 3 (inherited Deny) becomes an explicit Deny now sitting
+   *below* whatever explicit Allow entries already exist on the object.
+
+3. **Result: a non-canonical DACL on the Tier OU, on the DC's next read-back.** Without
+   correction, the downstream `New-ADOrganizationalUnit -ProtectedFromAccidentalDeletion`
+   call would throw `"This access control list is not in canonical form and therefore
+   cannot be modified"` and halt deployment.
+
+**A small sketch using the running example:**
+
+*Before inheritance is disabled (canonical — Deny is inherited, sits in its correct
+slot):*
+
+```
+[1] ALLOW  CONTOSO\Tier0Admins      — Full Control         (explicit, added by Tier Model)
+[2] DENY   CONTOSO\Global_HelpDesk  — Reset Password       (inherited from domain root)
+```
+
+*Immediately after inheritance is disabled — inherited ACEs promoted to explicit, order
+preserved from the original list position:*
+
+```
+[1] ALLOW  CONTOSO\Tier0Admins      — Full Control         (explicit)
+[2] DENY   CONTOSO\Global_HelpDesk  — Reset Password       (explicit) ← Deny below Allow — non-canonical
+```
+
+The second list is non-canonical: an explicit Deny sits below an explicit Allow.
+
+### How the Tier Model handles Case 2 — verify-and-remediate is the load-bearing step
+
+`New-TierModelOu` uses a **phased flow**. After Phase 2 writes the
+disable-inheritance change, it **always reads the DACL back from the DC** and checks
+canonical order. If the check detects a non-canonical ordering — which it will on
+essentially every disable-inheritance OU under an inherited-Deny condition — the Tier
+Model **immediately re-sorts the DACL** (via `Repair-TierModelCanonicalAcl`) before
+proceeding to Phase 3 (accidental-deletion protection).
+
+This verify-and-remediate loop is what actually prevents the downstream failure. It is
+**the fix**, not a dormant backstop. The design deliberately assumes the worst:
+*"This will happen. Check every time and repair if needed."* Lab results validate
+that assumption: under an inherited-Deny, remediation fires reliably on every affected
+OU.
+
+`Repair-TierModelCanonicalAcl` is permission-neutral — it **reorders only**. It never
+adds, removes, or modifies ACEs; the before and after ACE multisets are identical. The
+only thing that changes is the position of entries within the DACL.
+
+The re-sort enforces canonical order:
+
+| Position | ACE type |
+|----------|----------|
+| 1st | Explicit **Deny** |
+| 2nd | Explicit **Allow** |
+| 3rd | Inherited **Deny** |
+| 4th | Inherited **Allow** |
+
+After the re-sort, the accidental-deletion protection step proceeds cleanly, tier
+boundaries are correctly protected, and deployment continues without operator
+intervention.
+
+#### What operators see during deploy
+
+Deploy surfaces a non-interrupting INFO line at the end of the OU-creation phase:
+
+```
+Canonical remediation: N OU DACL(s) auto-corrected during disable-inheritance.
+```
+
+`N = 0` when no inherited Deny is present. `N > 0` (typically equal to the number of
+disable-inheritance OUs) when a Deny ACE exists above the Tier OUs. Both outcomes are
+normal and require no operator action.
+
+#### Manual use — Repair-TierModelCanonicalAcl
+
+`Repair-TierModelCanonicalAcl` is also available as a standalone public cmdlet for
+operator-initiated repairs. If your domain root is non-canonical (Case 1), you can use
+it as an alternative to the ADUC Reorder button:
+
+```powershell
+# Reorder the domain root DACL via the DC (live write)
+Repair-TierModelCanonicalAcl -PreferredDc dc01.contoso.com `
+    -DistinguishedName 'DC=contoso,DC=com'
+
+# Or work offline: supply raw SD bytes, get sorted bytes back
+Repair-TierModelCanonicalAcl -SecurityDescriptorBytes $sdBytes
+```
+
+> **Back up before using the live write path.** The same cautions apply as for the
+> ADUC Reorder procedure — review your Allow ACEs first, take a DC snapshot, and
+> confirm the result with `Test-TierModelCanonicalAcl`.
+
+#### What Audit-TierModel reports
+
+`Audit-TierModel.ps1` now performs read-only canonical-ACL checks across the domain
+root and all existing Tier OUs and surfaces findings by case:
+
+| Finding | Case | Meaning | Operator action |
+|---------|------|---------|-----------------|
+| `AuditNonCanonicalAclDomainRoot` | Case 1 | Domain root is non-canonical | Fix manually (Reorder or `Repair-TierModelCanonicalAcl`) before deploying |
+| `AuditNonCanonicalAclTierOu` | Case 2 | A Tier OU is non-canonical | Indicates a failed or pre-fix deployment; delete the OU and redeploy |
+
+Both findings are reported with `Type=Mismatch`, increment `Drift`, and appear in the
+audit findings array alongside their `Details` message and a link to this page.
+
+> **Scope is strictly limited to OUs the Tier Model creates.** The automatic
+> correction and audit checks never touch pre-existing objects outside the Tier Model's
+> OU set. If the domain root itself is non-canonical, Case 1 applies and **you must
+> fix it manually** before the deployment can start (Deploy does not pass
+> `-SkipRootCanonicalCheck` to `Test-TierModelPrerequisites`, so the pre-flight gate
+> remains fatal).
+
+### Quick-reference: which case are you in?
+
+| Symptom | Case | Who fixes it |
+|---------|------|--------------|
+| Deployment **hard-stopped before any OU was created** with a non-canonical ACL message naming the domain root or a pre-existing OU | **Case 1** | You — follow the Reorder procedure on this page (or use `Repair-TierModelCanonicalAcl`) |
+| Deployment **completed successfully** — even with a Deny ACE above the Tier OUs — and INFO line shows `Canonical remediation: N OU DACL(s) auto-corrected` | **Case 2** | No action needed — the Tier Model's verify-and-remediate loop corrected every affected OU |
+| `Audit-TierModel.ps1` reports `AuditNonCanonicalAclDomainRoot` | **Case 1** | Fix domain root before deploying (Reorder or `Repair-TierModelCanonicalAcl -PreferredDc … -DistinguishedName …`) |
+| `Audit-TierModel.ps1` reports `AuditNonCanonicalAclTierOu` | **Case 2** | Pre-fix or failed deployment artifact — delete the affected OU and redeploy |
 
 ---
 
@@ -318,6 +489,13 @@ whether removing them is safe:
 ---
 
 ## Summary checklist
+
+> This checklist covers **Case 1** — a non-canonical DACL on a pre-existing object
+> such as the domain root. If your deployment completed successfully and a Deny ACE
+> existed above the Tier OUs, no action is required; the Tier Model's
+> verify-and-remediate loop corrected canonical order on every disable-inheritance OU
+> it created (see `Canonical remediation: N OU DACL(s) auto-corrected` INFO line in
+> deploy output).
 
 - [ ] Back up / snapshot all domain controllers.
 - [ ] Open ADUC → Advanced Features → domain root → Properties → Security.

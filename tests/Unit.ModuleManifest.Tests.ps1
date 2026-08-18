@@ -89,7 +89,7 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
         
         It 'All declared functions follow naming convention' {
             $invalidNames = $script:DeclaredFunctions | Where-Object { 
-                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Resolve|Clear|Update|Write)-(TierModel|DomainSpecificGuid)' 
+                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Repair|Resolve|Clear|Update|Write)-(TierModel|DomainSpecificGuid)' 
             }
             $invalidNames | Should -BeNullOrEmpty
         }
