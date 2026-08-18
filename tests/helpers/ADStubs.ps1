@@ -35,7 +35,8 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
     function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADRootDSE { param($Server) }
     function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
-    function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $ErrorAction) }
+    function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $PassThru, $Confirm, $ErrorAction) }
+    function Set-ADOrganizationalUnit { param($Identity, $Server, $ProtectedFromAccidentalDeletion, $Confirm, $ErrorAction) }
     function New-ADUser { param($Name, $SamAccountName, $UserPrincipalName, $Path, $Server, $AccountPassword, $Enabled, $DisplayName, $Description, $GivenName, $Surname, $ErrorAction) }
     function Add-ADGroupMember { param($Identity, $Members, $Server, $ErrorAction) }
     function Set-ADObject { param($Identity, $Server, $Replace, $Add, $Remove, $Clear, $ErrorAction) }
@@ -52,7 +53,8 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
         function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADRootDSE { param($Server) }
         function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
-        function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $ErrorAction) }
+        function New-ADOrganizationalUnit { param($Name, $Path, $Server, $Description, $ProtectedFromAccidentalDeletion, $PassThru, $Confirm, $ErrorAction) }
+        function Set-ADOrganizationalUnit { param($Identity, $Server, $ProtectedFromAccidentalDeletion, $Confirm, $ErrorAction) }
         function New-ADUser { param($Name, $SamAccountName, $UserPrincipalName, $Path, $Server, $AccountPassword, $Enabled, $DisplayName, $Description, $GivenName, $Surname, $ErrorAction) }
         function Add-ADGroupMember { param($Identity, $Members, $Server, $ErrorAction) }
         function Set-ADObject { param($Identity, $Server, $Replace, $Add, $Remove, $Clear, $ErrorAction) }

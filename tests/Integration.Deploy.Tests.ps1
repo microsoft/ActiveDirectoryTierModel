@@ -1492,6 +1492,134 @@ Describe 'Deploy-TierModel - FullDeployment Orchestration' {
     }
 }
 
+Describe 'Deploy-TierModel - FullDeployment OU Gate (OU Rewrite)' {
+    # Gate logic at ~L1908: FullDeployment halts before Groups on ANY non-null error code
+    # in $ouExecutionResult.Errors. Silent remediation (CanonicalRemediations > 0, Errors = @())
+    # must NOT halt.
+    BeforeEach {
+        Mock Read-Host { return 'Y' }
+
+        # Base: Get-TierModelOu returns a plan with 1 action so the OU execution branch fires
+        Mock Get-TierModelOu {
+            [object[]]$actionArray = @([PSCustomObject]@{
+                Name = 'Tier0'; Action = 'CreateOU'
+                Data = @{ name = 'Tier0' }
+            })
+            $r = [PSCustomObject]@{ EntityType = 'OU' }
+            $r | Add-Member NoteProperty 'Summary' ([PSCustomObject]@{ TotalInConfig=1; ToCreate=1; ExistingCount=0; TotalOUs=1 })
+            $r | Add-Member NoteProperty 'Actions' $actionArray
+            $r | Add-Member NoteProperty 'Warnings' ([object[]]@())
+            $r | Add-Member NoteProperty 'Errors'   ([object[]]@())
+            return $r
+        }
+
+        # Base: Groups plan has 1 action so the gate decision is observable
+        Mock Get-TierModelGroupFd {
+            New-MockDeploymentPlan -EntityType 'Group' -TotalInConfig 1 -ToCreate 1 -ExistingCount 0
+        }
+        Mock New-TierModelGroup { New-MockDeploymentResult -EntityType 'Group' -AppliedCount 1 -Converged $true }
+        Mock New-TierModelUser  { New-MockDeploymentResult -EntityType 'User'  -AppliedCount 1 -Converged $true }
+        Mock New-TierModelOuAcl { New-MockDeploymentResult -EntityType 'OuAcl' -AppliedCount 1 -Converged $true }
+        Mock New-TierModelGpo   { New-MockDeploymentResult -EntityType 'GPO'   -AppliedCount 1 -Converged $true }
+        Mock Copy-TierModelAdmx {
+            [PSCustomObject]@{
+                Summary = [PSCustomObject]@{ Successful = 1; Failed = 0 }
+                Results = [PSCustomObject]@{
+                    AdmxSuccessful = @([PSCustomObject]@{ FileInfo = @{ Name = 'test.admx' }; ActionType = 'Import' })
+                    AdmlSuccessful = @(); AdmxFailed = @(); AdmlFailed = @()
+                }
+                DurationMs = 50
+            }
+        }
+    }
+
+    Context 'Gate fires on non-null error code' {
+        It 'Halts before Groups when OU result has CanonicalRemediationFailed error' {
+            Mock New-TierModelOu {
+                [PSCustomObject]@{
+                    Applied              = @()
+                    Skipped              = @()
+                    Errors               = @(
+                        [hashtable]@{ Code = 'CanonicalRemediationFailed'; Message = 'ACL could not be canonicalised' }
+                    )
+                    DurationMs           = 100
+                    Converged            = $false
+                    CorrelationId        = [guid]::NewGuid().ToString()
+                    CanonicalRemediations = 2
+                }
+            }
+
+            $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+            Should -Invoke New-TierModelGroup -Times 0
+            $output | Should -Match 'halting before Groups'
+        }
+
+        It 'Halts before Groups on any non-null error code (DisableSecurityInheritanceUnverified)' {
+            Mock New-TierModelOu {
+                [PSCustomObject]@{
+                    Applied              = @([PSCustomObject]@{ Name='Tier0'; DistinguishedName='OU=Tier0,DC=contoso,DC=com' })
+                    Skipped              = @()
+                    Errors               = @(
+                        [hashtable]@{ Code = 'DisableSecurityInheritanceUnverified'; Message = 'Phase 2 verify failed' }
+                    )
+                    DurationMs           = 150
+                    Converged            = $false
+                    CorrelationId        = [guid]::NewGuid().ToString()
+                    CanonicalRemediations = 0
+                }
+            }
+
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke New-TierModelGroup -Times 0
+        }
+    }
+
+    Context 'Gate does NOT fire on clean silent remediation' {
+        It 'Continues to Groups when Errors is empty even if CanonicalRemediations > 0' {
+            # Silent canonical remediation: Errors = @(), CanonicalRemediations = 3 — must NOT halt
+            Mock New-TierModelOu {
+                [PSCustomObject]@{
+                    Applied              = @([PSCustomObject]@{ Name='Tier0'; DistinguishedName='OU=Tier0,DC=contoso,DC=com' })
+                    Skipped              = @()
+                    Errors               = @()
+                    DurationMs           = 200
+                    Converged            = $true
+                    CorrelationId        = [guid]::NewGuid().ToString()
+                    CanonicalRemediations = 3
+                }
+            }
+
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke New-TierModelGroup -Times 1
+        }
+
+        It 'Continues to Groups when OU result has no Errors at all (fully clean)' {
+            Mock New-TierModelOu {
+                [PSCustomObject]@{
+                    Applied              = @([PSCustomObject]@{ Name='Tier0'; DistinguishedName='OU=Tier0,DC=contoso,DC=com' })
+                    Skipped              = @()
+                    Errors               = @()
+                    DurationMs           = 80
+                    Converged            = $true
+                    CorrelationId        = [guid]::NewGuid().ToString()
+                    CanonicalRemediations = 0
+                }
+            }
+
+            & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc `
+                -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-Null
+
+            Should -Invoke New-TierModelGroup -Times 1
+        }
+    }
+}
+
 Describe 'Deploy-TierModel - Error Handling' {
     BeforeEach {
         Mock Read-Host { return 'N' }
@@ -2477,7 +2605,7 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
 
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
 
-        $output | Should -Match 'halting deployment before Groups'
+        $output | Should -Match 'halting before Groups'
         $LASTEXITCODE | Should -Be 1
         # Groups (Phase 2) must NOT run once the OU tier boundary could not be verified
         Should -Not -Invoke New-TierModelGroup
@@ -2507,7 +2635,7 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
 
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply 6>&1 | Out-String
 
-        $output | Should -Match 'halting deployment before Groups'
+        $output | Should -Match 'halting before Groups'
         $output | Should -Match 'Security-inheritance disable flag could not be confirmed'
         $LASTEXITCODE | Should -Be 1
         Should -Not -Invoke New-TierModelGroup

@@ -1387,4 +1387,49 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
             ($result.Errors -join "`n") | Should -Not -Match 'Non-canonical ACL'
         }
     }
+
+    # ── BUG-006b: -SkipRootCanonicalCheck switch ───────────────────────────
+    Context "-SkipRootCanonicalCheck switch — non-canonical root is informational only" -Tag 'CanonicalAcl', 'Prereq', 'SkipRootCanonicalCheck' {
+
+        BeforeEach {
+            InModuleScope TierModel {
+                Mock Get-Module {
+                    return [PSCustomObject]@{ Name = 'ActiveDirectory'; Version = [version]'1.0.1.0' }
+                } -ParameterFilter { $Name -eq 'ActiveDirectory' }
+                Mock Test-TierModelCanonicalAcl {
+                    [PSCustomObject]@{
+                        IsCanonical            = $false
+                        DistinguishedName      = 'DC=contoso,DC=com'
+                        FirstOffendingPrincipal = 'CONTOSO\Everyone'
+                    }
+                }
+            }
+        }
+
+        It "-SkipRootCanonicalCheck: 'Non-canonical ACL' error suppressed even when root is non-canonical" {
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile -SkipRootCanonicalCheck
+            ($result.Errors -join "`n") | Should -Not -Match 'Non-canonical ACL'
+        }
+
+        It "-SkipRootCanonicalCheck: RootAclCanonical=false still recorded in EnvironmentSnapshot" {
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile -SkipRootCanonicalCheck
+            $result.EnvironmentSnapshot.RootAclCanonical | Should -Be $false
+        }
+
+        It "-SkipRootCanonicalCheck: with the switch fewer errors than without (canonical error removed)" {
+            $withSwitch    = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile -SkipRootCanonicalCheck
+            $withoutSwitch = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            $withSwitch.Errors.Count | Should -BeLessThan $withoutSwitch.Errors.Count
+        }
+
+        It "WITHOUT -SkipRootCanonicalCheck: 'Non-canonical ACL' error present (BUG-006 regression preserved)" {
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            ($result.Errors -join "`n") | Should -Match 'Non-canonical ACL'
+        }
+
+        It "WITHOUT -SkipRootCanonicalCheck: Valid=false when root is non-canonical (fatal preserved)" {
+            $result = Test-TierModelPrerequisites -PreferredDc $script:ExtDC -DependenciesPath $script:ExtDepsFile
+            $result.Valid | Should -Be $false
+        }
+    }
 }

@@ -38,8 +38,8 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
             $script:Manifest.ModuleVersion | Should -Match '^\d+\.\d+\.\d+$'
         }
         
-        It 'Has current version 1.3.0' {
-            $script:Manifest.ModuleVersion | Should -Be '1.3.0'
+        It 'Has current version 1.3.1' {
+            $script:Manifest.ModuleVersion | Should -Be '1.3.1'
         }
         
         It 'Has valid GUID' {
@@ -89,7 +89,7 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
         
         It 'All declared functions follow naming convention' {
             $invalidNames = $script:DeclaredFunctions | Where-Object { 
-                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Resolve|Clear|Update|Write)-(TierModel|DomainSpecificGuid)' 
+                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Repair|Resolve|Clear|Update|Write)-(TierModel|DomainSpecificGuid)' 
             }
             $invalidNames | Should -BeNullOrEmpty
         }

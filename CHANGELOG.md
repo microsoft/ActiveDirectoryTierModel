@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-08-18
+
+### Fixed
+- **OU deployment failure on domains with an inherited Deny ACE above the Tier OUs (issue #41)**: `New-TierModelOu` threw `"This access control list is not in canonical form and therefore cannot be modified"` when disabling security inheritance on a Tier OU promoted the inherited Deny to an explicit copy and wrote it back below existing explicit Allow entries — producing a non-canonical DACL. The fix rewrites OU creation as a **phased flow**: Phase 2 disables inheritance via a DC-pinned `System.DirectoryServices.Protocols` write, then immediately reads the DACL back and checks canonical order. If the DACL is non-canonical (which it is on essentially every disable-inheritance OU under an inherited-Deny condition), the new `Repair-TierModelCanonicalAcl` primitive re-sorts it before Phase 3 (accidental-deletion protection) runs. This verify-and-remediate step is the load-bearing fix — not a backstop. Lab validation: remediation fired on all disable-inheritance OUs under the Deny condition; deployment completed clean with all OUs canonical; zero remediations when no inherited Deny is present.
+- **`-FullDeployment` now hard-stops before the Groups phase on any OU error** (previously only inheritance-verification errors triggered the stop).
+
+### Added
+- **`Repair-TierModelCanonicalAcl` public cmdlet**: canonical DACL re-sort primitive. Permission-neutral — reorders ACEs into canonical form (explicit Deny → explicit Allow → inherited Deny → inherited Allow) without adding, removing, or modifying any ACE. ACE count before and after is identical. Sort is stable. Supports live DC writes (`-PreferredDc`, `-DistinguishedName`) and offline byte-level sorting (`-SecurityDescriptorBytes`). Also available to operators for manual remediation of a non-canonical domain root or ad-hoc OU repairs.
+- **Canonical-ACL audit in `Audit-TierModel.ps1`** (read-only; included in `-OuOnly` and `-FullDeployment`): checks the domain root and each Tier OU for canonical DACL order and surfaces structured drift findings:
+  - **Case 1** (`AuditNonCanonicalAclDomainRoot`) — domain root is non-canonical; this is the pre-flight blocker. Operator resolves manually (ADUC Reorder or `Repair-TierModelCanonicalAcl`) before deploying.
+  - **Case 2** (`AuditNonCanonicalAclTierOu`) — a Tier OU is non-canonical; indicates a failed or pre-fix deployment. Operator deletes the OU and redeploys.
+- **Deploy INFO line**: `Deploy-TierModel.ps1` now reports a non-interrupting summary at the end of the OU-creation phase: `Canonical remediation: N OU DACL(s) auto-corrected during disable-inheritance.` (`N = 0` when no inherited Deny is present; `N > 0` — typically equal to the number of disable-inheritance OUs — when one is present).
+- **`-SkipRootCanonicalCheck` switch on `Test-TierModelPrerequisites`**: lets `Audit-TierModel.ps1` report a non-canonical domain root as a Case 1 audit finding instead of halting. `Deploy-TierModel.ps1` does not pass this switch, so the domain-root pre-flight gate remains fatal for deployments.
+
+### Changed
+- Module version 1.3.0 → **1.3.1** (+1 exported cmdlet: `Repair-TierModelCanonicalAcl`).
+
+### Tests
+- New `tests/Unit.CanonicalAclRepair.Tests.ps1` (`Repair-TierModelCanonicalAcl` — ByBytes offline: return shape, all-four-rank sort, CommonAce-before-ObjectAce sub-order, already-canonical, multiset-preservation, stability, idempotency, Deny/Allow overlap warning, DistinguishedName passthrough, multiple-violation, roundtrip; ByServer mocked offline) and `tests/Unit.CanonicalAclAudit.Tests.ps1` (`Invoke-CanonicalAclAudit` — Case 1, Case 2, all-canonical, mix/error/exception/skip paths, return shape). Additions to `tests/Unit.Prerequisites.Tests.ps1` (+5: `-SkipRootCanonicalCheck` gate), `tests/Unit.OuOperations.Tests.ps1` (Phase 2 verify-and-remediate path), and `tests/Integration.Deploy.Tests.ps1` (canonical-remediation INFO line, N=0/N>0 scenarios). Full suite: **1,627 automated tests passing** under Pester 5.x; aggregate command coverage **≈89%** (`Repair-TierModelCanonicalAcl.ps1` 95.4%, `New-TierModelOu.ps1` 84.9%; live-LDAP ByServer paths exempt per existing team precedent).
+
 ## [1.3.0] - 2026-08-17
 
 ### Added

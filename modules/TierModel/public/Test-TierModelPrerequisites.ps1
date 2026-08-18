@@ -52,7 +52,13 @@ function Test-TierModelPrerequisites {
         [switch]$IncludeMsa,
         [switch]$IncludeGmsa,
         [switch]$IncludeDmsa,
-        [switch]$IncludeWinLaps
+        [switch]$IncludeWinLaps,
+
+        # When set, the root-canonical check still runs and records truth into
+        # EnvironmentSnapshot.RootAclCanonical, but a non-canonical root does NOT
+        # set Valid=$false. Used by Audit so Invoke-CanonicalAclAudit can surface
+        # the formal Case 1 finding instead of halting at prerequisites.
+        [switch]$SkipRootCanonicalCheck
     )
     
     $ErrorActionPreference = 'Stop'
@@ -742,15 +748,17 @@ function Test-TierModelPrerequisites {
                 $result.EnvironmentSnapshot.RootAclCanonical = $canon.IsCanonical
 
                 if ($canon -and -not $canon.IsCanonical) {
-                    $result.Valid = $false
-                    $null = $result.Errors.Add("Non-canonical ACL detected at the root of the domain. The permissions are incorrectly ordered (an explicit Deny is applied after an Allow) and must be resolved before the Tier Model deployment can continue.")
-                    if ($null -ne $canon.FirstOffendingPrincipal) {
-                        $null = $result.Errors.Add("First offending entry: '$($canon.FirstOffendingPrincipal)' (explicit Deny ordered after an Allow).")
-                    } else {
-                        $null = $result.Errors.Add("First offending entry: an explicit Deny is ordered after an Allow.")
+                    if (-not $SkipRootCanonicalCheck) {
+                        $result.Valid = $false
+                        $null = $result.Errors.Add("Non-canonical ACL detected at the root of the domain. The permissions are incorrectly ordered (an explicit Deny is applied after an Allow) and must be resolved before the Tier Model deployment can continue.")
+                        if ($null -ne $canon.FirstOffendingPrincipal) {
+                            $null = $result.Errors.Add("First offending entry: '$($canon.FirstOffendingPrincipal)' (explicit Deny ordered after an Allow).")
+                        } else {
+                            $null = $result.Errors.Add("First offending entry: an explicit Deny is ordered after an Allow.")
+                        }
+                        $null = $result.Remediation.Add("Reorder the domain root ACL into canonical form, then re-run Deploy. Back up the domain controller first - this change is not easily reversible.")
+                        $null = $result.Remediation.Add("See Canonical ACLs: https://microsoft.github.io/ActiveDirectoryTierModel/")
                     }
-                    $null = $result.Remediation.Add("Reorder the domain root ACL into canonical form, then re-run Deploy. Back up the domain controller first - this change is not easily reversible.")
-                    $null = $result.Remediation.Add("See Canonical ACLs: https://microsoft.github.io/ActiveDirectoryTierModel/")
                 }
             } catch {
                 $result.EnvironmentSnapshot.RootAclCheckError = $_.Exception.Message

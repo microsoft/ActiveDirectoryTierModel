@@ -400,15 +400,58 @@ Describe "Get-TierModelOu" -Tag 'Unit', 'OU', 'Plan' {
 }
 
 Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
-    
+
+    BeforeAll {
+        Add-Type -AssemblyName System.DirectoryServices.Protocols -ErrorAction SilentlyContinue
+
+        # FakeLdapAttr used by LdapConnection mocks in Phase-2 tests (same as Unit.CanonicalAcl.Tests.ps1)
+        if (-not ('FakeLdapAttrOu' -as [type])) {
+            Add-Type @'
+using System;
+public class FakeLdapAttrOu {
+    public byte[] Bytes;
+    public FakeLdapAttrOu(byte[] bytes) { Bytes = bytes; }
+    public object[] GetValues(Type t) { return new object[] { Bytes }; }
+}
+'@
+        }
+
+        # Build canonical SD bytes (explicit Deny -> explicit Allow) for Phase-2 read mocks.
+        $owner = [System.Security.Principal.SecurityIdentifier]'S-1-5-32-544'
+        $ev    = [System.Security.Principal.SecurityIdentifier]'S-1-1-0'
+        $au    = [System.Security.Principal.SecurityIdentifier]'S-1-5-11'
+        $daclC = New-Object System.Security.AccessControl.RawAcl([System.Security.AccessControl.GenericAcl]::AclRevision, 4)
+        $denyE  = New-Object System.Security.AccessControl.CommonAce([System.Security.AccessControl.AceFlags]::None, [System.Security.AccessControl.AceQualifier]::AccessDenied,  0x20094, $ev, $false, $null)
+        $allowA = New-Object System.Security.AccessControl.CommonAce([System.Security.AccessControl.AceFlags]::None, [System.Security.AccessControl.AceQualifier]::AccessAllowed, 0x20094, $au, $false, $null)
+        $daclC.InsertAce(0, $denyE); $daclC.InsertAce(1, $allowA)
+        # Build with DiscretionaryAclProtected flag so AreAccessRulesProtected = true on readback
+        $ctrlProtected = [System.Security.AccessControl.ControlFlags]::DiscretionaryAclPresent -bor [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected
+        $sdProtected = New-Object System.Security.AccessControl.RawSecurityDescriptor($ctrlProtected, $owner, $owner, $null, $daclC)
+        $script:OuProtectedSdBytes = New-Object byte[] $sdProtected.BinaryLength
+        $sdProtected.GetBinaryForm($script:OuProtectedSdBytes, 0)
+
+        # Also plain canonical (not protected) for Phase-2 initial read
+        $ctrlPlain = [System.Security.AccessControl.ControlFlags]::DiscretionaryAclPresent
+        $sdPlain = New-Object System.Security.AccessControl.RawSecurityDescriptor($ctrlPlain, $owner, $owner, $null, $daclC)
+        $script:OuCanonicalSdBytes = New-Object byte[] $sdPlain.BinaryLength
+        $sdPlain.GetBinaryForm($script:OuCanonicalSdBytes, 0)
+    }
+
     BeforeEach {
         # Mock logging and console output
         Mock Write-TierModelLog { } -ModuleName TierModel
         Mock Write-Host { } -ModuleName TierModel
+        # Phase-1 canonical verify — return canonical immediately so no remediation is needed
+        Mock Test-TierModelCanonicalAcl { [PSCustomObject]@{ IsCanonical = $true } } -ModuleName TierModel
+        Mock Repair-TierModelCanonicalAcl { [PSCustomObject]@{ IsCanonical = $true; WasAlreadyCanonical = $false; AceCountBefore = 2; AceCountAfter = 2 } } -ModuleName TierModel
+        # Set-ADOrganizationalUnit stub for PFAD final step
+        Mock Set-ADOrganizationalUnit { } -ModuleName TierModel
+        # Start-Sleep stub to keep retry loops fast
+        Mock Start-Sleep { } -ModuleName TierModel
     }
-    
+
     Context "OU Creation - Basic" {
-        
+
         It "Should create OU with basic properties" {
             # Arrange
             $plan = [PSCustomObject]@{
@@ -425,7 +468,7 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     }
                 )
             }
-            
+
             Mock New-ADOrganizationalUnit {
                 [PSCustomObject]@{
                     DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'
@@ -433,10 +476,10 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     ObjectGUID = [guid]::NewGuid()
                 }
             } -ModuleName TierModel
-            
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
+
             # Assert
             $result.Applied.Count | Should -Be 1
             $result.Applied[0].Name | Should -Be 'Tier0'
@@ -483,7 +526,9 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
             }
         }
         
-        It "Should handle OU creation with protectFromAccidentalDeletion" {
+        It "Should handle OU creation with protectFromAccidentalDeletion — PFAD applied in Phase-1 final step via Set-ADOrganizationalUnit" {
+            # Phase-1 final step: New-ADOrganizationalUnit is called WITHOUT ProtectedFromAccidentalDeletion,
+            # then Set-ADOrganizationalUnit -ProtectedFromAccidentalDeletion $true is called separately.
             # Arrange
             $plan = [PSCustomObject]@{
                 Actions = @(
@@ -499,22 +544,25 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     }
                 )
             }
-            
+
             Mock New-ADOrganizationalUnit {
                 [PSCustomObject]@{
                     DistinguishedName = 'OU=ProtectedOU,DC=contoso,DC=com'
                     Name = 'ProtectedOU'
                     ObjectGUID = [guid]::NewGuid()
                 }
-            } -ModuleName TierModel -ParameterFilter {
-                $ProtectedFromAccidentalDeletion -eq $true
-            }
-            
+            } -ModuleName TierModel
+
             # Act
             $null = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
-            Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -ParameterFilter {
+
+            # Assert: New-ADOrganizationalUnit was called WITHOUT -ProtectedFromAccidentalDeletion
+            Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -Times 1 -Exactly
+            Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -Times 0 -ParameterFilter {
+                $PSBoundParameters.ContainsKey('ProtectedFromAccidentalDeletion') -and $ProtectedFromAccidentalDeletion -eq $true
+            }
+            # Assert: Set-ADOrganizationalUnit was called WITH -ProtectedFromAccidentalDeletion $true
+            Should -Invoke Set-ADOrganizationalUnit -ModuleName TierModel -Times 1 -ParameterFilter {
                 $ProtectedFromAccidentalDeletion -eq $true
             }
         }
@@ -658,88 +706,62 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
     }
     
     Context "OU Creation - Security Inheritance" {
-        
-        It "Should disable security inheritance when configured" {
-            # Arrange
-            $plan = [PSCustomObject]@{
-                Actions = @(
-                    [PSCustomObject]@{
-                        Action = 'CreateOU'
-                        Name = 'Tier0'
-                        Path = 'DC=contoso,DC=com'
-                        Data = [PSCustomObject]@{
-                            name = 'Tier0'
-                            disableInheritance = $true
-                        }
+
+        # Phase-2 uses DC-pinned LdapConnection (no Get-Acl / Set-Acl).
+        # BUG-03 (product bug): Phase-2 verify checks $rbCsd.AreAccessRulesProtected but CommonSecurityDescriptor
+        # has no such property (it's on ObjectSecurity); the check always returns $null (falsy), so Phase 2
+        # always emits DisableSecurityInheritanceUnverified even on success.
+        # The correct check is ($rbCsd.ControlFlags -band DiscretionaryAclProtected) -ne 0.
+        # Tests below reflect the ACTUAL (buggy) behavior until BUG-03 is fixed.
+
+        BeforeEach {
+            $global:_OuPhase2SdBytes = $script:OuProtectedSdBytes
+
+            Mock New-Object -ModuleName TierModel `
+                -ParameterFilter { $TypeName -eq 'System.DirectoryServices.Protocols.LdapConnection' } `
+                -MockWith {
+                    $conn = [PSCustomObject]@{ SessionOptions = [PSCustomObject]@{ Signing = $false; Sealing = $false } }
+                    $conn | Add-Member -MemberType ScriptMethod -Name Bind -Value { }
+                    $conn | Add-Member -MemberType ScriptMethod -Name SendRequest -Value {
+                        param($r)
+                        if ($r -is [System.DirectoryServices.Protocols.ModifyRequest]) { return $null }
+                        $attr  = [FakeLdapAttrOu]::new([byte[]]$global:_OuPhase2SdBytes)
+                        $entry = [PSCustomObject]@{ Attributes = @{ 'ntSecurityDescriptor' = $attr } }
+                        return [PSCustomObject]@{ Entries = @($entry) }
                     }
-                )
-            }
-            
-            $mockOU = [PSCustomObject]@{
-                DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'
-                Name = 'Tier0'
-                ObjectGUID = [guid]::NewGuid()
-            }
-            
-            $mockAcl = New-Object System.Security.AccessControl.DirectorySecurity
-            
-            Mock New-ADOrganizationalUnit { $mockOU } -ModuleName TierModel
-            Mock Get-Acl { $mockAcl } -ModuleName TierModel
-            Mock Set-Acl { } -ModuleName TierModel
-            
-            # Act
-            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
-            Should -Invoke Get-Acl -ModuleName TierModel -Times 1 -ParameterFilter {
-                $Path -eq 'AD:\OU=Tier0,DC=contoso,DC=com'
-            }
-            Should -Invoke Set-Acl -ModuleName TierModel -Times 1
-            $result.Applied[0].ActionsPerformed | Should -Contain 'DisableSecurityInheritance'
-        }
-        
-        It "Should handle security inheritance failure gracefully" {
-            # Arrange
-            $plan = [PSCustomObject]@{
-                Actions = @(
-                    [PSCustomObject]@{
-                        Action = 'CreateOU'
-                        Name = 'Tier0'
-                        Path = 'DC=contoso,DC=com'
-                        Data = [PSCustomObject]@{
-                            name = 'Tier0'
-                            disableInheritance = $true
-                        }
-                    }
-                )
-            }
-            
-            Mock New-ADOrganizationalUnit {
-                [PSCustomObject]@{
-                    DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'
-                    Name = 'Tier0'
-                    ObjectGUID = [guid]::NewGuid()
+                    return $conn
                 }
-            } -ModuleName TierModel
-            
-            Mock Get-Acl {
-                throw "ACL retrieval failed"
-            } -ModuleName TierModel
-            Mock Start-Sleep { } -ModuleName TierModel
+        }
 
-            # Act
+        AfterEach {
+            Remove-Variable -Name _OuPhase2SdBytes -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "OU without disableInheritance skips Phase 2 — no DisableSecurityInheritanceUnverified error" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }   # no disableInheritance
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
 
-            # Assert - OU is still created, but the unverified security block is a surfaced ERROR
             $result.Applied.Count | Should -Be 1
-            @($result.Errors | Where-Object { $_.Code -eq 'DisableSecurityInheritanceUnverified' }).Count | Should -BeGreaterThan 0
-            @($result.Errors)[0].Message | Should -BeLike "*Security Inheritance was not disabled for OU*"
+            @($result.Errors | Where-Object { $_.Code -eq 'DisableSecurityInheritanceUnverified' }).Count | Should -Be 0
         }
     }
-    
+
     Context "OU Creation - WhatIf Support" {
-        
-        It "Should skip creation in WhatIf mode" {
+
+        It "Should skip creation in WhatIf mode — Skipped populated, New-ADOrganizationalUnit not called" {
+            # NOTE (product bug BUG-01): New-TierModelOu WhatIf path returns Applied = $skipped.ToArray()
+            # instead of @().  Applied.Count == Skipped.Count until fixed.  Skipped.Count and Reason are correct.
             # Arrange
             $plan = [PSCustomObject]@{
                 Actions = @(
@@ -751,22 +773,21 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     }
                 )
             }
-            
+
             Mock New-ADOrganizationalUnit { } -ModuleName TierModel
-            
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com' -WhatIf
-            
-            # Assert
-            $result.Applied.Count | Should -Be 0
+
+            # Assert core WhatIf semantics
             $result.Skipped.Count | Should -Be 1
             $result.Skipped[0].Reason | Should -Be 'WhatIf'
             Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -Times 0
         }
     }
-    
+
     Context "OU Creation - Error Handling" {
-        
+
         It "Should collect errors for failed OU creation" {
             # Arrange
             $plan = [PSCustomObject]@{
@@ -779,21 +800,23 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     }
                 )
             }
-            
+
             Mock New-ADOrganizationalUnit {
                 throw "OU creation failed: Access denied"
             } -ModuleName TierModel
-            
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
+
             # Assert
             $result.Errors.Count | Should -Be 1
             $result.Errors[0].Message | Should -BeLike "*Failed to create OU*"
             $result.Applied.Count | Should -Be 0
         }
-        
-        It "Should continue processing after individual OU failure" {
+
+        It "Phase 1 hard-stops after OU creation failure — GoodOU is NOT processed (new phased design)" {
+            # The old design continued to the next OU on failure.
+            # The new phased design throws Phase1Abort on first CreateOU failure and halts Phase 1.
             # Arrange
             $plan = [PSCustomObject]@{
                 Actions = @(
@@ -823,50 +846,474 @@ Describe "New-TierModelOu" -Tag 'Unit', 'OU', 'Create' {
                     ObjectGUID = [guid]::NewGuid()
                 }
             } -ModuleName TierModel
-            
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
+
+            # Assert: Phase 1 hard-stops on BadOU failure — GoodOU is NOT created
             $result.Errors.Count | Should -Be 1
-            $result.Applied.Count | Should -Be 1
-            $result.Applied[0].Name | Should -Be 'GoodOU'
+            $result.Errors[0].Code | Should -Be 'CreateOuFailed'
+            $result.Applied.Count | Should -Be 0   # hard-stop: no OU processed after failure
         }
     }
     
     Context "OU Creation - Empty Plan" {
-        
+
         It "Should handle plan with no actions" {
             # Arrange
-            $plan = [PSCustomObject]@{
-                Actions = @()
-            }
-            
+            $plan = [PSCustomObject]@{ Actions = @() }
+
             # Act
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
+
             # Assert
             $result.Applied.Count | Should -Be 0
             $result.Converged | Should -BeTrue
         }
-        
+
         It "Should handle plan with only non-CreateOU actions" {
-            # Arrange
+            $plan = [PSCustomObject]@{ Actions = @([PSCustomObject]@{ Action = 'SomeOtherAction'; Name = 'Test' }) }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $result.Applied.Count | Should -Be 0
+            $result.Converged | Should -BeTrue
+        }
+    }
+
+    # =========================================================================
+    Context "Phase orchestration — P1 creates OUs WITHOUT PFAD then applies it" {
+
+        It "New-ADOrganizationalUnit is called WITHOUT -ProtectedFromAccidentalDeletion" {
             $plan = [PSCustomObject]@{
                 Actions = @(
                     [PSCustomObject]@{
-                        Action = 'SomeOtherAction'
-                        Name = 'Test'
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0'; protectFromAccidentalDeletion = $true }
                     }
                 )
             }
-            
-            # Act
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
+            $null = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            # Must have been called without the PFAD param
+            Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -Times 1 -Exactly
+            Should -Invoke New-ADOrganizationalUnit -ModuleName TierModel -Times 0 -ParameterFilter {
+                $PSBoundParameters.ContainsKey('ProtectedFromAccidentalDeletion') -and $ProtectedFromAccidentalDeletion -eq $true
+            }
+        }
+
+        It "Set-ADOrganizationalUnit -ProtectedFromAccidentalDeletion is called AFTER create (Phase-1 final step)" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0'; protectFromAccidentalDeletion = $true }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
+            $null = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            Should -Invoke Set-ADOrganizationalUnit -ModuleName TierModel -Times 1 -ParameterFilter {
+                $ProtectedFromAccidentalDeletion -eq $true
+            }
+        }
+
+        It "Result object carries CanonicalRemediations field" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
             $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
-            
-            # Assert
+
+            $result.PSObject.Properties.Name | Should -Contain 'CanonicalRemediations'
+        }
+    }
+
+    Context "Phase orchestration — canonical remediation is SILENT (not an error)" {
+
+        It "Non-canonical OU after create is repaired silently — no Errors entry" {
+            # Test-TierModelCanonicalAcl returns non-canonical on first call, canonical after repair
+            $script:canonCallCount = 0
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel {
+                $script:canonCallCount++
+                # First call: non-canonical; second call (post-repair): canonical
+                if ($script:canonCallCount -le 1) {
+                    [PSCustomObject]@{ IsCanonical = $false }
+                } else {
+                    [PSCustomObject]@{ IsCanonical = $true }
+                }
+            }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            # Repair was called but no error entry added
+            Should -Invoke Repair-TierModelCanonicalAcl -ModuleName TierModel -Times 1
+            $result.Errors.Count | Should -Be 0
+            $result.Applied.Count | Should -Be 1
+        }
+
+        It "CanonicalRemediations counter is incremented for each silent repair" {
+            # NOTE (product bug BUG-02): $script:canonicalRemediations++ in Invoke-CanonicalVerifyAndRemediate
+            # increments the TierModel module script-scope variable, but the return value reads the outer
+            # function's local $canonicalRemediations (stays 0). Counter is always 0 until fixed.
+            # We verify the repair DID happen via Should -Invoke instead.
+            $script:canonCallCount2 = 0
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel {
+                $script:canonCallCount2++
+                if ($script:canonCallCount2 -le 1) { [PSCustomObject]@{ IsCanonical = $false } }
+                else                               { [PSCustomObject]@{ IsCanonical = $true  } }
+            }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            # Verify repair was invoked (confirms silent remediation path executed)
+            Should -Invoke Repair-TierModelCanonicalAcl -ModuleName TierModel -Times 1
+            $result.CanonicalRemediations | Should -Be 1
+        }
+    }
+
+    Context "Phase orchestration — CanonicalRemediationFailed hard-stops Phase 1" {
+
+        It "Persistent non-canonical after max attempts -> CanonicalRemediationFailed error and Phase 1 aborts" {
+            # Test-TierModelCanonicalAcl always returns non-canonical (remediation never helps)
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel { [PSCustomObject]@{ IsCanonical = $false } }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier1'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier1' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit {
+                param($Name)
+                [PSCustomObject]@{ DistinguishedName = "OU=$Name,DC=contoso,DC=com"; Name = $Name; ObjectGUID = [guid]::NewGuid() }
+            } -ModuleName TierModel
+
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            # Hard stop: CanonicalRemediationFailed error present
+            @($result.Errors | Where-Object { $_.Code -eq 'CanonicalRemediationFailed' }).Count | Should -BeGreaterThan 0
+            # Tier1 was NOT processed (hard stop after Tier0 failure)
+            ($result.Applied | Where-Object { $_.Name -eq 'Tier1' }) | Should -BeNullOrEmpty
+        }
+    }
+
+    Context "Phase orchestration — top-down ordering" {
+
+        It "OUs are created parent-before-child (top-down); order of New-ADOrganizationalUnit calls matches plan order" {
+            $callOrder = [System.Collections.Generic.List[string]]::new()
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                param($Name, $Path)
+                $callOrder.Add($Name)
+                [PSCustomObject]@{ DistinguishedName = "OU=$Name,$Path"; Name = $Name; ObjectGUID = [guid]::NewGuid() }
+            }
+
+            # Plan is already top-down (parent first, then child)
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Admins'; Path = 'OU=Tier0,DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Admins' }
+                    }
+                )
+            }
+
+            $null = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+
+            $callOrder[0] | Should -Be 'Tier0'
+            $callOrder[1] | Should -Be 'Admins'
+        }
+    }
+
+    Context "Phase orchestration — result object shape" {
+
+        It "Result has all required fields: Applied, Skipped, Errors, DurationMs, Converged, CorrelationId, CanonicalRemediations" {
+            $plan = [PSCustomObject]@{ Actions = @() }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $props = $result.PSObject.Properties.Name
+            $props | Should -Contain 'Applied'
+            $props | Should -Contain 'Skipped'
+            $props | Should -Contain 'Errors'
+            $props | Should -Contain 'DurationMs'
+            $props | Should -Contain 'Converged'
+            $props | Should -Contain 'CorrelationId'
+            $props | Should -Contain 'CanonicalRemediations'
+        }
+
+        It "CorrelationId is a non-empty string" {
+            $plan = [PSCustomObject]@{ Actions = @() }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $result.CorrelationId | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    # =========================================================================
+    Context "BUG-01 regression — WhatIf returns Applied=@() not the skipped entries" {
+
+        It "BUG-01: WhatIf Applied.Count is 0 (not equal to Skipped.Count)" {
+            # BUG-01 was: WhatIf path returned Applied = $skipped.ToArray() instead of @().
+            # Fixed: WhatIf path now explicitly returns Applied = @().
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier1'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier1' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit { } -ModuleName TierModel
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com' -WhatIf
             $result.Applied.Count | Should -Be 0
-            $result.Converged | Should -BeTrue
+            $result.Skipped.Count | Should -Be 2   # sanity: skipped is still populated
+        }
+
+        It "BUG-01: WhatIf Applied is an empty array (not from Skipped)" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit { } -ModuleName TierModel
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com' -WhatIf
+            # Applied must be an array with 0 elements (not $null, and not the skipped entries)
+            $result.Applied | Should -HaveCount 0
+            # If BUG-01 were still present, Applied[0].Reason would be 'WhatIf'
+            ($result.Applied | Where-Object { $_.Reason -eq 'WhatIf' }) | Should -BeNullOrEmpty
+        }
+
+        It "BUG-01: WhatIf CanonicalRemediations is 0" {
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit { } -ModuleName TierModel
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com' -WhatIf
+            $result.CanonicalRemediations | Should -Be 0
+        }
+    }
+
+    # =========================================================================
+    Context "BUG-02 regression — CanonicalRemediations counter increments correctly" {
+
+        It "BUG-02: CanonicalRemediations is >0 when a remediation was performed (not stuck at 0)" {
+            # BUG-02 was: Invoke-CanonicalVerifyAndRemediate used $script:canonicalRemediations++ which
+            # increments the module script-scope variable, not the outer function's local counter.
+            # Fixed: Set-Variable -Name canonicalRemediations -Value ($canonicalRemediations + 1) -Scope 1
+            $global:_bug02VerifyCall = 0
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel {
+                $global:_bug02VerifyCall = $global:_bug02VerifyCall + 1
+                # First call (post-create): non-canonical; second call (post-repair): canonical
+                [PSCustomObject]@{ IsCanonical = ($global:_bug02VerifyCall -gt 1) }
+            }
+            Mock Repair-TierModelCanonicalAcl -ModuleName TierModel {
+                [PSCustomObject]@{ IsCanonical = $true; WasAlreadyCanonical = $false }
+            }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $result.CanonicalRemediations | Should -BeGreaterThan 0
+            Remove-Variable -Name _bug02VerifyCall -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "BUG-02: CanonicalRemediations stays 0 when all OUs are already canonical (no spurious increment)" {
+            # All canonical → no Repair call → counter must be exactly 0, never falsely incremented
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel { [PSCustomObject]@{ IsCanonical = $true } }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0' }
+                    }
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier1'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier1' }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                param($Name)
+                [PSCustomObject]@{ DistinguishedName = "OU=$Name,DC=contoso,DC=com"; Name = $Name; ObjectGUID = [guid]::NewGuid() }
+            }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $result.CanonicalRemediations | Should -Be 0
+        }
+
+        It "BUG-02: CanonicalRemediations reflects count for multiple OUs (lab-confirmed: N DI-protected OUs → N remediations)" {
+            # Lab proved: 7 OUs with disableInheritance under an inherited root Deny all need remediation.
+            # Here: 3 OUs all require one remediation each → counter must equal 3.
+            $global:_bug02MultiCall = 0
+            Mock Test-TierModelCanonicalAcl -ModuleName TierModel {
+                $global:_bug02MultiCall = $global:_bug02MultiCall + 1
+                # Every other call: first call per OU = non-canonical; second call (post-repair) = canonical
+                $isEven = ($global:_bug02MultiCall % 2) -eq 0
+                [PSCustomObject]@{ IsCanonical = $isEven }
+            }
+            Mock Repair-TierModelCanonicalAcl -ModuleName TierModel {
+                [PSCustomObject]@{ IsCanonical = $true; WasAlreadyCanonical = $false }
+            }
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{ Action = 'CreateOU'; Name = 'OU1'; Path = 'DC=contoso,DC=com'; Data = [PSCustomObject]@{ name = 'OU1' } }
+                    [PSCustomObject]@{ Action = 'CreateOU'; Name = 'OU2'; Path = 'DC=contoso,DC=com'; Data = [PSCustomObject]@{ name = 'OU2' } }
+                    [PSCustomObject]@{ Action = 'CreateOU'; Name = 'OU3'; Path = 'DC=contoso,DC=com'; Data = [PSCustomObject]@{ name = 'OU3' } }
+                )
+            }
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                param($Name)
+                [PSCustomObject]@{ DistinguishedName = "OU=$Name,DC=contoso,DC=com"; Name = $Name; ObjectGUID = [guid]::NewGuid() }
+            }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            $result.CanonicalRemediations | Should -Be 3
+            Remove-Variable -Name _bug02MultiCall -Scope Global -ErrorAction SilentlyContinue
+        }
+    }
+
+    # =========================================================================
+    Context "BUG-03 regression — Phase 2 verify uses ControlFlags.DiscretionaryAclProtected" {
+
+        # BUG-03 context has BeforeEach / AfterEach that sets up the LdapConnection mock
+        # (sets $global:_OuPhase2SdBytes = $script:OuProtectedSdBytes).
+        # These tests are nested INSIDE the Phase 2 LdapConnection mock context.
+        # We need to reference the BeforeEach in "OU Creation - Security Inheritance" context.
+        # Since Pester scoping doesn't allow nesting across Contexts, we replicate the mock inline.
+
+        BeforeEach {
+            $global:_OuPhase2SdBytes = $script:OuProtectedSdBytes
+            Mock New-Object -ModuleName TierModel `
+                -ParameterFilter { $TypeName -eq 'System.DirectoryServices.Protocols.LdapConnection' } `
+                -MockWith {
+                    $conn = [PSCustomObject]@{ SessionOptions = [PSCustomObject]@{ Signing = $false; Sealing = $false } }
+                    $conn | Add-Member -MemberType ScriptMethod -Name Bind -Value { }
+                    $conn | Add-Member -MemberType ScriptMethod -Name SendRequest -Value {
+                        param($r)
+                        if ($r -is [System.DirectoryServices.Protocols.ModifyRequest]) { return $null }
+                        $attr  = [FakeLdapAttrOu]::new([byte[]]$global:_OuPhase2SdBytes)
+                        $entry = [PSCustomObject]@{ Attributes = @{ 'ntSecurityDescriptor' = $attr } }
+                        return [PSCustomObject]@{ Entries = @($entry) }
+                    }
+                    return $conn
+                }
+        }
+
+        AfterEach {
+            Remove-Variable -Name _OuPhase2SdBytes -Scope Global -ErrorAction SilentlyContinue
+        }
+
+        It "BUG-03: Phase 2 verify succeeds when DiscretionaryAclProtected ControlFlag bit IS set in readback" {
+            # BUG-03 was: ($rbCsd.AreAccessRulesProtected) — property doesn't exist on CommonSecurityDescriptor,
+            # always returns $null (falsy), Phase 2 always emitted DisableSecurityInheritanceUnverified.
+            # Fixed: ($rbCsd.ControlFlags -band DiscretionaryAclProtected) -ne 0.
+            # OuProtectedSdBytes has DiscretionaryAclProtected set → secVerified=$true → no error.
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0'; disableInheritance = $true }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            @($result.Errors | Where-Object { $_.Code -eq 'DisableSecurityInheritanceUnverified' }).Count | Should -Be 0
+            $result.Applied[0].ActionsPerformed | Should -Contain 'DisableSecurityInheritance'
+        }
+
+        It "BUG-03: Phase 2 records DisableSecurityInheritanceUnverified when DiscretionaryAclProtected bit NOT set" {
+            # Override to use non-protected SD bytes for readback
+            $global:_OuPhase2SdBytes = $script:OuCanonicalSdBytes   # canonical DACL but NOT protected
+            $plan = [PSCustomObject]@{
+                Actions = @(
+                    [PSCustomObject]@{
+                        Action = 'CreateOU'; Name = 'Tier0'; Path = 'DC=contoso,DC=com'
+                        Data   = [PSCustomObject]@{ name = 'Tier0'; disableInheritance = $true }
+                    }
+                )
+            }
+            Mock New-ADOrganizationalUnit -ModuleName TierModel {
+                [PSCustomObject]@{ DistinguishedName = 'OU=Tier0,DC=contoso,DC=com'; Name = 'Tier0'; ObjectGUID = [guid]::NewGuid() }
+            }
+            $result = New-TierModelOu -Plan $plan -DomainController 'dc01.contoso.com'
+            @($result.Errors | Where-Object { $_.Code -eq 'DisableSecurityInheritanceUnverified' }).Count | Should -BeGreaterThan 0
+        }
+
+        It "BUG-03: ControlFlags.DiscretionaryAclProtected bit correctly classifies a protected SD" {
+            # Direct offline test of the exact ControlFlags check (no New-TierModelOu call needed)
+            $csd = New-Object System.Security.AccessControl.CommonSecurityDescriptor($true, $true, $script:OuProtectedSdBytes, 0)
+            $isProtected = (($csd.ControlFlags -band [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0)
+            $isProtected | Should -Be $true
+        }
+
+        It "BUG-03: ControlFlags.DiscretionaryAclProtected correctly classifies a NON-protected SD as unprotected" {
+            $csd = New-Object System.Security.AccessControl.CommonSecurityDescriptor($true, $true, $script:OuCanonicalSdBytes, 0)
+            $isProtected = (($csd.ControlFlags -band [System.Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -ne 0)
+            $isProtected | Should -Be $false
         }
     }
 }
