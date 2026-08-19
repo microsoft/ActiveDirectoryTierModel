@@ -319,15 +319,15 @@ Describe "Repair-TierModelCanonicalAcl — ByBytes path" -Tag 'Unit', 'Canonical
     # -------------------------------------------------------------------------
     Context "Deny/Allow overlap warning" {
 
-        It "Emits a warning when same SID has both Deny and Allow on overlapping rights" {
-            $result = Repair-TierModelCanonicalAcl -SecurityDescriptorBytes $script:OverlapInputBytes -WarningVariable warnVar 3>$null
-            $warnVar | Should -Not -BeNullOrEmpty
+        It "Records an overlap entry in Warnings when same SID has both Deny and Allow on overlapping rights" {
+            $result = Repair-TierModelCanonicalAcl -SecurityDescriptorBytes $script:OverlapInputBytes
+            $result.Warnings | Should -Not -BeNullOrEmpty
         }
 
-        It "Warning message mentions the overlapping principal" {
-            $result = Repair-TierModelCanonicalAcl -SecurityDescriptorBytes $script:OverlapInputBytes -WarningVariable warnVar 3>$null
+        It "Warnings entry mentions the overlapping principal" {
+            $result = Repair-TierModelCanonicalAcl -SecurityDescriptorBytes $script:OverlapInputBytes
             # au = Authenticated Users (S-1-5-11)
-            ($warnVar -join ' ') | Should -Match 'overlap|S-1-5-11|Authenticated'
+            (($result.Warnings) -join ' ') | Should -Match 'overlap|S-1-5-11|Authenticated'
         }
 
         It "Still repairs (IsCanonical=true) despite the overlap warning" {

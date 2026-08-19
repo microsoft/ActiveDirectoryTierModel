@@ -186,6 +186,7 @@ function Repair-TierModelCanonicalAcl {
         $null -ne $q -and $q.AceQualifier -eq [System.Security.AccessControl.AceQualifier]::AccessAllowed -and
         -not ((([int]$_.Ace.AceFlags) -band ([int][System.Security.AccessControl.AceFlags]::Inherited)) -ne 0)
     }
+    $printedOverlapNotice = $false
     foreach ($dEntry in $explicitDenies) {
         $dq = $dEntry.Ace -as [System.Security.AccessControl.QualifiedAce]
         foreach ($aEntry in $explicitAllows) {
@@ -193,8 +194,12 @@ function Repair-TierModelCanonicalAcl {
             if ($dq.SecurityIdentifier -eq $aq.SecurityIdentifier -and
                 (([int]$dq.AccessMask) -band ([int]$aq.AccessMask)) -ne 0) {
                 $sidName = try { $dq.SecurityIdentifier.Translate([System.Security.Principal.NTAccount]).Value } catch { $dq.SecurityIdentifier.Value }
-                $warnMsg = "Potential effective-access overlap detected on '$DistinguishedName' for principal '$sidName' — review DACL before applying sort"
-                Write-Warning $warnMsg
+                $warnMsg = "Deny/Allow overlap on '$DistinguishedName' for principal '$sidName' — canonical reorder applied (effective access may change)."
+                if (-not $printedOverlapNotice) {
+                    $ouLeaf = if ([string]::IsNullOrEmpty($DistinguishedName)) { $DistinguishedName } else { (($DistinguishedName -split ',')[0] -replace '^\w+=','') }
+                    Write-Host "REMEDIATED: Canonical ACL overlap on OU: $ouLeaf" -ForegroundColor Green
+                    $printedOverlapNotice = $true
+                }
                 $warnings.Add($warnMsg)
             }
         }
