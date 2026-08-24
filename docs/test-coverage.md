@@ -9,7 +9,9 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** 2026-08-18 (1,627 total tests: **1,627 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: 88.98%** | **Target: 95%** | **CI gate: 80%**
+**Last measured:** 2026-08-24 (1,652 total tests: **1,652 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: 88.93%** | **Target: 95%** | **CI gate: 80%**
+
+> ✅ **v1.3.2 measured (2026-08-24 — 100% pass rate):** Human-readable deployment duration output (issue #34) — new `Format-TierModelDuration.ps1` **100%** (11/11 commands) provides the four-tier `<1ms` / `Xms` / `Xs` / `Xm Ys` console format now used at the nine `Deploy-TierModel.ps1` `Duration:` sites (`Write-TierModelLog` lines stay raw ms). New test file `Unit.FormatDuration.Tests.ps1` (**23** unit tests, incl. banker's-rounding regression guards at 90000 / 119999 / 120000 ms), wiring-proof assertions added to `Integration.Deploy.Tests.ps1` (mock `2254 → "Duration: 2s"`, all-converged `→ "<1ms"`, aggregate `140000 → "2m 20s"`), and a manifest verb-allowlist + export assertion in `Unit.ModuleManifest.Tests.ps1`. Module version **1.3.1 → 1.3.2**. Overall aggregate 88.98% → **88.93%** (full suite 1,627 → 1,652 tests; `Deploy-TierModel.ps1` 81.53% → 81.62% with the nine formatter call-sites); all module-scope files remain above the 80% CI gate.
 
 > ✅ **#41 measured (2026-08-18 — 100% pass rate):** Canonical-ACL phase-2 verify-and-remediate fix — new `Repair-TierModelCanonicalAcl.ps1` **95.40%**, `New-TierModelOu.ps1` **84.86%** (up from 88.8%), `Test-TierModelPrerequisites.ps1` **85.12%** (up from 85.03%), `Audit-TierModel.ps1` **77.16%** (ByServer live-LDAP paths exempt per team ruling — precedent `Test-TierModelCanonicalAcl` ByServer; above 80% gate for module scope; `Audit-TierModel.ps1` exempted from module-scope gate per precedent — see Hard Coverage Limits). New test files: `Unit.CanonicalAclRepair.Tests.ps1` (Repair-TierModelCanonicalAcl ByBytes full coverage + ByServer mocked), `Unit.CanonicalAclAudit.Tests.ps1` (Invoke-CanonicalAclAudit — Case 1, Case 2, all-canonical, mix/error/exception/skip paths); additions to `Unit.Prerequisites.Tests.ps1` (+5 tests for `-SkipRootCanonicalCheck` gate), `Unit.OuOperations.Tests.ps1` (Phase 2 verify-and-remediate path), `Integration.Deploy.Tests.ps1` (canonical-remediation INFO line + N=0 / N>0 scenarios). Overall aggregate moved from 89.65% → **88.98%** (new lines with ByServer-exempt paths account for the small drop; all new files above 80% CI gate).
 
@@ -25,7 +27,7 @@
 
 | Tier | Files | Count |
 |------|-------|-------|
-| ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink`, `Get-TierModelAuditRule` | 13 |
+| ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink`, `Get-TierModelAuditRule`, `Format-TierModelDuration` | 14 |
 | 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor`, `Test-TierModelCanonicalAcl`, `Test-TierModelAuditRule`, `Get-TierModelAuditRuleFd`, `Repair-TierModelCanonicalAcl` | 35 |
 | 🟠 80-89% | `Audit-TierModel` (77.16% — ByServer paths exempt), `Deploy-TierModel`, `New-Tier*` (incl. `New-TierModelOu` 84.86%), `New-TierModelAuditRule`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites` (85.12%), `Test-TierModelWinLapsAcl` | 20 |
 | 🔴 50-79% | `Test-TierModelOu.ps1` (79.4%) | 1 |
@@ -104,15 +106,16 @@
 | `modules/TierModel/public/Test-TierModelGPOLink.ps1` | 222 | 0 | 222 | ✅ 100% |
 | `modules/TierModel/public/Test-TierModelOuExists.ps1` | 9 | 0 | 9 | ✅ 100% |
 | `modules/TierModel/public/Write-TierModelLog.ps1` | 37 | 0 | 37 | ✅ 100% |
-| **TOTAL (68 files)** | 11,342 | 1,518 | 12,860 | **85.96%** |
+| `modules/TierModel/public/Format-TierModelDuration.ps1` | 11 | 0 | 11 | ✅ 100% |
+| **TOTAL (69 files)** | 11,353 | 1,518 | 12,871 | **88.21%** |
 
 > **✦** = File has a documented structural barrier preventing full coverage without production code refactoring. See **Hard Coverage Limits** table below for details.
 
-> **Docs-scope coverage (#41 — 2026-08-18): 88.98% aggregate** (Pester command coverage, full suite 1,627 tests). `Audit-TierModel.ps1` **77.16%**: ByServer live-LDAP paths (`Invoke-CanonicalAclAudit` ByServer-mode canonical check and error paths) are exempt from the coverage requirement per team ruling — same precedent as `Test-TierModelCanonicalAcl.ps1` ByServer branch (92.86%). All module-scope files meet the 80% CI gate.
+> **Docs-scope coverage (v1.3.2 — 2026-08-24): 88.93% aggregate** (Pester command coverage, full suite 1,652 tests; 15,057/16,932 commands — the authoritative overall figure, consistent with the README). The per-file line-count table above is the 2026-08-18 (#41) snapshot plus the new `Format-TierModelDuration.ps1`; a full per-file refresh is tracked separately. `Audit-TierModel.ps1` **77.16%**: ByServer live-LDAP paths (`Invoke-CanonicalAclAudit` ByServer-mode canonical check and error paths) are exempt from the coverage requirement per team ruling — same precedent as `Test-TierModelCanonicalAcl.ps1` ByServer branch (92.86%). All module-scope files meet the 80% CI gate.
 
 ---
 
-### ✅ 100% Coverage (12 files)
+### ✅ 100% Coverage (13 files)
 
 | File | Lines | Status |
 |------|-------|--------|
@@ -128,6 +131,7 @@
 | `Test-TierModelGPOLink.ps1` | 222 | ✅ 100% |
 | `Test-TierModelOuExists.ps1` | 9 | ✅ 100% |
 | `Write-TierModelLog.ps1` | 37 | ✅ 100% |
+| `Format-TierModelDuration.ps1` | 11 | ✅ 100% |
 
 ### 🟡 Near Target: 90-99% Coverage (32 files)
 
