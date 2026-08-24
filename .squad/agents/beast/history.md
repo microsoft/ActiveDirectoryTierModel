@@ -1,5 +1,67 @@
 # beast — History
 
+## Learnings: Format-Duration Design Investigation (issue #34) (2026-08-24)
+
+**Branch:** N/A — Design proposal only (no code written)
+**Status:** ✅ PROPOSAL DELIVERED — awaiting Joel go/no-go before implementation
+
+### Key facts established
+
+**All 9 Write-Host (console) duration call sites in Deploy-TierModel.ps1:**
+- L2165: `$totalDuration` — consolidated full-deployment results summary
+- L2176: hardcoded `"Duration: 0ms"` — no-actions-needed branch (must also change)
+- L2227: `$ouResult.DurationMs` — OuOnly (ConfirmApply-gated)
+- L2278: `$groupResult.DurationMs` — GroupOnly (ConfirmApply-gated)
+- L2338: `$userResult.DurationMs` — UserOnly (ConfirmApply-gated)
+- L2395: `$ouAclResult.DurationMs` — OuAclsOnly (ConfirmApply-gated)
+- L2479: `$gpoResult.DurationMs` — GposOnly (ConfirmApply-gated)
+- L2570: `$admxResult.DurationMs` — AdmxOnly (always shown when ConfirmApply)
+- L2767: `$standaloneTotalDuration` — standalone MSA/gMSA/dMSA/WinLaps/Audit results
+
+**Two Write-TierModelLog (machine log) duration sites — KEEP RAW:**
+- L559 (OU deployment), L701 (Group deployment)
+
+**DurationMs type is mixed:**
+- `New-TierModelOu.ps1`: casts to `[int]` → integer
+- `Copy-TierModelAdmx.ps1`: raw `TotalMilliseconds` → double (e.g., 2254.1343)
+- Function must accept `[double]` to handle both
+
+**CI coverage scope (ci.yml L120):**
+- `modules/TierModel/*.psm1` AND `modules/TierModel/public/*.ps1`
+- Private/internal NOT counted; `Format-TierModelDuration` MUST be public
+
+**No internal/ .ps1 files exist** — no private function mechanism is active
+
+**Existing integration tests that assert on "Xms" format (Integration.Deploy.Tests.ps1):**
+- L1901: `$output | Should -Match 'Duration: 150ms'` — DurationMs=150 (sub-1000ms → stays '150ms') ✓
+- L2744: `$output | Should -Match 'Duration: 100ms'` — DurationMs=100 (sub-1000ms → stays '100ms') ✓
+- Both assertions remain compatible after the change (sub-1000ms stays as Xms)
+
+### Proposed design (pending Joel approval)
+- Function name: `Format-TierModelDuration` (follows `Verb-TierModelNoun` convention)
+- 4-tier format: `<1ms` / `Xms` / `Xs` / `Xm Ys`
+- `[double]$Milliseconds` parameter — handles both int and double DurationMs values
+- Open question for Joel: `<1ms` vs `1ms` ceiling; `Xs` middle tier vs just `Xm Ys` for ≥1s
+
+### Lab acceptance validation added (2026-08-24, Joel request)
+Three manual DC01 scenarios mapped to branches/call-sites/expected output:
+- Scenario 1: `-OuOnly -ConfirmApply` (all OUs) → seconds branch → L2227 → `Duration: Xs`
+- Scenario 2: delete 1 OU, re-run → ms branch → L2227 → `Duration: Xms` (THE never-zero acceptance test)
+- Scenario 3: `-FullDeployment -ConfirmApply` → m/s branch → L2165 → `Duration: Xm Ys`
+- Optional 2b: fully-converged FullDeployment → `<1ms` floor → L2176 → `Duration: <1ms` (tests hardcoded-zero fix)
+Pester covers all branches offline/deterministically; lab proves the end-to-end module call chain on live AD.
+
+### IMPLEMENTATION COMPLETE (2026-08-24) — production code only, no tests
+- `modules/TierModel/public/Format-TierModelDuration.ps1` — CREATED (4 tiers, all floor-based, parse clean)
+- `modules/TierModel/TierModel.psd1` — `'Format-TierModelDuration'` added to FunctionsToExport after `'Copy-TierModelAdmx'`
+- `Deploy-TierModel.ps1` — 9 Write-Host sites updated; L559/L701 log lines left raw
+- `CHANGELOG.md` — Unreleased entry added (issue #34)
+- 12/12 smoke-test cases passed including the two banker's-rounding regression cases (90000ms→1m 30s, 119999ms→1m 59s)
+- ModuleVersion stays 1.3.1 (not bumped per Joel instruction)
+- Tests: NOT written — Wolverine phase after lab validation
+
+---
+
 ## Learnings: Granular Per-Right Audit Output (2026-08-14)
 
 **Branch:** `feature/domain-auditing`

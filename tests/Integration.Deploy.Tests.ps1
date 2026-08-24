@@ -1893,12 +1893,12 @@ Describe 'Deploy-TierModel - OuOnly Display Variants' {
             New-MockDeploymentPlan -EntityType 'OU' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
         }
         Mock New-TierModelOu {
-            New-MockDeploymentResult -EntityType 'OU' -AppliedCount 1 -DurationMs 150 -Converged $true
+            New-MockDeploymentResult -EntityType 'OU' -AppliedCount 1 -DurationMs 2254 -Converged $true
         }
 
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
 
-        $output | Should -Match 'Duration: 150ms'
+        $output | Should -Match 'Duration: 2s'
         $output | Should -Match 'Converged: True'
     }
 }
@@ -2379,6 +2379,7 @@ Describe 'Deploy-TierModel - FullDeployment All-Converged Path' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'No actions required'
+        $output | Should -Match 'Duration: <1ms'
     }
 
     It 'Should show consolidated deployment results when ConfirmApply with some actions' {
@@ -2742,6 +2743,22 @@ Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {
         $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuAclsOnly -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
 
         $output | Should -Match 'Duration: 100ms'
+        $output | Should -Match 'Converged: True'
+    }
+
+    It 'Should display Duration: 2m 20s when result DurationMs is 140000 (minute-tier wiring proof)' {
+        # Only Format-TierModelDuration produces '2m 20s'; raw-ms code would emit '140000ms'.
+        Mock Read-Host { return 'Y' }
+        Mock Get-TierModelOu {
+            New-MockDeploymentPlan -EntityType 'OU' -TotalInConfig 2 -ToCreate 1 -ExistingCount 1
+        }
+        Mock New-TierModelOu {
+            New-MockDeploymentResult -EntityType 'OU' -AppliedCount 1 -DurationMs 140000 -Converged $true
+        }
+
+        $output = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -ConfirmApply -ErrorAction Stop 6>&1 | Out-String
+
+        $output | Should -Match 'Duration: 2m 20s'
         $output | Should -Match 'Converged: True'
     }
 

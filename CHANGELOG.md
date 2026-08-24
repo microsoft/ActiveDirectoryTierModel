@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-08-24
+
+### Added
+- **Human-readable deployment duration output (issue #34)**: `Deploy-TierModel.ps1` console duration lines now render in a four-tier format — `<1ms` (sub-millisecond/zero), `Xms` (1–999 ms), `Xs` (1–59 s), `Xm Ys` (60 s+) — instead of raw milliseconds. A multi-minute full deployment now displays e.g. `Duration: 4m 23s`; a single-OU idempotent run displays e.g. `Duration: 350ms`; a zero-duration no-op displays `Duration: <1ms` (never zero). All tiers use `Math.Floor`; the minute tier uses explicit floor-based integer arithmetic to avoid `[int][TimeSpan]::TotalMinutes` banker's rounding.
+- **`Format-TierModelDuration` public cmdlet** (`modules/TierModel/public/Format-TierModelDuration.ps1`): the formatting primitive backing the above change. Accepts `[double]$Milliseconds`; unit-testable in isolation.
+- **Best Practices, Governance & AD Hardening documentation page (issue #33)**: new `docs/best-practices.md` covering AD tier model governance, hardening recommendations, and operational best practices; added to mkdocs nav and linked from README.
+
+### Changed
+- **Canonical ACL overlap remediation now prints a green `REMEDIATED:` status line per OU** instead of a yellow `WARNING`; the overlap detail (DN + principal) is retained in the result's `Warnings` for audit (`Repair-TierModelCanonicalAcl.ps1`).
+
 ## [1.3.1] - 2026-08-18
 
 ### Fixed

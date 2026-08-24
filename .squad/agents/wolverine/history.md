@@ -1,5 +1,46 @@
 # wolverine — History
 
+## Session 2026-08-24 — Format-TierModelDuration tests (issue #34)
+
+**Status:** ✅ COMPLETE
+
+### Deliverables
+
+| File | Action | Description |
+|------|--------|-------------|
+| `tests/Unit.FormatDuration.Tests.ps1` | **CREATED** | 23 unit tests, 4 Contexts (sub-ms, ms, seconds, minutes), + null-coercion + return-type |
+| `tests/Unit.ModuleManifest.Tests.ps1` | **UPDATED** | Added `Format` to approved-verb regex; added `Format-TierModelDuration` accessibility assertion |
+| `tests/Integration.Deploy.Tests.ps1` | **UPDATED** | 3a: OuOnly mock 150ms→2254ms → assert 'Duration: 2s'; 3b: all-converged test + 'Duration: <1ms'; 3c: new It block DurationMs=140000 → 'Duration: 2m 20s' |
+| `README.md` | **UPDATED** | Metrics refreshed from actual run (see below) |
+
+### Authoritative Measured Numbers (2026-08-24, Pester 5.9.0)
+
+| Metric | Value |
+|--------|-------|
+| Unit test files | **22** (+1: Unit.FormatDuration.Tests.ps1) |
+| Unit tests | **1,338** (+24: 23 new + 1 manifest assertion) |
+| Integration test files | **7** (unchanged) |
+| Integration tests | **314** (+1: 2m 20s wiring-proof test) |
+| Automated total | **1,652** (+25) |
+| Manual tests | **335** (authoritative per Joel, unchanged) |
+| Grand total | **1,987** |
+| PASS | **1,652** |
+| FAIL | **0** |
+| Overall coverage | **88.93%** (15,057 / 16,932 commands) |
+| Production files | **71/71** (Format-TierModelDuration.ps1 adds the 71st) |
+
+All files above 80% CI gate. Zero regressions. ✅
+
+### Banker's-Rounding Guards Rationale
+The 90000 / 119999 / 120000 trio locks the contract against a regression to the old `[int][TimeSpan]::TotalMinutes` pattern. 90000ms = 1.5 minutes; banker's-rounding [int]1.5 → 2 (even) → wrong "2m 30s". The three guards prove the floor path is exercised:
+- 90000 → '1m 30s' (not '2m 30s')
+- 119999 → '1m 59s' (not '2m 59s')
+- 120000 → '2m 0s' (minute boundary sanity)
+
+### No commit per owner request.
+
+---
+
 **2026-08-11 — BUG-006 canonical-ACL tests implemented:** Created `tests/Unit.CanonicalAcl.Tests.ps1` (18 tests, ByBytes path, offline fixtures) + 4 gate tests in `Unit.Prerequisites.Tests.ps1`; under Pester 5.9.0 (supported): TOTAL=1457 PASS=1457 FAIL=0; COVERAGE=91.13%; CanonicalAcl.ps1 33/56=58.93% (ByServer branch offline-untestable), Prerequisites.ps1 409/481=85.03%. Reviewed APPROVE. FINALIZATION COMPLETE: PENDING owner code review + PR. No commit (per owner request).
 
 ## Session 2026-08-15 (afternoon) — Coverage Refresh @ 100% Pass Rate

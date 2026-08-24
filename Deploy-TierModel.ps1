@@ -2162,7 +2162,7 @@ if ($FullDeployment) {
         Write-Host "Applied: $totalApplied" -ForegroundColor Green
         Write-Host "Skipped: $totalSkipped" -ForegroundColor Yellow
         Write-Host "Errors: $totalErrors" -ForegroundColor $(if ($totalErrors -gt 0) { 'Red' } else { 'Green' })
-        Write-Host "Duration: $($totalDuration)ms" -ForegroundColor Gray
+        Write-Host "Duration: $(Format-TierModelDuration $totalDuration)" -ForegroundColor Gray
         Write-Host "Converged: $overallConverged" -ForegroundColor $(if ($overallConverged) { 'Green' } else { 'Yellow' })
         
     } elseif ($ConfirmApply -and $deploymentPlan.TotalActions -eq 0) {
@@ -2173,7 +2173,7 @@ if ($FullDeployment) {
         Write-Host "Applied: 0" -ForegroundColor Green
         Write-Host "Skipped: 0" -ForegroundColor Yellow
         Write-Host "Errors: 0" -ForegroundColor Green
-        Write-Host "Duration: 0ms" -ForegroundColor Gray
+        Write-Host "Duration: $(Format-TierModelDuration 0)" -ForegroundColor Gray
         Write-Host "Converged: True" -ForegroundColor Green
     }
 }
@@ -2224,7 +2224,7 @@ else {
             
             # Add duration and convergence info when using ConfirmApply
             if ($ConfirmApply -and $ouResult.PSObject.Properties.Name -contains 'DurationMs') {
-                Write-Host "Duration: $($ouResult.DurationMs)ms" -ForegroundColor Gray
+                Write-Host "Duration: $(Format-TierModelDuration $ouResult.DurationMs)" -ForegroundColor Gray
                 Write-Host "Converged: $($ouResult.Converged)" -ForegroundColor $(if ($ouResult.Converged) { 'Green' } else { 'Yellow' })
             }
             if ($ConfirmApply) {
@@ -2275,7 +2275,7 @@ else {
                 
                 # Add duration and convergence info when using ConfirmApply
                 if ($ConfirmApply -and $groupResult.PSObject.Properties.Name -contains 'DurationMs') {
-                    Write-Host "Duration: $($groupResult.DurationMs)ms" -ForegroundColor Gray
+                    Write-Host "Duration: $(Format-TierModelDuration $groupResult.DurationMs)" -ForegroundColor Gray
                     Write-Host "Converged: $($groupResult.Converged)" -ForegroundColor $(if ($groupResult.Converged) { 'Green' } else { 'Yellow' })
                 }
             }
@@ -2335,7 +2335,7 @@ else {
                 
                 # Add duration and convergence info when using ConfirmApply
                 if ($ConfirmApply -and $userResult.PSObject.Properties.Name -contains 'DurationMs') {
-                    Write-Host "Duration: $($userResult.DurationMs)ms" -ForegroundColor Gray
+                    Write-Host "Duration: $(Format-TierModelDuration $userResult.DurationMs)" -ForegroundColor Gray
                     Write-Host "Converged: $($userResult.Converged)" -ForegroundColor $(if ($userResult.Converged) { 'Green' } else { 'Yellow' })
                 }
             }
@@ -2392,7 +2392,7 @@ else {
                 
                 # Add duration and convergence info when using ConfirmApply
                 if ($ConfirmApply -and $ouAclResult.PSObject.Properties.Name -contains 'DurationMs') {
-                    Write-Host "Duration: $($ouAclResult.DurationMs)ms" -ForegroundColor Gray
+                    Write-Host "Duration: $(Format-TierModelDuration $ouAclResult.DurationMs)" -ForegroundColor Gray
                     Write-Host "Converged: $($ouAclResult.Converged)" -ForegroundColor $(if ($ouAclResult.Converged) { 'Green' } else { 'Yellow' })
                 }
             }
@@ -2476,7 +2476,7 @@ else {
                 
                 # Add duration and convergence info when using ConfirmApply
                 if ($ConfirmApply -and $gpoResult.PSObject.Properties.Name -contains 'DurationMs') {
-                    Write-Host "Duration: $($gpoResult.DurationMs)ms" -ForegroundColor Gray
+                    Write-Host "Duration: $(Format-TierModelDuration $gpoResult.DurationMs)" -ForegroundColor Gray
                     Write-Host "Converged: $($gpoResult.Converged)" -ForegroundColor $(if ($gpoResult.Converged) { 'Green' } else { 'Yellow' })
                 }
                 
@@ -2567,7 +2567,7 @@ else {
             Write-Host "Create count: $createCount" -ForegroundColor Yellow
             Write-Host "Update count: $updateCount" -ForegroundColor Yellow
             Write-Host "Low risk: $totalActions" -ForegroundColor Cyan
-            Write-Host "Duration: $($admxResult.DurationMs)ms" -ForegroundColor Gray
+            Write-Host "Duration: $(Format-TierModelDuration $admxResult.DurationMs)" -ForegroundColor Gray
             Write-Host "Converged: $(if ($admxResult.Summary.Failed -eq 0) { 'True' } else { 'False' })" -ForegroundColor $(if ($admxResult.Summary.Failed -eq 0) { 'Green' } else { 'Yellow' })
         } elseif ($admxPlan) {
             # Planning mode - show deployment plan
@@ -2764,7 +2764,7 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
         Write-Host "Applied: $standaloneTotalApplied" -ForegroundColor Green
         Write-Host "Skipped: $standaloneTotalSkipped" -ForegroundColor Yellow
         Write-Host "Errors: $standaloneTotalErrors" -ForegroundColor $(if ($standaloneTotalErrors -gt 0) { 'Red' } else { 'Green' })
-        Write-Host "Duration: $($standaloneTotalDuration)ms" -ForegroundColor Gray
+        Write-Host "Duration: $(Format-TierModelDuration $standaloneTotalDuration)" -ForegroundColor Gray
         Write-Host "Converged: $standaloneConverged" -ForegroundColor $(if ($standaloneConverged) { 'Green' } else { 'Yellow' })
     } elseif ($standaloneTotalErrors -eq 0) {
         Write-Host "`n=== Deployment Plan ===" -ForegroundColor Blue
