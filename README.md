@@ -27,6 +27,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[Tier Model Logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/)** - Structured logging and diagnostics
 - **[GPO Management Strategy](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-strategy/)** - Group Policy Object management
 - **[GPO Management Guidance](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-guidance/)** - Best practices, baseline selection, the SOE override model, firewall lockdown, and upgrade lifecycle
+- **[Best Practices & Hardening](https://microsoft.github.io/ActiveDirectoryTierModel/best-practices/)** - Governance rules (group manager tiering) and post-deployment AD hardening guidance
 - **[ADMX Management](https://microsoft.github.io/ActiveDirectoryTierModel/admx-management/)** - Administrative template handling
 - **[Conditional Principals](https://microsoft.github.io/ActiveDirectoryTierModel/conditional-principals/)** - Domain-specific principal resolution
 - **[CI/CD Integration](https://microsoft.github.io/ActiveDirectoryTierModel/ci-cd/)** - Pipeline integration and automation
