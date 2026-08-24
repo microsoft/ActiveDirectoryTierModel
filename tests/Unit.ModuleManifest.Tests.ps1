@@ -38,8 +38,8 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
             $script:Manifest.ModuleVersion | Should -Match '^\d+\.\d+\.\d+$'
         }
         
-        It 'Has current version 1.3.1' {
-            $script:Manifest.ModuleVersion | Should -Be '1.3.1'
+        It 'Has current version 1.3.2' {
+            $script:Manifest.ModuleVersion | Should -Be '1.3.2'
         }
         
         It 'Has valid GUID' {
@@ -89,7 +89,7 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
         
         It 'All declared functions follow naming convention' {
             $invalidNames = $script:DeclaredFunctions | Where-Object { 
-                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Repair|Resolve|Clear|Update|Write)-(TierModel|DomainSpecificGuid)' 
+                $_ -notmatch '^(Get|Set|New|Test|Copy|Import|Repair|Resolve|Clear|Update|Write|Format)-(TierModel|DomainSpecificGuid)' 
             }
             $invalidNames | Should -BeNullOrEmpty
         }
@@ -330,6 +330,10 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
         
         It 'GPO Link Fd function is accessible' {
             Get-Command -Module TierModel -Name 'Get-TierModelGpoLinkFd' | Should -Not -BeNullOrEmpty
+        }
+
+        It 'Format-TierModelDuration is exported and accessible' {
+            Get-Command -Module TierModel -Name 'Format-TierModelDuration' | Should -Not -BeNullOrEmpty
         }
     }
     
