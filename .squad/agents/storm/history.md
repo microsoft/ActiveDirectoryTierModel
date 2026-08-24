@@ -1,5 +1,79 @@
 # storm — History
 
+## Session 2026-08-24 (Pass 2) — Auth Silos Ops Guide Revision (2026-08-24T20:20:38+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+**Branch:** `feature/auth-silos`
+
+**Revision pass on `docs/auth-silos-operations-guide.md` based on rubber-duck review and Joel's revision requirements.**
+
+**New content added:**
+- UAT test-case index table (15 scenarios) at the very top of the document, after the draft banner
+- All-tier scope table in §2 (four silos: T0 Admin, T1 Admin, T2 Admin, T2 EUD; rationale for no 5th silo for general population)
+- §3d — Tier 2 EUD silo walkthrough (onboard Local Device Admin)
+- §3e — Domain-join scenarios: interactive admin (Staging OU → production → group → reboot), automated service accounts (`svc-pawdomainjoin`, `svc-t1srvdomainjoin` as structural exemptions with compensating controls), and planned `svc-t2euddomainjoin`
+- §9 Negative Testing section (UAT-05/06/07 with recording template)
+- Design clarifications woven into §1: narrow Kerberos-AS guarantee, authentication ≠ authorization ≠ use
+
+**Critical fixes:**
+- `Set-ADAccountAuthenticationPolicySilo -Clear` → `-AuthenticationPolicySilo $null` (invalid parameter removed)
+- `Get-ADUser -Filter { objectSid -like "*-500" }` → SID constructed from `(Get-ADDomain -Server <DC>).DomainSID + "-500"`
+- DSRM paragraph: removed false "ntdsutil reverses Enforce" and "manually start AD DS" claims; described accurately as disruptive last-resort
+- RID-500 exemption corrected: platform-exempt from Kerberos silo check only; URA/account-state/network/firewall still apply
+- Removed false "~240-minute window" claim; replaced with fresh-TGT pilot test using `klist purge` in dedicated pilot session
+- Brownfield preflight (Step 0) added to §3a: check both `msDS-AssignedAuthNPolicy` and `msDS-AssignedAuthNPolicySilo` before assignment; treat existing direct assignment as migration STOP
+- Pre-enforcement gates: all G1-G12 operationalized as pass/fail/STOP rows; G11 extended to full business cycle coverage + NTLM/LDAP-bind inventory; G3 adds SDDL SID verification
+- Enforce composition: documents both policy Enforce AND silo Enforce; marks mixed-mode precedence as [Lab validation required]; verifies both on every DC during cutover and rollback
+
+**Should-fixes applied:**
+- 4719: corrected to "audit-policy changes" (not "channel disabled"); added channel-state polling note
+- 5136: added companion events 4728/4729, 4732/4733, 4756/4757, 5137/5141
+- 4820: narrowed from "equivalent" to "reported by third-party; field structure unconfirmed"; [Lab validation required]
+- 4821: removed "equivalent" wording; existence is inferred only
+- LDAP simple bind: changed from "bypasses" (presented as fact) to [Lab validation required] throughout
+- §3b Step 5: specified console/local logon as test transport (not RDP/NLA); NLA/delegation marked [Lab validation required]
+- Opening promise: softened to narrow Kerberos AS exchange statement
+- AccountNotDelegated: moved to separately-approved hardening step
+- Unassignment: added `Revoke-ADAuthenticationPolicySiloAccess` + verify both attributes in movers/leavers
+
+**Status:** ✅ COMPLETE — working tree only, no commit.
+
+---
+
+## Session 2026-08-24 — Auth Silos Operations Guide (2026-08-24T19:22:09+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+**Branch:** `feature/auth-silos`
+
+**Task completed:**
+
+Created `docs/auth-silos-operations-guide.md` — a draft operations guide for Authentication Policy Silos. Added nav entry in `mkdocs.yml` after "Best Practices & Hardening."
+
+**Sections delivered:**
+1. Overview: plain-language explanation of silos, prerequisites checklist, confirmation that Kerberos armoring is already deployed by the Tier Model.
+2. Silo structure: object inventory, Origination Device Rule, SDDL explained, AND-vs-OR trap documented.
+3. Scenario walkthroughs: onboard new Tier 0 user / new member server / new PAW — all with step-by-step instructions, WHY and HOW TO VERIFY for each step, and "what breaks if you skip" tables.
+4. Audit → Enforced transition with 12 pre-enforcement gates, enforcement procedure, rollback runbook, and total-lockout recovery runbook.
+5. Daily/weekly/monthly maintenance including change-control requirements.
+6. Exemptions: RID-500 permanent exemption, lifecycle, structural vs remediable distinction.
+7. Lifecycle: joiner/mover/leaver for accounts and devices; account-vs-device lifecycle separation.
+8. Event IDs table (105, 305, 106, 306, 101, 4820, 4821, 5136, 4719); channel-enable command; blind spots.
+9. Troubleshooting: 7 symptom→cause→fix scenarios including total lockout recovery runbook.
+10. Limitations table; layered model for complementary controls.
+11. Appendix A: build-from-scratch sequence.
+
+**Key decisions:**
+- Correct Microsoft silo model only; `source-material/` scripts approach explicitly excluded.
+- AND-vs-OR SDDL trap highlighted prominently; "Member of any" ADAC setting called out.
+- Origination Device Rule as organizing principle for device group membership.
+- Kerberos armoring as already-deployed (verify, don't create).
+- Event IDs 4820/4821 marked lab-validation-required.
+- Authentication Policy Failures channel enable documented as required first step.
+
+**Status:** ✅ COMPLETE — files in working tree, no commit.
+
+---
+
 ## Session 2026-08-17 — CHANGELOG v1.3.0 Release Notes (2026-08-17T10:22:31+08:00)
 
 **Requested by:** Joel Platek (@VAsHachiRoku)
