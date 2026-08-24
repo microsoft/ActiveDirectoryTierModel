@@ -18,6 +18,7 @@ nav:
   - CI/CD: ci-cd.md
   - GPO Management Strategy: gpo-management-strategy.md
   - GPO Management Guidance: gpo-management-guidance.md
+  - Best Practices & Hardening: best-practices.md
   - ADMX Management: admx-management.md
   - Test Tag Matrix: test-tag-matrix.md
   - Tier Model Logging: tiermodel-logging.md
