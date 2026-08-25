@@ -13,7 +13,7 @@ Use this table as a lab checklist. Attempt each scenario in the order given; rec
 | ID | Scenario | Mode | Expected outcome | See |
 |---|---|---|---|---|
 | UAT-01 | Tier 0 admin logs on from approved Tier 0 PAW | Both | ✅ Allow | §3a |
-| UAT-02 | Tier 1 admin logs on from approved Tier 1 PAW or SAW | Both | ✅ Allow | §3a, §2 scope table |
+| UAT-02 | Tier 1 admin logs on from approved Tier 1 PAW | Both | ✅ Allow | §3a, §2 scope table |
 | UAT-03 | Local Device Admin logs on from their enrolled EUD | Both | ✅ Allow | §3d |
 | UAT-04 | Tier 2 user reaches SharePoint hosted on a Tier 1 server | Enforce | ✅ Allow — silo only gates TGT source, not service-ticket issuance to a third party | §10 |
 | UAT-05 | Tier 0 admin from a **non-tier-model** server (unapproved device) | Audit / Enforce | ⚠️ Event 305 / ❌ Deny (Event 105) | §3e, §9a |
@@ -107,9 +107,9 @@ The Tier Model deploys **four silos**. The general domain user and computer popu
 
 | Silo | Member accounts (user + service) | Member computers | Approved origin devices (`Member of any`) |
 |---|---|---|---|
-| **Tier 0 Admin** (`T0-Silo`) | Tier 0 user accounts, Tier 0 service accounts | DCs, Tier 0 servers, Tier 0 PAWs | DCs · Tier 0 servers · Tier 0 PAWs |
-| **Tier 1 Admin** (`T1-Silo`) | Tier 1 user accounts, Tier 1 service accounts | Tier 1 servers, Tier 1 SAWs | Tier 1 servers · Tier 1 SAWs |
-| **Tier 2 Admin** (`T2-Silo`) | Tier 2 user accounts, Tier 2 service accounts | Tier 2 SAWs | Tier 2 SAWs |
+| **Tier 0 Admin** (`T0-Silo`) | Tier 0 user accounts, Tier 0 service accounts | DCs, RODCs, Tier 0 servers, Tier 0 PAWs | DCs · RODCs · Tier 0 servers · Tier 0 PAWs |
+| **Tier 1 Admin** (`T1-Silo`) | Tier 1 user accounts, Tier 1 service accounts | Tier 1 servers, Tier 1 PAWs | Tier 1 servers · Tier 1 PAWs |
+| **Tier 2 Admin** (`T2-Silo`) | Tier 2 user accounts, Tier 2 service accounts | Tier 2 PAWs | Tier 2 PAWs |
 | **Tier 2 EUD** (`T2-EUD-Silo`) | Local Device Admin accounts (EUD local-admin group) | Tier 2 EUD devices | Tier 2 EUD devices |
 
 **Why there is no 5th silo for "everyone else":** Broad user-population siloing brings high scale, high device churn, privacy/telemetry noise, and weak proportionality of protection to cost. The general `Domain Users` / `Domain Computers` population is intentionally outside silo scope. The value of silos comes from the small, stable approved-device groups that privileged accounts require.

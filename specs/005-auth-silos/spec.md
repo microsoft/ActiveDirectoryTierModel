@@ -21,7 +21,7 @@ The deployment creates **four authentication policy silos** — one per administ
 
 | Silo | Member accounts (user + service) | Member computers | Approved origin devices — `AllowedToAuthenticateFrom` ("member of any") |
 |---|---|---|---|
-| **Tier 0 Admin** | Tier 0 Accounts + Tier 0 Service Accounts | DCs, Tier 0 Servers, Tier 0 PAWs | DCs · Tier 0 Servers · Tier 0 PAWs |
+| **Tier 0 Admin** | Tier 0 Accounts + Tier 0 Service Accounts | DCs, RODCs, Tier 0 Servers, Tier 0 PAWs | DCs · RODCs · Tier 0 Servers · Tier 0 PAWs |
 | **Tier 1 Admin** | Tier 1 Accounts + Tier 1 Service Accounts | Tier 1 Servers, Tier 1 PAWs | Tier 1 Servers · Tier 1 PAWs |
 | **Tier 2 Admin** | Tier 2 Accounts + Tier 2 Service Accounts | Tier 2 PAWs | Tier 2 PAWs |
 | **Tier 2 EUD** | Local Device Admins (the existing group granting local admin on end-user devices) | Tier 2 EUD devices | Tier 2 EUD devices |
@@ -279,6 +279,7 @@ These constraints are non-negotiable and must shape every design and implementat
 | CON-008 | Kerberos Armoring (FAST) and DAC GPOs are pre-existing. The deployment code validates their presence; it does not create, modify, or link any GPO. | GPO management is outside the scope of this feature. |
 | CON-009 | There are exactly four silos: Tier 0 Admin, Tier 1 Admin, Tier 2 Admin, Tier 2 EUD. No fifth silo may be created. General Domain Users and Domain Computers are intentionally not siloed. | A fifth silo would extend enforcement to populations where it is impractical, disproportionate, and likely to cause unacceptable breakage at scale. |
 | CON-010 | Domain-join service accounts (`svc-pawdomainjoin`, `svc-t1srvdomainjoin`, `svc-t2euddomainjoin`) are structurally exempt from silo membership. The code must explicitly exclude them by SID regardless of OU or group membership. This exclusion is non-configurable. | These accounts authenticate from ephemeral build hosts outside any approved Tier device set; siloing them breaks automated device provisioning. |
+| CON-011 | The Tier 0 Admin silo's `AllowedToAuthenticateFrom` device set MUST include **both** the built-in `Domain Controllers` (RID 516) **and** `Read-only Domain Controllers` (RID 521) groups. | RODC computer accounts are members of `Read-only Domain Controllers`, not `Domain Controllers`. A DC-only condition denies Tier 0 authentication originating from or via an RODC — an RODC branch-site outage. For multi-domain forests, also consider `Enterprise Read-Only Domain Controllers` (RID 498). |
 
 ---
 
@@ -308,7 +309,7 @@ These constraints are non-negotiable and must shape every design and implementat
 |---|---|
 | **Authentication Policy Silo** | An AD DS object (`msDS-AuthNPolicySilo`) grouping user, computer, and service accounts and referencing per-class authentication policies for silo members. Carries its own `Enforce` state. |
 | **Authentication Policy** | An AD DS object (`msDS-AuthNPolicies`) defining per-account-class settings: TGT lifetime, `AllowedToAuthenticateFrom`, `AllowedToAuthenticateTo`, optional NTLM switches, and `Enforce` state. |
-| **Tier Device Group** | An AD security group whose members are approved admin workstations (PAWs/SAWs) or management servers for a given tier. Used as SID references in `AllowedToAuthenticateFrom` SDDL conditions. |
+| **Tier Device Group** | An AD security group whose members are approved admin workstations (PAWs) or management servers for a given tier. Used as SID references in `AllowedToAuthenticateFrom` SDDL conditions. |
 | **Silo Permitted Account** | An account granted access to join a silo via `Grant-ADAuthenticationPolicySiloAccess`. Permission to join is distinct from silo membership. |
 | **Silo Assignment** | An account linked to a silo (and thereby to the silo's per-class policies) via `Set-ADAccountAuthenticationPolicySilo`. Requires prior permission grant. |
 | **Pre-enforcement Gates** | Twelve safety checks (G1–G12) that must be satisfied before any silo policy is promoted from audit to enforced. Enforcement is a stop condition until all applicable gates pass. |

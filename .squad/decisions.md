@@ -1,8 +1,118 @@
 # Squad Decisions
 
-## Active Decisions (2026-08-11)
+## Active Decisions (2026-08-25)
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
+
+---
+
+# Decision: Auth Silos Format-Duration Contract Locking
+
+**Date:** 2026-08-24  
+**Author:** Wolverine (Logan)  
+**Branch:** feature/format-duration  
+**Status:** ✅ DECIDED — Banker's rounding regression guards locked in
+
+Unit tests for `Format-TierModelDuration` written AFTER lab validation of implementation. The trio of boundary values `90000 / 119999 / 120000` locks regressions that would occur if future refactors reach for `[int][TimeSpan]::TotalMinutes` (banker's rounding). Tests are not exploratory — they lock known-correct behavior proven in production. Integration wiring verified via discriminating DurationMs values (2254ms → '2s', 140000ms → '2m 20s').
+
+---
+
+# Decision: Beast Format-TierModelDuration Design Recommendation
+
+**Date:** 2026-08-24  
+**Author:** Beast (Dr. Hank McCoy)  
+**Issue:** #34 — Format deployment duration in seconds/minutes instead of raw milliseconds  
+**Status:** IMPLEMENTATION COMPLETE (2026-08-24) — awaiting Joel lab acceptance validation
+
+Implementation delivers 4-tier public function with floor-based arithmetic (no banker's rounding). All 9 Write-Host call sites updated in Deploy-TierModel.ps1; 2 Write-TierModelLog sites kept raw. Function accepts `[double]` to handle both int and double DurationMs values. Critical fix for minute math: `[Math]::Floor` used instead of `[int]` cast to guarantee monotonic output (90000ms→1m 30s, not 2m 30s). Lab acceptance requires manual DC01 validation of three scenarios (seconds/milliseconds/minutes branches).
+
+---
+
+# Decision: Professor X Auth Silos Spec Scoping — All-Tier Four-Silo Model Final
+
+**Date:** 2026-08-24  
+**Author:** Professor X (Lead)  
+**Branch:** feature/auth-silos  
+**Spec:** specs/005-auth-silos/spec.md  
+**Status:** ✅ ALL-TIER SCOPE APPROVED — Final scoping decisions locked
+
+All four tiers in scope (Tier 0 Admin, Tier 1 Admin, Tier 2 Admin, Tier 2 EUD). No fifth silo for general population. CON-009 decision documents the scope table. Tier 2 explicitly included via four-silo model (Joel approval 2026-08-24). Structural exemptions for domain-join accounts (svc-pawdomainjoin / svc-t1srvdomainjoin / svc-t2euddomainjoin) documented as CON-010. Tier 2 EUD provisioning config (group / staging OU / delegated ACL / Account Restriction GPO) required as base-config prerequisite (Task T009). SDDL enforcement boundary explicitly documented: silos gate Kerberos TGT at AS exchange, distinct from URA logon rights and TGS service-ticket control.
+
+---
+
+# Decision: Storm Auth Silos Operations Guide Docs
+
+**Date:** 2026-08-24  
+**Author:** Storm (Documentation)  
+**Branch:** feature/auth-silos  
+**Status:** DRAFT — pending lab validation
+
+Config A (user `AllowedToAuthenticateFrom` via single `T0-ApprovedDevices` group) is primary walkthrough; Config B (advanced service-ticket `AllowedToAuthenticateTo`) documented as optional, not walked through. Origination Device Rule taught as primary concept before PowerShell (correct mental model vs. misleading "add your PAW" framing). Event IDs 4820/4821 marked `[Lab validation required]` (undocumented, unconfirmed field structure). AuthenticationPolicyFailures-DomainController channel enable required as first step (channel off by default — silent readiness failure if omitted). RID-500 platform exemption documented explicitly. Account lifecycle vs device lifecycle separation documented in leaver procedure. UAT table with 15 test cases indexed by scenario/mode/expected outcome.
+
+---
+
+# Decision: Audit UNION Converge Ruling
+
+**Date:** 2026-08-14  
+**Author:** Joel Platek (via Copilot coordinator)  
+**Feature:** `-EnableAuditing` (branch `feature/domain-auditing`)  
+**Status:** ✅ VALIDATED — ready for production implementation
+
+Canonical Everyone/Success/All ACE rights = **UNION of (existing managed-ACE rights) ∪ (canonical 9 rights)**. Preserve customer rights outside our 9 while GUARANTEEING our 9. Lab-validated converge mechanics: Read SACL; enumerate GetAuditRules() with foreach; compute union; if single managed ACE matches → no-op; else remove each managed ACE, add canonical union ACE, Set-Acl. Managed scope = SID=S-1-1-0, AuditFlags=Success, InheritanceType=All, non-inherited. All other ACEs untouched. Requires SeSecurityPrivilege. Bind read+write to one preferred DC. Two default Everyone/Success/All/WriteProperty ACEs absorbed into canonical ACE — no coverage loss.
+
+---
+
+# Decision: Domain-Root Audit SACL Spec
+
+**Date:** 2026-08-14  
+**Author:** Cyclops (Scott Summers)  
+**Branch:** feature/domain-auditing  
+**Status:** ✅ SPEC APPROVED — locked design, ready for implementation
+
+SACL only (not DACL); avoid "delegation" language. Enumerate GetAuditRules() via foreach, not @(). Read-modify-write on same $acl object. No PurgeAuditRules (removes default SACLs outside managed scope). UNION target = existing managed rights ∪ canonical 9. Privilege check first; emit AUDITACL_PRIVILEGE_MISSING if SeSecurityPrivilege missing. Pester: all AC-* criteria + offline fixtures. Docs: remove Enable-TierModelAuditing.ps1 reference; state both SACL AND GPO required; note SACL replication delay. OI-001: retire optional/Enable-TierModelAuditing.ps1.
+
+---
+
+# Decision: -EnableAuditing Production Implementation (Build Discovery)
+
+**Date:** 2026-08-14  
+**Author:** Beast (Core Dev)  
+**Branch:** feature/domain-auditing  
+**Status:** DRAFT — discovery documented
+
+Discovery 1: `Add-IncludeAclPhaseToDeploymentPlan` PSObject fragility — function checks `$Plan.Summary.PSObject.Properties.Name` which fails for @{} hashtable Summaries. Extended with `$Plan.Summary -is [hashtable] -and .ContainsKey('key')` as second-pass test. Recommendation: standardize all Summaries to [PSCustomObject] in separate refactoring PR. Discovery 2: UNION always includes WriteProperty on clean domain root (two default Everyone/Success/All/WriteProperty ACEs in managed scope). Idempotent and correct. Discovery 3: Double-Y confirm flow not testable non-interactively (Read-Host hangs over PowerShell Direct). Deferred to Joel's manual UAT.
+
+---
+
+# Decision: Pre-PR Cleanup Rulings
+
+**Date:** 2026-08-14  
+**Author:** Joel Platek (via Copilot coordinator)  
+**Feature:** `-EnableAuditing` (branch `feature/domain-auditing`)  
+**Status:** ✅ DECIDED
+
+OI-001 RESOLVED — RETIRE `optional/Enable-TierModelAuditing.ps1` (delete, not archive; remove packaging/test references). Temp directory cleanup completed (repo-root `Temp\` held stale `TestGPO_Mock.inf`, now removed). Root cause: `Test-TierModelGPOContent.ps1` (~lines 76-86) writes `<GPOName>_Mock.inf` to `Temp\`, never cleans up. Not fixed in this PR (unrelated to auditing). Follow-up for Wolverine's test phase: add teardown/cleanup of `Temp\` mock artifacts to invoke-all/Pester harness.
+
+---
+
+# Decision: SACL Audit — Read API, Merge Behaviour, Converge Recipe
+
+**Date:** 2026-08-14  
+**Author:** Beast (Core Dev)  
+**Status:** ✅ VALIDATED — empirical proof of merge/idempotency/no-clobber logic
+
+Chosen API: `Get-Acl -Path "AD:<dn>" -Audit` / `Set-Acl -Path "AD:<dn>" -AclObject <obj>`. Privilege: SeSecurityPrivilege required. Key gotcha: GetAuditRules() returns AuthorizationRuleCollection — do NOT wrap with @() (wraps entire collection as 1 element). Enumerate via foreach. AddAuditRule behavior: MERGES rights into existing ACE when SID/AuditFlags/InheritanceType match (no duplicate). Converge recipe locked: read+modify same acl object; enumerate managed ACEs; remove all managed; add canonical union ACE; Set-Acl. Idempotency PASS (zero writes when canonical already exists). No-clobber PASS (unrelated ACEs untouched). Baseline default SACLs: 5 rules observed (2 identical Everyone/Success/All/WriteProperty defaults will be replaced by canonical ACE).
+
+---
+
+# Decision: -EnableAuditing Design Rulings (Joel)
+
+**Date:** 2026-08-14  
+**Author:** Joel Platek  
+**Feature:** New `-EnableAuditing` deployment parameter (branch `feature/domain-auditing`)  
+**Status:** ✅ APPROVED — 5 rulings locked
+
+1. Cmdlet naming: Get-TierModelAuditRule, New-TierModelAuditRule, Test-TierModelAuditRule, Get-TierModelAuditRuleFd (audit-specific verbs; avoid *Acl/"delegation" language). 2. Partial-rights drift = MERGE (preserve existing rights, add only missing). Lab spike required BEFORE production code (COMPLETED — validated on DC). 3. Advanced Audit Policy dependency = doc only, no code check (GPO already deployed by default). 4. No rollback cmdlet for now (environment-specific; coverage via confirm-Y warning + output of added rights). 5. Audit script scope mirrors deployment (audit SACL only when `-EnableAuditing` passed, mirroring `-IncludeGmsa` pattern). Version 1.2.0→1.3.0 (additive minor). Sequence: spike → Joel review → production code → restore checkpoint → team tests → Joel UAT → fix audit script → Pester tests LAST.
 
 ---
 

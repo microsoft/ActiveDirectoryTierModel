@@ -1,5 +1,106 @@
 # beast — History
 
+## Learnings: Auth Silo Lab Setup Script (2026-08-25)
+
+**Branch:** `feature/auth-silos`
+**Script:** `.research/copilot-cli-hyperv-ad-lab/scripts/auth-silos/Setup-AuthSiloLab.ps1`
+**Status:** ✅ DELIVERED — parse-clean, fully idempotent lab helper
+
+### What the script creates
+
+| Step | Object type | Items |
+|------|-------------|-------|
+| 1 | Device groups (Universal) | Tier2PAWDevices, Tier2EUDDevices in OU=Tier 2 Groups |
+| 2 | Test accounts (New-ADUser) | 17 accounts across 5 OUs; added to 5 tier groups |
+| 3 | Authentication Policies | 4 policies, Enforce=$false, UserTGTLifetimeMins=240 |
+| 4 | Authentication Policy Silos | 4 silos, Enforce=$false, UserAuthenticationPolicy only |
+| 5 | Grants + Assignments | Grant-ADAuthenticationPolicySiloAccess + Set-ADAccountAuthenticationPolicySilo for 17 accounts |
+
+### Auth-Silo Cmdlet Gotchas (Verified in Lab 2026-08-25)
+
+**CRITICAL for code phase — implementing `-IncludeAuthSilos`:**
+
+1. **`-Enforce` is a [switch], requires colon syntax:**
+   - ✅ CORRECT: `New-ADAuthenticationPolicy -Enforce:$false`
+   - ❌ WRONG: `New-ADAuthenticationPolicy -Enforce $false` → throws "positional parameter cannot be found that accepts argument 'False'"
+   - Same pattern for `New-ADAuthenticationPolicySilo -Enforce:$false`
+
+2. **`-Properties` Parameter constraint for silo members:**
+   - ❌ INVALID: `Get-ADAuthenticationPolicySilo -Properties 'msDS-AuthNPolicySiloGrantedAccounts'` → throws "One or more properties are invalid"
+   - ✅ CORRECT (friendly): `Get-ADAuthenticationPolicySilo -Properties Members`
+   - ✅ CORRECT (raw attribute): `Get-ADAuthenticationPolicySilo -Properties msDS-AuthNPolicySiloMembers`
+   - Use `-Properties Members` for standard cmdlet usage; cmdlet translates to raw attribute internally.
+
+3. **Account assignment is two-step with both sides of link populated:**
+   - Step 1: `Grant-ADAuthenticationPolicySiloAccess -Identity <silo> -Account <account>`
+   - Step 2: `Set-ADAccountAuthenticationPolicySilo -Identity <account> -AuthenticationPolicySilo <silo>`
+   - Together these populate: (1) silo forward-link `msDS-AuthNPolicySiloMembers` and (2) account back-link `msDS-AssignedAuthNPolicySilo`
+   - Both must exist for full assignment state. Step 2 without Step 1 is blocked by AD.
+
+4. **Domain Controllers group SID normalization in UserAllowedToAuthenticateFrom SDDL:**
+   - DC group SID normalizes to SDDL alias `SID(DD)` on read-back of `UserAllowedToAuthenticateFrom`
+   - Expected behavior, not a bug. Lab confirmed this is idempotent and recoverable.
+
+5. **Under `Set-StrictMode -Version Latest`, `.Count` on empty Where-Object result throws:**
+   - ❌ WRONG: `$items | Where-Object { $condition } | Measure-Object | Select-Object -ExpandProperty Count`
+   - ✅ CORRECT: `@($items | Where-Object { $condition }).Count` → wrap result in array to guarantee `.Count` property exists
+   - PowerShell 5.1 and 7+ both exhibit this; defensive wrapping prevents errors on empty sets.
+
+### Lab Validation Results (2026-08-25)
+- 2 new device groups created (Tier2PAWDevices, Tier2EUDDevices) ✅
+- 17 test accounts created and assigned to appropriate groups ✅
+- 4 auth policies + 4 silos created in AUDIT mode (Enforce=$false) ✅
+- 17 accounts granted + assigned to silos (both links populated) ✅
+- All cmdlet syntax patterns validated on TierLab-DC01 ✅
+- Setup script is fully idempotent (re-run safe) ✅
+
+### Key design decisions
+
+**SDDL OR-logic is non-negotiable.**
+AllowedToAuthenticateFrom SDDL uses `Member_of_any {SID(sid1), SID(sid2), ...}` (OR). AND-logic between device groups (`Member_of {SID(A), SID(B)}`) requires simultaneous membership in all groups — the documented lockout failure mode in the existing customer scripts. The `Build-DeviceSddl` helper uses `Member_of_any` for all policies (even single-group policies, for uniform template).
+
+**SDDL format:**
+```
+O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-...-N), SID(S-1-5-21-...-M)}))
+```
+SIDs resolved at runtime via `(Get-ADGroup <name>).SID.Value`.
+
+**Idempotency patterns used:**
+- Groups: `Get-ADGroup -Filter "SamAccountName -eq '...'"` — check before New-ADGroup
+- Accounts: `Get-ADUser -Filter "SamAccountName -eq '...'"` — check before New-ADUser
+- Policies: `Get-ADAuthenticationPolicy -Identity <name>` in try/catch — check before New-ADAuthenticationPolicy
+- Silos: `Get-ADAuthenticationPolicySilo -Identity <name>` in try/catch — check before New-ADAuthenticationPolicySilo
+- Grants: HashSet of `msDS-AuthNPolicySiloGrantedAccounts` DNs — check before Grant-ADAuthenticationPolicySiloAccess
+- Assignments: `msDS-AssignedAuthNPolicySilo` on account — check before Set-ADAccountAuthenticationPolicySilo; warn if account is in a different silo
+
+**Assignment idempotency note:**
+`msDS-AssignedAuthNPolicySilo` stores the DN of the assigned silo as a string. Comparison uses `-ieq` (case-insensitive). If the attribute resolves to a different silo DN, the script warns and skips — never overwrites an existing silo assignment.
+
+**Step ordering in Grant+Assign matters:** Grant must precede Assign. Grant adds the account to the silo's permitted-accounts list; Assign binds the account to the silo policies. Assign without prior Grant is blocked by AD.
+
+### Parameter name assumptions flagged for DC validation
+These are the expected parameter names per RSAT ActiveDirectory module on WS2025 PS7:
+- `New-ADAuthenticationPolicy`: `-UserTGTLifetimeMins`, `-UserAllowedToAuthenticateFrom`, `-Enforce`
+- `New-ADAuthenticationPolicySilo`: `-UserAuthenticationPolicy`, `-Enforce`
+If any produce `ParameterNotFound` on the DC, the module version may differ — check with `(Get-Command New-ADAuthenticationPolicy).Parameters.Keys`.
+
+### UserTGTLifetimeMins note
+`-UserTGTLifetimeMins 240` is set on policies for completeness. Under Enforce=$false (audit mode) the TGT lifetime restriction is NOT applied — it only takes effect when Enforce=$true.
+
+### Computer/ServiceAuthenticationPolicy
+Lab intentionally sets only `-UserAuthenticationPolicy` on silos. Computer and service policies are omitted per Joel's scope instruction.
+
+### OU validation before group/account creates
+`Test-OuExists` uses `Get-ADOrganizationalUnit -Identity` in a try/catch. Each write is guarded — if the target OU is missing, the item is skipped with a descriptive message and a `Skipped (OU missing)` status in the tracking list. The script never crashes due to a missing OU.
+
+### grantedDNs HashSet refresh
+After each successful `Grant-ADAuthenticationPolicySiloAccess`, the account DN is immediately added to the local `$grantedDNs` HashSet. This avoids stale state without re-querying AD on every iteration.
+
+### Lab password
+`LabP@ss2026!Silo` — printed in the final summary. Satisfies typical AD complexity policy (14 chars, mixed case, digit, special).
+
+---
+
 ## Learnings: Format-Duration Design Investigation (issue #34) (2026-08-24)
 
 **Branch:** N/A — Design proposal only (no code written)
