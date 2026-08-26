@@ -1,5 +1,29 @@
 # storm — History
 
+## Session 2026-08-26 — v2.0.0 Appendix B: Auth Silos BREAKING CHANGE (2026-08-26T19:47:50+08:00)
+
+**Requested by:** Joel Platek (@VAsHachiRoku)
+**Branch:** `feature/auth-silos`
+
+**Task completed:**
+
+Appended `## Appendix B — Upgrading from v1.x.x to v2.0.0` to `docs/auth-silos-operations-guide.md` (after the Related Reading section, end of file).
+
+**New content delivered:**
+- BREAKING CHANGE callout: v2.0.0 modified link-enabled production GPOs; in-place edits/re-imports are high risk
+- Governing rule prominently stated: **never replace or overwrite a GPO that is already in production**
+- v2.0.0 delta in four scannable sub-sections:
+  - **B.1** — New Tier 2 security groups (`Tier2EUDDevices`, `Tier2PAWDevices`, `Tier2EUDDomainJoin`) and service account (`svc-t2euddomainjoin`)
+  - **B.2** — New ACL delegation: `Tier2EUDDomainJoin` on OU=Tier 2 End-User Devices (standard domain-join set; no staging OU)
+  - **B.3** — Modified GPO `*- Tier 0 DCs Authentication Silo - Computer` (KDC claims/armoring, client armoring, Remote Credential Guard, event-log channel via GPP registry)
+  - **B.4** — Modified Account Restrictions GPOs (×7: domain-root + Tier 0/1 Servers/PAWs + all Override templates) — `Tier2EUDDomainJoin` added to `SeDeny*` deny lists
+- "Still being finalized" note for member-server Remote Credential Guard GPO changes
+- Each sub-section is a placeholder — full remediation procedures to be slotted in per-topic
+
+**Status:** ✅ COMPLETE — working tree only, no commit.
+
+---
+
 ## Session 2026-08-24 (Pass 2) — Auth Silos Ops Guide Revision (2026-08-24T20:20:38+08:00)
 
 **Requested by:** Joel Platek (@VAsHachiRoku)
@@ -258,3 +282,25 @@ Revision pass on `docs/gpo-management-guidance.md` applying all owner peer-revie
 - **§7 SOE:** Added explicit statement that SOE is at priority 2 and does not override Account Restrictions at priority 1.
 - **§8 Review GPOs table:** Fixed first row — separated BitLocker (disk encryption) from Windows LAPS (local admin password). Adde
 [truncated summary]
+
+---
+
+## Learnings
+
+### Key file paths
+- `docs/auth-silos-operations-guide.md` — the Auth Silos Operations Guide; all appendices live at the end, after `## 12. Related Reading`
+- `config/tiermodel-gpos.json` — authoritative source for exact GPO names (use `*-` prefix convention; e.g. `*- Tier Model Account Restrictions`, `*- Tier 0 DCs Authentication Silo - Computer`)
+- `.squad/decisions/inbox/` — drop team-relevant decisions here for Scribe to merge
+
+### Document conventions (auth-silos-operations-guide.md)
+- Heading style: `## Appendix X — Title`; sub-sections: `### X.N — Title`
+- Tables: `|---|---|` (no padding); code-formatted GPO/group/account names with backticks
+- Voice: authoritative, direct, second-person ("you"); American English
+- Asterisk in GPO names inside headings: escape as `\*-`; inside table cells: use backtick code formatting
+- Warning/info callouts: `> **⚠ ...**` blockquote style
+
+### v2.0.0 appendix decision (2026-08-26)
+- Appendix B documents the v2.0.0 delta as a BREAKING CHANGE for v1.x.x deployments
+- Governing rule: never replace or overwrite a production GPO
+- Sub-sections B.1–B.4 are placeholder stubs; full remediation procedures to be slotted in per-topic in future sessions
+- GPO names confirmed from `config/tiermodel-gpos.json`: root `*- Tier Model Account Restrictions`; tier GPOs `*- Tier 0/1 Servers/PAWs Account Restrictions`; templates `*- Tier Model Template Tier 0/1 Servers Account Restrictions - Override - Deny *`
