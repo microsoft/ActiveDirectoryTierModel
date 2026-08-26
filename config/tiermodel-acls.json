@@ -523,6 +523,56 @@
       "comment": "Grant Tier2Admins full control over all object types but limited to BitLocker recovery information objects in OU=Tier 2 End-User Devices"
     },
     {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2EUDDomainJoin",
+      "activedirectoryrights": [
+        "CreateChild",
+        "WriteProperty",
+        "ReadProperty"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "Computer",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2EUDDomainJoin create over Computer objects in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2EUDDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "PasswordReset",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2EUDDomainJoin extended rights over password reset operations in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2EUDDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "DnsHostname",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2EUDDomainJoin extended rights over DNS hostname attributes in OU=Tier 2 End-User Devices"
+    },
+    {
+      "targetOUPath": "OU=Tier 2 End-User Devices,{{DOMAIN_DN}}",
+      "identityreference": "Tier2EUDDomainJoin",
+      "activedirectoryrights": [
+        "ExtendedRight"
+      ],
+      "accesscontroltype": "Allow",
+      "objecttype": "WriteSPN",
+      "activeDirectorysecurityinheritance": "Descendents",
+      "resolveguid": false,
+      "comment": "Grant Tier2EUDDomainJoin extended rights over SPN write operations in OU=Tier 2 End-User Devices"
+    },
+    {
       "targetOUPath": "OU=Contacts,OU=Tier 2 End-User Groups,{{DOMAIN_DN}}",
       "identityreference": "Tier2GroupOperators",
       "activedirectoryrights": [

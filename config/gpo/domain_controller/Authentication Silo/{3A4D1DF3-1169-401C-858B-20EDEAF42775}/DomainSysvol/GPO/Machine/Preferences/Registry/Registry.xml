@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{A3CCFC41-DFDB-43a5-8D26-0FE8B954DA51}">
+  <Registry clsid="{9CD4B2F4-923D-47f5-A062-E897DD1DAD50}" name="Enabled" status="Enabled" image="2" changed="2026-08-26 8:06:47" uid="{17F3999B-D921-4280-AF9E-8DF953DEC9C7}" disabled="0">
+    <Properties action="U" displayDecimal="0" default="0" hive="HKEY_LOCAL_MACHINE" key="SOFTWARE\Microsoft\Windows\CurrentVersion\WINEVT\Channels\Microsoft-Windows-Authentication/AuthenticationPolicyFailures-DomainController" name="Enabled" type="REG_DWORD" value="00000001" />
+  </Registry>
+</RegistrySettings>

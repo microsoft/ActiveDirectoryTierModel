@@ -667,7 +667,7 @@ Work through every applicable gate. Mark each as **PASS**, **FAIL**, or **N/A wi
 
 | Gate | What to verify | Evidence required | Verdict |
 |---|---|---|---|
-| **G1 — Mechanics readiness** | DFL ≥ 2012 R2; using silo model (not direct-policy-only); no brownfield direct assignments remaining; policy-vs-silo Enforce composition confirmed \[Lab validation required\] | `Get-ADDomain \| Select-Object DomainMode`; review of §3a Step 0 preflight results | PASS / FAIL / STOP |
+| **G1 — Mechanics readiness** | DFL ≥ 2012 R2; using silo model (not direct-policy-only); no brownfield direct assignments remaining; policy-vs-silo Enforce composition confirmed (lab-validated — the Silo's flag is the master switch; see §4 "Which flag actually enforces?") | `Get-ADDomain \| Select-Object DomainMode`; review of §3a Step 0 preflight results | PASS / FAIL / STOP |
 | **G2 — Correct SDDL** | OR vs AND logic verified; positive test from an approved device (no 305); negative test from a non-approved device (305 logged); peer review of SDDL string | Event 305 audit results from a deliberately non-approved device | PASS / FAIL / STOP |
 | **G3 — Device group SID verified** | Export the policy SDDL; extract every SID embedded in `UserAllowedToAuthenticateFrom`; compare each SID to `(Get-ADGroup "T0-ApprovedDevices" -Properties SID).SID.Value`; they must match. A deleted-and-recreated group has a new SID while keeping the name — the SDDL silently matches nothing. | SDDL SID = group SID; exported membership per DC matches authoritative inventory | PASS / FAIL / STOP |
 | **G4 — Independent recovery tested** | RID-500 break-glass can authenticate from a known emergency device and reach a writable DC; DSRM password is known, documented, and tested; OOB console access to at least one DC is confirmed | Written evidence of successful break-glass drill; DSRM password test record | PASS / FAIL / STOP |
@@ -686,13 +686,61 @@ Work through every applicable gate. Mark each as **PASS**, **FAIL**, or **N/A wi
 
 ### Enforce-state clarification — there are two `Enforce` flags
 
-Both the **authentication policy** and the **authentication policy silo** have separate `Enforce` flags. The interaction between them when set differently is \[Lab validation required\] — do not assume one overrides the other.
+Both the **authentication policy** and the **authentication policy silo** have separate `Enforce` flags. Their interaction is now lab-validated — see **[Which flag actually enforces? (Silo vs Policy)](#which-flag-actually-enforces-silo-vs-policy)** below.
 
-**Safe practice:** Set and verify **both** flags consistently. The baseline is:
+**Key finding:** for silo-assigned accounts, the **Silo's `Enforce` flag is the master switch**. The Policy's own `Enforce` flag has no independent effect on silo members. Enforcing only the Policy while leaving the Silo in Audit does nothing for silo members.
+
+**Recommended practice:** Enforce **both** flags consistently:
 - `T0-UserPolicy.Enforce = $false` (audit) → `T0-UserPolicy.Enforce = $true` (enforced)
-- `T0-Silo.Enforce = $false` (audit) → leave in audit mode for the initial rollout; only move to `$true` after lab-validating the combined behavior
+- `T0-Silo.Enforce = $false` (audit) → `T0-Silo.Enforce = $true` (enforced, recommended alongside the policy)
 
-During the transition described below, you are flipping the **policy** Enforce flag. Monitor and verify both. Roll back both if issues arise.
+During the transition described below, you are flipping **both** Enforce flags — the Silo at minimum, ideally both together. Monitor and verify both. Roll back both if issues arise.
+
+### Which flag actually enforces? (Silo vs Policy)
+
+> **Lab-validated — Windows Server 2025, 2026-08-26 (Joel Platek + team)**
+
+For a silo-assigned account, the **Silo's `Enforce` flag is the master switch**. It governs both the `AllowedToAuthenticateFrom` device restriction and the TGT lifetime. The Policy's own `Enforce` flag has no independent effect on silo members.
+
+#### Lab matrix
+
+Account: a Tier 0 admin that is a silo member. Tested from an **approved device** (Tier 0 PAW, in the approved device group) and a **non-approved device** (plain client, not in any approved group). The approved device (PAW) is allowed in every state and generates **no event** — silence from an approved device is the "allowed" signal.
+
+| Silo | Policy | Non-approved device | DC event |
+|---|---|---|---|
+| Audit | Audit | ✅ allowed | 305 would-be-deny |
+| **Enforce** | Audit | ❌ **DENIED** | 105 deny |
+| Audit | **Enforce** | ✅ allowed | 305 would-be-deny |
+| **Enforce** | **Enforce** | ❌ **DENIED** | 105 deny |
+
+Events 305 (would-be-deny, audit) and 105 (deny, enforce) are logged to the `Microsoft-Windows-Authentication/AuthenticationPolicyFailures-DomainController` channel. See §8 for the full event reference.
+
+#### TGT lifetime follows the same master switch
+
+Verified via `klist` in the same lab session:
+
+| Silo | Policy | TGT lifetime | Renewable? |
+|---|---|---|---|
+| Audit | Audit | Domain default (e.g. 10h) | ✅ Renewable |
+| **Enforce** | Audit | Policy value (e.g. 240 min / 4h) | ❌ Non-renewable |
+| Audit | **Enforce** | Domain default (e.g. 10h) | ✅ Renewable |
+| **Enforce** | **Enforce** | Policy value (e.g. 240 min / 4h) | ❌ Non-renewable |
+
+The TGT lifetime is a **ceiling** negotiated as min(client request, policy max). Windows requests the maximum, so silo members receive exactly the configured cap (4h in this environment). **Non-renewable** means a fresh AS exchange — and therefore device re-validation — is forced every 4h, rather than allowing a renewable 10h ticket to slide for up to 7 days.
+
+#### Operational guidance
+
+> ⚠️ **At minimum, the Silo must be Enforced** to actually block logins from non-approved devices and to apply the short non-renewable TGT. Enforcing only the Policy while leaving the Silo in Audit does nothing for silo members — non-approved devices still get in and the TGT stays at the domain default.
+
+**Recommended: enforce both Silo and Policy.** Reasons:
+- It is the consistent, supported configuration.
+- The Policy's `Enforce` flag governs accounts with a **direct** policy assignment (not via a silo) — those accounts are not protected if only the Silo is enforced.
+- It avoids the trap below and keeps behavior predictable across OS versions and domain configurations.
+- Defense in depth.
+
+> ⚠️ **The trap:** enforcing **only the Policy** object while leaving the Silo in Audit does **nothing** for silo members. Non-approved devices still get in and the TGT remains at the domain default. The configuration *looks* enforced but is not.
+
+**To audit safely before cutover:** keep the Silo in **Audit** — the DC logs a **305 would-be-deny** for every non-approved-device attempt, giving you pre-enforcement visibility. When ready to enforce: flip the Silo to Enforce (and ideally the Policy too).
 
 ### The audit period
 
@@ -780,12 +828,12 @@ Get-ADAuthenticationPolicy -Identity "T0-UserPolicy" -Server "DC01" |
 Get-ADAuthenticationPolicySilo -Identity "T0-Silo" -Server "DC01" |
     Select-Object Name, Enforce
 
-# Enable enforcement on the user authentication policy
-# (Silo Enforce remains $false for initial rollout — review if flipping both)
+# Enable enforcement — Silo is the master switch; enforce both (recommended)
+Set-ADAuthenticationPolicySilo -Identity "T0-Silo" -Enforce $true
 Set-ADAuthenticationPolicy -Identity "T0-UserPolicy" -Enforce $true
 ```
 
-> **⚠ Once this command runs, any Tier 0 account assigned to this policy whose authentication device is not in `T0-ApprovedDevices` will be denied a new TGT at their next Kerberos AS exchange.**
+> **⚠ Once the Silo is enforced (`T0-Silo.Enforce = $true`), any Tier 0 silo member whose device is not in `T0-ApprovedDevices` will be denied a new TGT at their next Kerberos AS exchange. The Policy's Enforce flag alone does not provide this protection for silo members — the Silo enforce flag is the master switch (lab-validated).**
 >
 > Do **not** claim there is a "~240 minute window" before enforcement is felt. Existing TGTs may have lifetimes set by domain policy rather than the auth policy, and application sessions may outlive their TGT. Do not rely on a time window — verify with a controlled fresh-TGT test (Step 5 below).
 
@@ -802,7 +850,7 @@ foreach ($dc in @("DC01", "DC02")) {
 }
 ```
 
-All DCs must show `T0-UserPolicy.Enforce = True`. If any DC shows `False`, check replication: `repadmin /showrepl DC01`. Do not declare enforcement complete until all DCs converge.
+All DCs must show `T0-UserPolicy.Enforce = True` and `T0-Silo.Enforce = True`. If any DC shows `False` for either object, check replication: `repadmin /showrepl DC01`. Do not declare enforcement complete until all DCs converge.
 
 **Step 5 — Verify using a dedicated pilot — force a genuinely fresh TGT:**
 
@@ -1462,3 +1510,78 @@ Monitor Event 305 daily. See Section 4 (Audit → Enforced Transition) for when 
 - Microsoft documentation: [Authentication Policies and Authentication Policy Silos](https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/authentication-policies-and-authentication-policy-silos)
 - Microsoft documentation: [Protected Users Security Group](https://learn.microsoft.com/en-us/windows-server/security/credentials-protection-and-management/protected-users-security-group)
 - Microsoft documentation: [How to configure protected accounts](https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/manage/how-to-configure-protected-accounts)
+
+---
+
+## Appendix B — Upgrading from v1.x.x to v2.0.0
+
+**Tier Model v2.0.0 introduces Authentication Policy Silos.** If you have a v1.x.x deployment running in production, this appendix is required reading before you proceed.
+
+> **⚠ BREAKING CHANGE — v1.x.x deployments require planned remediation.**
+>
+> Version 2.0.0 modified several GPOs that are already link-enabled in a v1.x.x environment — adding new policy settings and adding the `Tier2EUDDomainJoin` group to `SeDeny*` User Rights Assignment deny lists. You cannot simply re-import or in-place edit those production GPOs.
+>
+> **Never replace or overwrite a GPO that is already in production.** Remediation must be planned — new versioned GPOs, a staged rollout, or an equivalent approach — and approved before any change reaches production. Each sub-appendix topic below details the specific procedure for the affected object.
+
+The tables below are the complete v2.0.0 delta. Each item maps to a sub-appendix topic (B.1–B.4) reserved for full remediation detail.
+
+### B.1 — New Tier 2 Security Groups and Service Account
+
+| Object | Type | Scope | Purpose |
+|---|---|---|---|
+| `Tier2EUDDevices` | Security group | Universal | Auth-silo device group — Tier 2 End-User Devices |
+| `Tier2PAWDevices` | Security group | Universal | Auth-silo device group — Tier 2 PAWs |
+| `Tier2EUDDomainJoin` | Security group | Global | Delegation group for domain-joining Tier 2 End-User Devices |
+| `svc-t2euddomainjoin` | Service account | — | Tier 2 EUD domain-join account; created **disabled**; member of `Tier2EUDDomainJoin` |
+
+*Remediation detail to be added.*
+
+---
+
+### B.2 — New ACL Delegation: OU=Tier 2 End-User Devices
+
+| Trustee | Target OU | Rights granted |
+|---|---|---|
+| `Tier2EUDDomainJoin` | OU=Tier 2 End-User Devices | Create Computer objects; reset password; validated DNS host name; validated SPN |
+
+**Note:** Delegation is placed directly on the End-User Devices OU. There is no separate staging OU for Tier 2 EUDs (unlike Tier 1 servers).
+
+*Remediation detail to be added.*
+
+---
+
+### B.3 — Modified GPO: \*- Tier 0 DCs Authentication Silo - Computer
+
+| Setting added | Area |
+|---|---|
+| KDC "Always provide claims" | Kerberos / KDC — enables FAST claims for Kerberos armoring |
+| Client Kerberos armoring | Kerberos client settings |
+| Remote host allows delegation of non-exportable credentials | Credential delegation — Remote Credential Guard; enables admin RDP from a PAW |
+| Enable `Microsoft-Windows-Authentication/AuthenticationPolicyFailures-DomainController` log channel | Group Policy Preferences → Registry |
+
+> **Still being finalized:** Additional GPO changes to enable Remote Credential Guard on member servers — so admin RDP works regardless of which security baseline (MS, CIS, or NIST) a customer applies — are being finalized and will be documented here.
+
+*Remediation detail to be added.*
+
+---
+
+### B.4 — Modified GPOs: Account Restrictions
+
+`Tier2EUDDomainJoin` was added to `SeDeny*` User Rights Assignment deny lists across the following GPOs. Deny scope varies by tier — see the third column:
+
+| GPO | Scope | Deny rights |
+|---|---|---|
+| `*- Tier Model Account Restrictions` | Domain root | All 5 SeDeny* |
+| `*- Tier 0 Servers Account Restrictions` | Tier 0 member servers | All 5 SeDeny* |
+| `*- Tier 0 PAWs Account Restrictions` | Tier 0 PAWs | All 5 SeDeny* |
+| `*- Tier 1 Servers Account Restrictions` | Tier 1 member servers | All 5 SeDeny* |
+| `*- Tier 1 PAWs Account Restrictions` | Tier 1 PAWs | All 5 SeDeny* |
+| `*- Tier Model Template Tier 0 Servers Account Restrictions - Override - Deny *` | Tier 0 override templates | Batch / Network / RDP / Service |
+| `*- Tier Model Template Tier 1 Servers Account Restrictions - Override - Deny *` | Tier 1 override templates | Batch / Network / RDP / Service |
+| `*- Tier 2 EUD Account Restrictions` | Tier 2 End-User Devices | Batch + Service only |
+| `*- Tier 2 PAWs Account Restrictions` | Tier 2 PAWs | Batch + Service only |
+| `*- Tier Model Computer Quarantine Account Restrictions` | Quarantine | Interactive only |
+
+In Tier 2's own OUs (EUD + PAWs) the join account is denied only Batch + Service — Network stays open so it can still domain-join EUDs — and in Quarantine it is denied Interactive; this mirrors how the Tier 1 server domain-join account is scoped: locked out of other tiers, but able to network-join in its own.
+
+*Remediation detail to be added.*

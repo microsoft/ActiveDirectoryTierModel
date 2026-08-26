@@ -23,6 +23,17 @@
         "Tier1ServerDomainJoin"
       ],
       "comment": "Used for automated provision of Tier 1 Member Servers computers into the Tier 1 Server Staging OU for domain join, else leave disabled"
+    },
+    {
+      "samAccountName": "svc-t2euddomainjoin",
+      "displayName": "svc-t2euddomainjoin",
+      "ouPath": "OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "description": "This account has the rights to domain join to the Tier Model Tier 2 End-User Devices OU.",
+      "enabled": false,
+      "memberOf": [
+        "Tier2EUDDomainJoin"
+      ],
+      "comment": "Used for automated provision of Tier 2 End-User Devices computers into the Tier 2 End-User Devices OU for domain join, else leave disabled"
     }
   ]
 }
