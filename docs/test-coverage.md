@@ -150,14 +150,14 @@
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
 | `Get-TierModelDmsaAclFd.ps1` | 193 | 21 | 214 | 90.2% |
-| `New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
+| `New-TierModelWinLapsAcl.ps1` | — | — | 257 | 90.7% |
 | `Get-TierModelMsaAclFd.ps1` | 186 | 17 | 203 | 91.6% |
 | `Get-TierModelGmsaAclFd.ps1` | 186 | 17 | 203 | 91.6% |
 | `Test-TierModelDmsaAcl.ps1` | 239 | 22 | 261 | 91.6% |
 | `Get-TierModelDmsaAcl.ps1` | 217 | 17 | 234 | 92.7% |
-| `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 🟡 92.7% |
-| `Test-TierModelCanonicalAcl.ps1` | 52 | 4 | 56 | 🟡 92.86% ✦ |
-| `Repair-TierModelCanonicalAcl.ps1` | — | — | — | 🟡 95.40% ✦ |
+| `Test-TierModelWinLapsDecryptor.ps1` | — | — | 328 | 92.7% |
+| `Test-TierModelCanonicalAcl.ps1` | 52 | 4 | 56 | 92.86% ✦ |
+| `Repair-TierModelCanonicalAcl.ps1` | — | — | — | 95.40% ✦ |
 | `Test-TierModelMsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
 | `Test-TierModelGmsaAcl.ps1` | 236 | 18 | 254 | 92.9% |
 | `Get-TierModelUser.ps1` | 107 | 8 | 115 | 93.0% |
@@ -216,14 +216,14 @@
 | `New-TierModelOu.ps1` | 207 | 26 | 233 | 88.8% |
 | `Get-TierModelAuthSiloMembershipFd.ps1` | 122 | 17 | 139 | 87.8% |
 | `Set-TierModelAuthSiloMembership.ps1` | 194 | 27 | 221 | 87.8% |
-| `Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |
+| `Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 81.6% |
+| `Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 83.4% |
 
 ### 🔴 Needs Work: 50-79% Coverage (1 file)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
-| `Audit-TierModel.ps1` | 692 | 255 | 947 | 🔴 73.1% |
+| `Audit-TierModel.ps1` | 692 | 255 | 947 | 73.1% |
 
 > **Note:** `Audit-TierModel.ps1` fell from 85.6% (v1.2.0) to 73.1% in v1.2.1 due to ~481 new production lines added by BUG-001..011. The CI gate applies to `modules/TierModel/*` scope — `Audit-TierModel.ps1` is exempt per team ruling.
 
