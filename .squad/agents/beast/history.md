@@ -1,5 +1,44 @@
 # beast — History (Archived Summary)
 
+## 2026-08-27 — Design Plan: Update-TierModelMembership.ps1
+
+**Status:** 📋 DESIGN PLAN WRITTEN — awaiting Joel review, no code written
+
+### Scope
+Unified reconciliation script (`optional/Update-TierModelMembership.ps1`) replacing 6 legacy per-tier scripts. Two mechanisms: group membership (additive) + auth policy assignment (enforcing). 15 granular switches with tier-level aggregates. Config-driven (no hardcoded DNs/names).
+
+### Key Design Decisions
+- **Never edits SDDL** — group membership is what keeps the create-once SDDL current
+- **msDS-AssignedAuthNPolicy is single-valued** — drives the Tier 2 Operator-vs-EUD truth table (operator wins conflicts)
+- **Built-in exclusions** for 3 domain-join svc accounts (always active, policy removed if found)
+- **Customer exclusions** via configurable AD attribute/value pair
+- **Group membership additive-only in v1** (no removal); policy assignment enforced (assign + remove)
+- **Target PS 5.1** — no PS7 syntax; Get-ADObject with LDAP filter for MSA/gMSA/dMSA (avoid Get-ADServiceAccount dependency)
+- **Tier2Operators runs before Tier2Eud** — mandatory execution order for single-valued policy resolution
+
+### Open Questions (6)
+1. **OQ-1:** Tier 2 new-user default — operator or LDO? Script can't guess intent; recommended default-to-operator
+2. **OQ-2:** Stamp exclusion marker on built-in accounts? Recommended: no
+3. **OQ-3:** Group membership additive-only vs enforce? Recommended: additive-only v1
+4. **OQ-4:** Staging OU SearchScope — recommended Subtree
+5. **OQ-5:** Protected Users group — recommended out of scope v1
+6. **OQ-6:** Multi-domain forest — recommended single-domain v1
+
+### Decided
+- **Execution model:** DC + local scheduled task + SYSTEM context (recommended). GPO/SYSVOL hijack risk does NOT apply to local scheduled tasks. Script-integrity hardening = ACL-locked local path + Authenticode code signing. gMSA-on-management-host is an optional alternative for orgs that want automation off-DC, but NOT the primary recommendation.
+
+### Learnings
+- OU structure is non-uniform: Accounts/SvcAccounts/PAW under `OU=Tier Model Administration`; Member Servers and End-User Devices at domain root
+- `Tier2LocalDeviceOperators` membership is customer-curated, not managed by this script — EUD status is by group membership, not OU
+- Legacy scripts (`Update-Tier0MemberServers.ps1` etc.) DO remove non-OU members from groups — new script deliberately does NOT in v1 for safety
+- `msDS-DelegatedManagedServiceAccount` (dMSA) requires Windows Server 2025 DFL — LDAP filter includes it but must handle zero results gracefully
+- Existing `ScheduleTask-GPO/` and `ScheduleTask-Local/` directories contain XML task definitions — new script's scheduling model should align
+
+### Plan Location
+`optional/Update-TierModelMembership.PLAN.md` (uncommitted draft)
+
+---
+
 ## 2026-08-27 — Amendment: Computer-Membership-Only + Remove exemptAccounts
 
 **Status:** ✅ COMPLETE — 6 files changed; ready for lab validation
