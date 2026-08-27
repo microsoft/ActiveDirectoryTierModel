@@ -85,6 +85,7 @@
         'Get-TierModelAuthPolicyFd',
         'Get-TierModelAuthSilo',
         'Get-TierModelAuthSiloFd',
+        'Get-TierModelAuthSiloMembershipFd',
         'New-TierModelAuthPolicy',
         'New-TierModelAuthSilo',
         'Set-TierModelAuthSiloMembership',

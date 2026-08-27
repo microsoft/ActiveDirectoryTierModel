@@ -1902,9 +1902,8 @@ if ($FullDeployment) {
                 }
             } else {
                 $authSiloPlanTotal = $authPolicyFdPlan.Summary.TotalActions + $authSiloFdPlan.Summary.TotalActions
-                $deploymentPlan.TotalActions   += $authSiloPlanTotal
-                $deploymentPlan.CreateCount    += $authPolicyFdPlan.Summary.ToCreate + $authSiloFdPlan.Summary.ToCreate
-                $deploymentPlan.UpdateCount    += $authPolicyFdPlan.Summary.ToUpdate + $authSiloFdPlan.Summary.ToUpdate
+                $deploymentPlan.TotalActions      += $authSiloPlanTotal
+                $deploymentPlan.CreateCount       += $authPolicyFdPlan.Summary.ToCreate + $authSiloFdPlan.Summary.ToCreate
                 $deploymentPlan.AlreadyExistCount += $authPolicyFdPlan.Summary.AlreadyExist + $authSiloFdPlan.Summary.AlreadyExist
                 $deploymentPlan.Phases += [PSCustomObject]@{
                     Phase       = 12
@@ -1912,9 +1911,28 @@ if ($FullDeployment) {
                     ActionCount = $authSiloPlanTotal
                 }
                 if (-not $ConfirmApply) {
-                    Write-Host "  Auth Policies: $($authPolicyFdPlan.Summary.ToCreate) to create, $($authPolicyFdPlan.Summary.ToUpdate) to update, $($authPolicyFdPlan.Summary.AlreadyExist) already converged" -ForegroundColor $(if ($authPolicyFdPlan.Summary.TotalActions -gt 0) { 'Yellow' } else { 'Green' })
-                    Write-Host "  Auth Silos:    $($authSiloFdPlan.Summary.ToCreate) to create, $($authSiloFdPlan.Summary.ToUpdate) to update, $($authSiloFdPlan.Summary.AlreadyExist) already converged" -ForegroundColor $(if ($authSiloFdPlan.Summary.TotalActions -gt 0) { 'Yellow' } else { 'Green' })
-                    Write-Host "  Membership:    will be assigned from $(@(Get-TierModelAuthSilo -Config $config).Count) silo(s) at execution time" -ForegroundColor Yellow
+                    # Policy plan line
+                    if ($authPolicyFdPlan.Summary.ToCreate -eq 0) {
+                        Write-Host "  Auth Policies: all $($authPolicyFdPlan.Summary.TotalInConfig) already deployed" -ForegroundColor Green
+                    } else {
+                        $authPolicyFdPlan.Actions | Where-Object { $_.Action -eq 'CreateAuthPolicy' } | ForEach-Object { Write-Host "  `u{25A0} Create Authentication Policy: $($_.Name)" -ForegroundColor Yellow }
+                    }
+                    # Silo plan line
+                    if ($authSiloFdPlan.Summary.ToCreate -eq 0) {
+                        Write-Host "  Auth Silos:    all $($authSiloFdPlan.Summary.TotalInConfig) already deployed" -ForegroundColor Green
+                    } else {
+                        $authSiloFdPlan.Actions | Where-Object { $_.Action -eq 'CreateAuthSilo' } | ForEach-Object { Write-Host "  `u{25A0} Create Authentication Policy Silo: $($_.Name)" -ForegroundColor Yellow }
+                    }
+                    # Membership — only pending for silos that WOULD be created
+                    $newSiloNamesForPlan = @($authSiloFdPlan.Actions | Where-Object { $_.Action -eq 'CreateAuthSilo' } | ForEach-Object { $_.Name })
+                    $membershipFdPlan = Get-TierModelAuthSiloMembershipFd -Config $config -DomainController $PreferredDc -OnlyForSilos $newSiloNamesForPlan
+                    $deploymentPlan.TotalActions      += $membershipFdPlan.Summary.TotalPending
+                    $deploymentPlan.AlreadyExistCount += $membershipFdPlan.Summary.TotalAlreadyAssigned
+                    if ($membershipFdPlan.Summary.TotalPending -eq 0) {
+                        Write-Host "  Membership:    0 pending (all silos already deployed)" -ForegroundColor Gray
+                    } else {
+                        Write-Host "  Membership:    will assign for $($newSiloNamesForPlan.Count) new silo(s)" -ForegroundColor Yellow
+                    }
                 }
             }
         }
@@ -2148,28 +2166,29 @@ if ($FullDeployment) {
                         Write-Host "  ❌ Auth silo prerequisites not met — skipping silo deployment:" -ForegroundColor Red
                         $authSilosPrereqFd.Failures | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
                     } else {
-                        # Auth Policies (fresh plan at execution time — groups exist after Phase 2)
+                        # Auth Policies — create-only, fresh plan at execution time
                         $authPolicyExecPlan = Get-TierModelAuthPolicyFd -Config $config -DomainController $PreferredDc
                         if ($authPolicyExecPlan.Errors -and $authPolicyExecPlan.Errors.Count -gt 0) {
                             Write-Host "  ❌ Auth policy planning errors:" -ForegroundColor Red
                             $authPolicyExecPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
                         } elseif (@($authPolicyExecPlan.Actions).Count -gt 0) {
                             $authPolicyExecResult = New-TierModelAuthPolicy -Plan $authPolicyExecPlan -DomainController $PreferredDc
-                        } else {
-                            Write-Host "  ✅ Authentication policies already up to date" -ForegroundColor Green
                         }
-                        # Auth Silos
+                        # Auth Silos — create-only
                         $authSiloExecPlan = Get-TierModelAuthSiloFd -Config $config -DomainController $PreferredDc
                         if ($authSiloExecPlan.Errors -and $authSiloExecPlan.Errors.Count -gt 0) {
                             Write-Host "  ❌ Auth silo planning errors:" -ForegroundColor Red
                             $authSiloExecPlan.Errors | ForEach-Object { Write-Host "    - $($_.Message)" -ForegroundColor Red }
                         } elseif (@($authSiloExecPlan.Actions).Count -gt 0) {
                             $authSiloExecResult = New-TierModelAuthSilo -Plan $authSiloExecPlan -DomainController $PreferredDc
-                        } else {
-                            Write-Host "  ✅ Authentication silos already up to date" -ForegroundColor Green
                         }
-                        # Silo membership (always re-evaluate — group membership may have changed)
-                        $authMembershipExecResult = Set-TierModelAuthSiloMembership -Config $config -DomainController $PreferredDc
+                        # Membership — create-once: only assign for silos created in this run
+                        $newlyCreatedSilosFd = @(if (Get-Variable authSiloExecResult -ErrorAction SilentlyContinue) { $authSiloExecResult.CreatedSiloNames } else { @() })
+                        if ($newlyCreatedSilosFd.Count -gt 0) {
+                            $authMembershipExecResult = Set-TierModelAuthSiloMembership -Config $config -DomainController $PreferredDc -OnlyForSilos $newlyCreatedSilosFd
+                        } elseif (@($authPolicyExecPlan.Actions).Count -eq 0 -and @($authSiloExecPlan.Actions).Count -eq 0) {
+                            Write-Host "  ✅ Already deployed — nothing to create" -ForegroundColor Green
+                        }
                     }
                 }
             }
@@ -2852,9 +2871,7 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             $authSilosPrereq.Failures | ForEach-Object { Write-Host "    - $_" -ForegroundColor Red }
             $standaloneTotalErrors += $authSilosPrereq.Failures.Count
         } else {
-            # ── Step A: Authentication Policies — plan, then execute before silos are planned ──
-            # Policies must be applied first; Get-TierModelAuthSiloFd validates policy references
-            # against config, but New-TierModelAuthSilo requires policies to exist in AD.
+            # ── Step A: Authentication Policies — plan + (if -ConfirmApply) execute first ──
             $authPolicyStandalonePlan = Get-TierModelAuthPolicyFd -Config $config -DomainController $PreferredDc
             if ($authPolicyStandalonePlan.Errors -and $authPolicyStandalonePlan.Errors.Count -gt 0) {
                 Write-Host "  ❌ Auth policy planning errors:" -ForegroundColor Red
@@ -2863,28 +2880,23 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             } else {
                 $standaloneDeploymentPlan.TotalActions      += $authPolicyStandalonePlan.Summary.TotalActions
                 $standaloneDeploymentPlan.CreateCount       += $authPolicyStandalonePlan.Summary.ToCreate
-                $standaloneDeploymentPlan.UpdateCount       += $authPolicyStandalonePlan.Summary.ToUpdate
                 $standaloneDeploymentPlan.AlreadyExistCount += $authPolicyStandalonePlan.Summary.AlreadyExist
-                Write-Host "  Auth Policies: $($authPolicyStandalonePlan.Summary.ToCreate) to create, $($authPolicyStandalonePlan.Summary.ToUpdate) to update, $($authPolicyStandalonePlan.Summary.AlreadyExist) already converged" -ForegroundColor $(if ($authPolicyStandalonePlan.Summary.TotalActions -gt 0) { 'Yellow' } else { 'Green' })
-
-                if ($ConfirmApply) {
-                    if (@($authPolicyStandalonePlan.Actions).Count -gt 0) {
+                if ($authPolicyStandalonePlan.Summary.ToCreate -eq 0) {
+                    if (-not $ConfirmApply) { Write-Host "  Auth Policies: all $($authPolicyStandalonePlan.Summary.TotalInConfig) already deployed" -ForegroundColor Green }
+                } else {
+                    if (-not $ConfirmApply) { $authPolicyStandalonePlan.Actions | Where-Object { $_.Action -eq 'CreateAuthPolicy' } | ForEach-Object { Write-Host "  `u{25A0} Create Authentication Policy: $($_.Name)" -ForegroundColor Yellow } }
+                    if ($ConfirmApply) {
                         $authPolicyStandaloneResult = New-TierModelAuthPolicy -Plan $authPolicyStandalonePlan -DomainController $PreferredDc
-                        $standaloneResults          += $authPolicyStandaloneResult
-                        $standaloneTotalApplied     += if ($authPolicyStandaloneResult.Applied)    { @($authPolicyStandaloneResult.Applied).Count    } else { 0 }
-                        $standaloneTotalErrors      += if ($authPolicyStandaloneResult.Errors)     { @($authPolicyStandaloneResult.Errors).Count     } else { 0 }
-                        $standaloneTotalDuration    += if ($authPolicyStandaloneResult.DurationMs) { $authPolicyStandaloneResult.DurationMs } else { 0 }
+                        $standaloneResults      += $authPolicyStandaloneResult
+                        $standaloneTotalApplied += if ($authPolicyStandaloneResult.Applied) { @($authPolicyStandaloneResult.Applied).Count } else { 0 }
+                        $standaloneTotalErrors  += if ($authPolicyStandaloneResult.Errors)  { @($authPolicyStandaloneResult.Errors).Count  } else { 0 }
+                        $standaloneTotalDuration += if ($authPolicyStandaloneResult.DurationMs) { $authPolicyStandaloneResult.DurationMs } else { 0 }
                         if ($authPolicyStandaloneResult.PSObject.Properties.Name -contains 'Converged' -and -not $authPolicyStandaloneResult.Converged) { $standaloneConverged = $false }
-                    } else {
-                        Write-Host "  ✅ Authentication policies already up to date" -ForegroundColor Green
                     }
                 }
             }
 
-            # ── Step B: Authentication Silos — plan AFTER policy execution ──────────────
-            # Get-TierModelAuthSiloFd validates policy references against config (not AD),
-            # so planning is safe in preview mode too; but silo execution requires policies
-            # in AD, which are now present after Step A.
+            # ── Step B: Authentication Silos — plan + (if -ConfirmApply) execute ──────────
             if ($standaloneTotalErrors -eq 0) {
                 $authSiloStandalonePlan = Get-TierModelAuthSiloFd -Config $config -DomainController $PreferredDc
                 if ($authSiloStandalonePlan.Errors -and $authSiloStandalonePlan.Errors.Count -gt 0) {
@@ -2894,36 +2906,48 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
                 } else {
                     $standaloneDeploymentPlan.TotalActions      += $authSiloStandalonePlan.Summary.TotalActions
                     $standaloneDeploymentPlan.CreateCount       += $authSiloStandalonePlan.Summary.ToCreate
-                    $standaloneDeploymentPlan.UpdateCount       += $authSiloStandalonePlan.Summary.ToUpdate
                     $standaloneDeploymentPlan.AlreadyExistCount += $authSiloStandalonePlan.Summary.AlreadyExist
-                    Write-Host "  Auth Silos:    $($authSiloStandalonePlan.Summary.ToCreate) to create, $($authSiloStandalonePlan.Summary.ToUpdate) to update, $($authSiloStandalonePlan.Summary.AlreadyExist) already converged" -ForegroundColor $(if ($authSiloStandalonePlan.Summary.TotalActions -gt 0) { 'Yellow' } else { 'Green' })
-                    if (-not $ConfirmApply) {
-                        Write-Host "  Membership:    will be assigned from $(@(Get-TierModelAuthSilo -Config $config).Count) silo(s) at execution time" -ForegroundColor Yellow
+
+                    if ($authSiloStandalonePlan.Summary.ToCreate -eq 0) {
+                        if (-not $ConfirmApply) { Write-Host "  Auth Silos:    all $($authSiloStandalonePlan.Summary.TotalInConfig) already deployed" -ForegroundColor Green }
+                    } else {
+                        if (-not $ConfirmApply) { $authSiloStandalonePlan.Actions | Where-Object { $_.Action -eq 'CreateAuthSilo' } | ForEach-Object { Write-Host "  `u{25A0} Create Authentication Policy Silo: $($_.Name)" -ForegroundColor Yellow } }
+                        if ($ConfirmApply) {
+                            $authSiloStandaloneResult = New-TierModelAuthSilo -Plan $authSiloStandalonePlan -DomainController $PreferredDc
+                            $standaloneResults      += $authSiloStandaloneResult
+                            $standaloneTotalApplied += if ($authSiloStandaloneResult.Applied) { @($authSiloStandaloneResult.Applied).Count } else { 0 }
+                            $standaloneTotalErrors  += if ($authSiloStandaloneResult.Errors)  { @($authSiloStandaloneResult.Errors).Count  } else { 0 }
+                            $standaloneTotalDuration += if ($authSiloStandaloneResult.DurationMs) { $authSiloStandaloneResult.DurationMs } else { 0 }
+                            if ($authSiloStandaloneResult.PSObject.Properties.Name -contains 'Converged' -and -not $authSiloStandaloneResult.Converged) { $standaloneConverged = $false }
+                        }
                     }
 
-                    if ($ConfirmApply) {
-                        if (@($authSiloStandalonePlan.Actions).Count -gt 0) {
-                            $authSiloStandaloneResult = New-TierModelAuthSilo -Plan $authSiloStandalonePlan -DomainController $PreferredDc
-                            $standaloneResults        += $authSiloStandaloneResult
-                            $standaloneTotalApplied   += if ($authSiloStandaloneResult.Applied)    { @($authSiloStandaloneResult.Applied).Count    } else { 0 }
-                            $standaloneTotalErrors    += if ($authSiloStandaloneResult.Errors)     { @($authSiloStandaloneResult.Errors).Count     } else { 0 }
-                            $standaloneTotalDuration  += if ($authSiloStandaloneResult.DurationMs) { $authSiloStandaloneResult.DurationMs } else { 0 }
-                            if ($authSiloStandaloneResult.PSObject.Properties.Name -contains 'Converged' -and -not $authSiloStandaloneResult.Converged) { $standaloneConverged = $false }
+                    # Membership plan/execute — create-once: only for silos created in this run
+                    $newSiloNamesStandalone = @($authSiloStandalonePlan.Actions | Where-Object { $_.Action -eq 'CreateAuthSilo' } | ForEach-Object { $_.Name })
+                    if (-not $ConfirmApply) {
+                        $membershipFdPlanStandalone = Get-TierModelAuthSiloMembershipFd -Config $config -DomainController $PreferredDc -OnlyForSilos $newSiloNamesStandalone
+                        $standaloneDeploymentPlan.TotalActions      += $membershipFdPlanStandalone.Summary.TotalPending
+                        $standaloneDeploymentPlan.AlreadyExistCount += $membershipFdPlanStandalone.Summary.TotalAlreadyAssigned
+                        if ($membershipFdPlanStandalone.Summary.TotalPending -eq 0) {
+                            Write-Host "  Membership:    0 pending (all silos already deployed)" -ForegroundColor Gray
                         } else {
-                            Write-Host "  ✅ Authentication silos already up to date" -ForegroundColor Green
+                            Write-Host "  Membership:    will assign for $($newSiloNamesStandalone.Count) new silo(s)" -ForegroundColor Yellow
+                        }
+                    }
+                    if ($ConfirmApply -and $standaloneTotalErrors -eq 0) {
+                        $createdSilosStandalone = @(if (Get-Variable authSiloStandaloneResult -ErrorAction SilentlyContinue) { $authSiloStandaloneResult.CreatedSiloNames } else { @() })
+                        if ($createdSilosStandalone.Count -gt 0) {
+                            $authMembershipStandaloneResult = Set-TierModelAuthSiloMembership -Config $config -DomainController $PreferredDc -OnlyForSilos $createdSilosStandalone
+                            $standaloneResults      += $authMembershipStandaloneResult
+                            $standaloneTotalApplied += if ($authMembershipStandaloneResult.Applied) { @($authMembershipStandaloneResult.Applied).Count } else { 0 }
+                            $standaloneTotalErrors  += if ($authMembershipStandaloneResult.Errors)  { @($authMembershipStandaloneResult.Errors).Count  } else { 0 }
+                            $standaloneTotalDuration += if ($authMembershipStandaloneResult.DurationMs) { $authMembershipStandaloneResult.DurationMs } else { 0 }
+                            if ($authMembershipStandaloneResult.PSObject.Properties.Name -contains 'Converged' -and -not $authMembershipStandaloneResult.Converged) { $standaloneConverged = $false }
+                        } elseif ($authPolicyStandalonePlan.Summary.ToCreate -eq 0 -and $authSiloStandalonePlan.Summary.ToCreate -eq 0) {
+                            Write-Host "  ✅ Already deployed — nothing to create" -ForegroundColor Green
                         }
                     }
                 }
-            }
-
-            # ── Step C: Membership — always after policies+silos exist ───────────────────
-            if ($ConfirmApply -and $standaloneTotalErrors -eq 0) {
-                $authMembershipStandaloneResult  = Set-TierModelAuthSiloMembership -Config $config -DomainController $PreferredDc
-                $standaloneResults              += $authMembershipStandaloneResult
-                $standaloneTotalApplied         += if ($authMembershipStandaloneResult.Applied)    { @($authMembershipStandaloneResult.Applied).Count    } else { 0 }
-                $standaloneTotalErrors          += if ($authMembershipStandaloneResult.Errors)     { @($authMembershipStandaloneResult.Errors).Count     } else { 0 }
-                $standaloneTotalDuration        += if ($authMembershipStandaloneResult.DurationMs) { $authMembershipStandaloneResult.DurationMs } else { 0 }
-                if ($authMembershipStandaloneResult.PSObject.Properties.Name -contains 'Converged' -and -not $authMembershipStandaloneResult.Converged) { $standaloneConverged = $false }
             }
         }
     }

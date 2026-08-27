@@ -1,20 +1,17 @@
-function Get-TierModelAuthSiloFd {
+﻿function Get-TierModelAuthSiloFd {
     <#
     .SYNOPSIS
-    Build the Authentication Policy Silo deployment plan with fully-resolved policy references.
+    Build the Authentication Policy Silo deployment plan (create-once model).
 
     .DESCRIPTION
     Analyzes each authenticationSilo from tiermodel-authsilos.json against the current
-    Active Directory state and produces a deployment plan (Actions array). For each silo:
-      1. Validates that the referenced authentication policy (1:1 mapping) exists in AD.
-      2. Checks whether the silo itself exists in AD (Get-ADAuthenticationPolicySilo).
-      3. If absent: emits a CreateAuthSilo action.
-         If present: compares Description, linked policy, Enforce state, and
-         ProtectedFromAccidentalDeletion; emits UpdateAuthSilo for any drift.
+    Active Directory state. For each silo:
+      - Validates the referenced policy name is defined in config (guards against typos).
+      - If the silo does NOT exist in AD: emits a CreateAuthSilo action.
+      - If the silo ALREADY EXISTS in AD: marks AlreadyExists and does nothing else.
+        No drift detection, no update actions — existing silos are never modified by deploy.
 
-    The silo links the same policy for User, Computer, and Service account classes
-    (1:1 policy-to-silo design). This is intentional: all account classes in a given
-    tier use the same origin-device restrictions.
+    This create-once model means re-running deploy after a full deployment is a safe no-op.
 
     .PARAMETER Config
     TierModel configuration object from Get-TierModelConfig.
@@ -34,10 +31,10 @@ function Get-TierModelAuthSiloFd {
     .EXAMPLE
     $config = Get-TierModelConfig
     $plan   = Get-TierModelAuthSiloFd -Config $config -DomainController 'DC01'
+    $plan.Summary   # ToCreate = N, AlreadyExist = M
 
     .EXAMPLE
-    $plan = Get-TierModelAuthSiloFd -Config $config -DomainController 'DC01' -IncludeDetails
-    $plan.Actions | Select-Object Name, Action, DriftReasons
+    $plan.Actions | Select-Object Name, PolicyName   # only CreateAuthSilo actions
     #>
     [CmdletBinding()]
     param(
@@ -64,7 +61,6 @@ function Get-TierModelAuthSiloFd {
     $warnings     = @()
     $errors       = @()
     $toCreate     = 0
-    $toUpdate     = 0
     $alreadyExist = 0
 
     try {
@@ -76,165 +72,75 @@ function Get-TierModelAuthSiloFd {
 
         foreach ($silo in $silos) {
             try {
-                Write-TierModelLog -Level Debug -Message "AuthSiloFdPlanCheck" -Data @{
-                    SiloName      = $silo.name
-                    CorrelationId = $CorrelationId
-                } | Out-Null
-
-                # ── Step 1: Validate the referenced policy is defined in config ─────────
-                # Validate against config — NOT against AD — so a first-deploy that creates
-                # both policies and silos in the same run never fails here. Policies are
-                # applied before silos in the deploy segment, so the policy may not yet exist
-                # in AD when this planner runs. A policy name absent from config is a real
-                # configuration error; a policy pending creation in the same run is not.
                 $policyName = $silo.policy
+
+                # Validate the referenced policy is defined in config (guards against config typos)
                 $configPolicies = if ($Config.PSObject.Properties['authenticationPolicies'] -and $Config.authenticationPolicies) { @($Config.authenticationPolicies) } else { @() }
                 $policyInConfig = $configPolicies | Where-Object { $_.name -eq $policyName } | Select-Object -First 1
 
                 if (-not $policyInConfig) {
                     $errors += @{
-                        Timestamp = Get-Date
-                        Category  = 'Configuration'
-                        Code      = 'ReferencedPolicyNotInConfig'
-                        Message   = "Silo '$($silo.name)' references policy '$policyName' which is not defined in authenticationPolicies config. Check tiermodel-authsilos.json."
+                        Timestamp = Get-Date; Category = 'Configuration'; Code = 'ReferencedPolicyNotInConfig'
+                        Message   = "Silo '$($silo.name)' references policy '$policyName' which is not defined in authenticationPolicies config."
                         Context   = @{ SiloName = $silo.name; PolicyName = $policyName; CorrelationId = $CorrelationId }
                     }
                     continue
                 }
 
-                # Attempt to resolve the policy DN from AD for drift-detection context only.
-                # Not finding it in AD is expected on a first deploy and is NOT an error here.
-                $referencedPolicy = $null
-                try { $referencedPolicy = Get-ADAuthenticationPolicy -Identity $policyName -Server $DomainController -ErrorAction SilentlyContinue } catch {}
-
-                # ── Step 2: Check AD state ────────────────────────────────────────────
-                $existingSilo = $null
+                # ── Create-once model: check existence only, NO drift detection ────────────
+                $existsInAd = $false
                 try {
-                    $existingSilo = Get-ADAuthenticationPolicySilo -Identity $silo.name -Properties * -Server $DomainController -ErrorAction Stop
+                    Get-ADAuthenticationPolicySilo -Identity $silo.name -Server $DomainController -ErrorAction Stop | Out-Null
+                    $existsInAd = $true
                 } catch {
-                    # Silo does not exist — will be created
+                    # Does not exist — will be created
                 }
 
-                if (-not $existingSilo) {
+                if ($existsInAd) {
+                    $alreadyExist++
+                    Write-TierModelLog -Level Info -Message "AuthSiloFdPlanAlreadyExists" -Data @{
+                        SiloName = $silo.name; CorrelationId = $CorrelationId
+                    } | Out-Null
+                } else {
                     $action = [PSCustomObject]@{
                         Action       = 'CreateAuthSilo'
                         ResourceType = 'AuthenticationPolicySilo'
                         Name         = $silo.name
                         Description  = $silo.description
                         PolicyName   = $policyName
-                        PolicyDn     = if ($referencedPolicy) { $referencedPolicy.DistinguishedName } else { $null }
-                        DriftReasons = @()
+                        PolicyDn     = $null   # resolved at execution time when policy exists
                         Data         = $silo
                     }
                     $actions += $action
                     $toCreate++
 
                     Write-TierModelLog -Level Info -Message "AuthSiloFdPlanCreate" -Data @{
-                        SiloName      = $silo.name
-                        PolicyName    = $policyName
-                        CorrelationId = $CorrelationId
+                        SiloName = $silo.name; PolicyName = $policyName; CorrelationId = $CorrelationId
                     } | Out-Null
-                } else {
-                    # ── Step 3: Drift detection ──────────────────────────────────────────
-                    $driftReasons = @()
-
-                    # ProtectedFromAccidentalDeletion
-                    $pfad = $null
-                    try { $pfad = $existingSilo.ProtectedFromAccidentalDeletion } catch {}
-                    if ($pfad -ne $true) {
-                        $driftReasons += "ProtectedFromAccidentalDeletion should be True (actual: $pfad)"
-                    }
-
-                    # Enforce must be false
-                    $enforceVal = $null
-                    try { $enforceVal = $existingSilo.Enforce } catch {}
-                    if ($null -ne $enforceVal -and $enforceVal -eq $true) {
-                        $driftReasons += "Enforce should be False/audit mode (actual: True)"
-                    }
-
-                    # Description
-                    if ($existingSilo.Description -ne $silo.description) {
-                        $driftReasons += "Description differs"
-                    }
-
-                    # Verify all three policy class links point to the configured policy.
-                    # The 1:1 silo-policy design sets User, Computer, and Service policies
-                    # all to the same policy — drift if any of the three diverges.
-                    foreach ($policyProp in @('UserAuthenticationPolicy', 'ComputerAuthenticationPolicy', 'ServiceAuthenticationPolicy')) {
-                        $currentPolicyRef = $null
-                        try { $currentPolicyRef = $existingSilo.$policyProp } catch {}
-                        # The property may be a DN or a name; normalize to check
-                        $currentPolicyName = if ($currentPolicyRef -match '^CN=') {
-                            ($currentPolicyRef -split ',')[0] -replace '^CN=', ''
-                        } else {
-                            "$currentPolicyRef"
-                        }
-                        if ($currentPolicyName -ne $policyName) {
-                            $driftReasons += "$policyProp differs (expected '$policyName', actual '$currentPolicyName')"
-                        }
-                    }
-
-                    if ($driftReasons.Count -gt 0) {
-                        $action = [PSCustomObject]@{
-                            Action       = 'UpdateAuthSilo'
-                            ResourceType = 'AuthenticationPolicySilo'
-                            Name         = $silo.name
-                            Description  = $silo.description
-                            PolicyName   = $policyName
-                            PolicyDn     = if ($referencedPolicy) { $referencedPolicy.DistinguishedName } else { $null }
-                            DriftReasons = $driftReasons
-                            Data         = $silo
-                        }
-                        if ($IncludeDetails) {
-                            $action | Add-Member -NotePropertyName 'ExistingDn' -NotePropertyValue $existingSilo.DistinguishedName
-                        }
-                        $actions += $action
-                        $toUpdate++
-
-                        Write-TierModelLog -Level Info -Message "AuthSiloFdPlanUpdate" -Data @{
-                            SiloName      = $silo.name
-                            DriftReasons  = $driftReasons
-                            CorrelationId = $CorrelationId
-                        } | Out-Null
-                    } else {
-                        $alreadyExist++
-                        Write-TierModelLog -Level Info -Message "AuthSiloFdPlanConverged" -Data @{
-                            SiloName      = $silo.name
-                            CorrelationId = $CorrelationId
-                        } | Out-Null
-                    }
                 }
             } catch {
                 $errors += @{
-                    Timestamp = Get-Date
-                    Category  = 'Execution'
-                    Code      = 'AuthSiloFdPlanItemFailed'
+                    Timestamp = Get-Date; Category = 'Execution'; Code = 'AuthSiloFdPlanItemFailed'
                     Message   = "Failed to plan silo '$($silo.name)': $($_.Exception.Message)"
                     Context   = @{ SiloName = $silo.name; CorrelationId = $CorrelationId }
                 }
                 Write-TierModelLog -Level Error -Message "AuthSiloFdPlanItemFailed" -Data @{
-                    SiloName      = $silo.name
-                    Exception     = $_.Exception.Message
-                    CorrelationId = $CorrelationId
+                    SiloName = $silo.name; Exception = $_.Exception.Message; CorrelationId = $CorrelationId
                 } | Out-Null
             }
         }
 
         $summary = @{
-            TotalInConfig  = @($silos).Count
-            ToCreate       = $toCreate
-            ToUpdate       = $toUpdate
-            AlreadyExist   = $alreadyExist
-            TotalActions   = $toCreate + $toUpdate
-            CreateActions  = $toCreate
-            ExistingCount  = $alreadyExist
+            TotalInConfig = @($silos).Count
+            ToCreate      = $toCreate
+            AlreadyExist  = $alreadyExist
+            TotalActions  = $toCreate
+            CreateActions = $toCreate
+            ExistingCount = $alreadyExist
         }
 
         Write-TierModelLog -Level Info -Message "AuthSiloFdPlanComplete" -Data @{
-            Summary       = $summary
-            ErrorCount    = $errors.Count
-            WarningCount  = $warnings.Count
-            CorrelationId = $CorrelationId
+            Summary = $summary; ErrorCount = $errors.Count; CorrelationId = $CorrelationId
         } | Out-Null
 
         return [PSCustomObject]@{
@@ -248,18 +154,15 @@ function Get-TierModelAuthSiloFd {
 
     } catch {
         Write-TierModelLog -Level Error -Message "AuthSiloFdPlanFailed" -Data @{
-            Exception     = $_.Exception.Message
-            CorrelationId = $CorrelationId
+            Exception = $_.Exception.Message; CorrelationId = $CorrelationId
         } | Out-Null
 
         return [PSCustomObject]@{
             Actions    = @()
-            Summary    = @{ TotalInConfig = 0; ToCreate = 0; ToUpdate = 0; AlreadyExist = 0; TotalActions = 0; CreateActions = 0; ExistingCount = 0 }
+            Summary    = @{ TotalInConfig = 0; ToCreate = 0; AlreadyExist = 0; TotalActions = 0; CreateActions = 0; ExistingCount = 0 }
             Warnings   = $warnings
-            Errors     = @(@{
-                Timestamp = Get-Date; Category = 'Critical'; Code = 'AuthSiloFdPlanFailed'
-                Message   = $_.Exception.Message; Context = @{ CorrelationId = $CorrelationId }
-            })
+            Errors     = @(@{ Timestamp = Get-Date; Category = 'Critical'; Code = 'AuthSiloFdPlanFailed'
+                               Message = $_.Exception.Message; Context = @{ CorrelationId = $CorrelationId } })
             DurationMs    = ((Get-Date) - $startTime).TotalMilliseconds
             CorrelationId = $CorrelationId
         }

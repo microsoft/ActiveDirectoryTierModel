@@ -152,7 +152,6 @@ function Get-TierModelConfig {
             domainAuditRule = if ($optionalSegments['tiermodel-audit.json'] -and $optionalSegments['tiermodel-audit.json'].PSObject.Properties['domainAuditRule']) { $optionalSegments['tiermodel-audit.json'].domainAuditRule } else { $null }
             authenticationPolicies = if ($optionalSegments['tiermodel-authsilos.json'] -and $optionalSegments['tiermodel-authsilos.json'].PSObject.Properties['authenticationPolicies']) { $optionalSegments['tiermodel-authsilos.json'].authenticationPolicies } else { $null }
             authenticationSilos = if ($optionalSegments['tiermodel-authsilos.json'] -and $optionalSegments['tiermodel-authsilos.json'].PSObject.Properties['authenticationSilos']) { $optionalSegments['tiermodel-authsilos.json'].authenticationSilos } else { $null }
-            authSilosExemptAccounts = if ($optionalSegments['tiermodel-authsilos.json'] -and $optionalSegments['tiermodel-authsilos.json'].PSObject.Properties['exemptAccounts']) { $optionalSegments['tiermodel-authsilos.json'].exemptAccounts } else { $null }
         }
         
         # Compute composite hash for provenance (FR-005)

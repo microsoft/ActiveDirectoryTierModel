@@ -8,7 +8,6 @@ function Test-TierModelAuthSiloPrerequisite {
     security group referenced in the auth silos configuration exists in Active Directory:
       - authenticationPolicies[*].allowedToAuthenticateFromDeviceGroups
       - authenticationSilos[*].memberComputerGroups
-      - authenticationSilos[*].memberAccountGroups
 
     If all referenced groups exist, their containing OUs also exist (an AD group cannot
     exist without its parent OU), so no separate OU check is needed.
@@ -75,9 +74,6 @@ function Test-TierModelAuthSiloPrerequisite {
     $silos = Get-TierModelAuthSilo -Config $Config
     foreach ($silo in $silos) {
         foreach ($groupName in @($silo.memberComputerGroups)) {
-            $allGroupNames.Add($groupName) | Out-Null
-        }
-        foreach ($groupName in @($silo.memberAccountGroups)) {
             $allGroupNames.Add($groupName) | Out-Null
         }
     }

@@ -11,20 +11,17 @@ function Test-TierModelAuthSilo {
       - UserAuthenticationPolicy, ComputerAuthenticationPolicy, ServiceAuthenticationPolicy
         all reference the configured 1:1 policy
       - ProtectedFromAccidentalDeletion = $true
-      - Membership: every expected member account and computer (expanded from
-        memberAccountGroups and memberComputerGroups, minus exemptAccounts including the
-        RID-500 built-in Administrator) is present in the silo's Members list
-        (msDS-AuthNPolicySiloMembers). Members in AD that are not expected by config are
-        also flagged as unexpected.
+      - Computer membership (subset): every computer from memberComputerGroups is present in
+        the silo's Members list. Extra members beyond config are allowed (informational).
 
-    NEVER checks Enforce state. Enforcement is a separate lifecycle step; auditing it here
-    would produce false-positive alerts on a correctly deployed audit-mode environment.
+    COMPUTER MEMBERSHIP ONLY: User/account silo membership is out of TM scope and is not
+    checked. Tier admin account groups are always empty on a fresh TM deploy; account
+    siloing is an out-of-band operator task.
 
-    This function is read-only. It makes no changes to Active Directory.
+    NEVER checks Enforce state (informational only). This function is read-only.
 
     .PARAMETER Config
-    TierModel configuration object from Get-TierModelConfig (must include auth silo config
-    from tiermodel-authsilos.json including authSilosExemptAccounts).
+    TierModel configuration object from Get-TierModelConfig.
 
     .PARAMETER DomainController
     Preferred domain controller for all AD queries.
@@ -84,35 +81,13 @@ function Test-TierModelAuthSilo {
             if (-not $Silent) { Write-Host "  ⚠️  No authentication silos found in configuration." -ForegroundColor Yellow }
         }
 
-        # ── Build runtime exemption set (same logic as Set-TierModelAuthSiloMembership) ──
-        $configuredExempts = @()
-        if ($Config.PSObject.Properties['authSilosExemptAccounts'] -and $Config.authSilosExemptAccounts) {
-            $configuredExempts = @($Config.authSilosExemptAccounts.samaccountnames)
-        }
-
-        $rid500SamName = $null
-        try {
-            $domainSidVal  = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DomainSID.Value
-            $adminSid      = "$domainSidVal-500"
-            $adminAccount  = Get-ADUser -Identity $adminSid -Server $DomainController -ErrorAction Stop
-            $rid500SamName = $adminAccount.SamAccountName
-        } catch {
-            Write-TierModelLog -Level Warning -Message "Test-TierModelAuthSilo: RID-500 resolution failed — proceeding without explicit RID-500 exemption" -Data @{
-                Exception = $_.Exception.Message; CorrelationId = $CorrelationId
-            } | Out-Null
-        }
-
-        $exemptSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($name in $configuredExempts) { $exemptSet.Add($name) | Out-Null }
-        if ($null -ne $rid500SamName) { $exemptSet.Add($rid500SamName) | Out-Null }
-
         if (-not $Silent) {
             Write-Host "Auditing Authentication Policy Silos..." -ForegroundColor Cyan
         }
 
         foreach ($silo in $silos) {
             $totalChecked++
-            $siloName  = $silo.name
+            $siloName   = $silo.name
             $policyName = $silo.policy
             $issues     = @()
 
@@ -128,10 +103,11 @@ function Test-TierModelAuthSilo {
                 $missingCount++
                 $findings += [PSCustomObject]@{
                     SiloName = $siloName; Status = 'Missing'
-                    Issues   = @("Silo '$siloName' not found in Active Directory")
+                    Issues = @("Not found in Active Directory")
+                    EnforceState = 'unknown (silo absent)'; ExtraMembers = @()
                 }
-                if (-not $Silent) { Write-Host "    ❌ Missing — silo not found in AD" -ForegroundColor Red }
-                Write-TierModelLog -Level Warning -Message "AuthSiloAuditMissing" -Data @{
+                if (-not $Silent) { Write-Host "    ❌ Missing — not found in AD" -ForegroundColor Red }
+                Write-TierModelLog -Level Info -Message "AuthSiloAuditMissing" -Data @{
                     SiloName = $siloName; CorrelationId = $CorrelationId
                 } | Out-Null
                 continue
@@ -139,35 +115,37 @@ function Test-TierModelAuthSilo {
 
             # ── Check 2: Description ─────────────────────────────────────────────────────
             if ($adSilo.Description -ne $silo.description) {
-                $issues += "Description differs (expected: '$($silo.description)', actual: '$($adSilo.Description)')"
+                $issues += "description differs from config"
             }
 
-            # ── Check 3: Policy links — User, Computer, Service must all reference config policy ──
+            # ── Enforce state — INFORMATIONAL ONLY, never contributes to pass/fail ────────
+            $enforceVal   = $null
+            try { $enforceVal = $adSilo.Enforce } catch {}
+            $enforceState = if ($enforceVal -eq $true) { 'ENFORCED' } elseif ($enforceVal -eq $false) { 'audit mode' } else { "unknown ($enforceVal)" }
+
+            # ── Check 3: Policy links — User, Computer, Service must reference config policy ──
             foreach ($policyProp in @('UserAuthenticationPolicy', 'ComputerAuthenticationPolicy', 'ServiceAuthenticationPolicy')) {
                 $currentRef = $null
                 try { $currentRef = $adSilo.$policyProp } catch {}
-                # The property may be a DN or a name; normalize to name for comparison
                 $currentName = if ("$currentRef" -match '^CN=') {
                     ("$currentRef" -split ',')[0] -replace '^CN=', ''
                 } else { "$currentRef" }
                 if ($currentName -ne $policyName) {
-                    $issues += "$policyProp should be '$policyName' (actual: '$currentName')"
+                    $label = if ([string]::IsNullOrWhiteSpace($currentName)) { 'not linked' } else { "linked to '$currentName'" }
+                    $issues += "$policyProp not linked to config policy '$policyName' ($label)"
                 }
             }
 
-            # NOTE: Enforce is intentionally NOT checked. Enforcement is a separate lifecycle
-            # step; checking it here would false-positive on a correctly deployed audit-mode env.
+            # NOTE: Enforce is informational only — EnforceState is reported but never fails.
 
             # ── Check 4: ProtectedFromAccidentalDeletion = true ──────────────────────────
             $pfad = $null
             try { $pfad = $adSilo.ProtectedFromAccidentalDeletion } catch {}
-            if ($pfad -ne $true) {
-                $issues += "ProtectedFromAccidentalDeletion should be True (actual: $pfad)"
-            }
+            if ($pfad -ne $true) { $issues += "ProtectedFromAccidentalDeletion not set" }
 
-            # ── Check 5: Membership ──────────────────────────────────────────────────────
-            # Get the silo's current Members list (msDS-AuthNPolicySiloMembers — DNs of all
-            # granted accounts and computers).
+            # ── Check 5: Computer membership (subset check — computer groups only) ────────
+            # User/account membership is out of TM scope. Only verify computers from
+            # memberComputerGroups are in the silo's Members list (mandatory subset).
             $currentMemberDns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
             try {
                 $siloWithMembers = Get-ADAuthenticationPolicySilo -Identity $siloName -Properties Members -Server $DomainController -ErrorAction Stop
@@ -178,39 +156,21 @@ function Test-TierModelAuthSilo {
                 $issues += "Cannot read silo Members list: $($_.Exception.Message)"
             }
 
-            # Build expected member DN set by expanding config groups (minus exempts)
+            # Expand expected computer members from config
             $expectedMemberDns = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-
-            foreach ($groupName in @($silo.memberAccountGroups)) {
-                try {
-                    $members = @(Get-ADGroupMember -Identity $groupName -Recursive -Server $DomainController -ErrorAction Stop |
-                        Where-Object { $_.objectClass -eq 'user' })
-                    foreach ($m in $members) {
-                        if (-not $exemptSet.Contains($m.SamAccountName)) {
-                            $expectedMemberDns.Add($m.DistinguishedName) | Out-Null
-                        }
-                    }
-                } catch {
-                    $issues += "Cannot expand account group '$groupName': $($_.Exception.Message)"
-                }
-            }
-
             foreach ($groupName in @($silo.memberComputerGroups)) {
                 try {
                     $members = @(Get-ADGroupMember -Identity $groupName -Recursive -Server $DomainController -ErrorAction Stop |
                         Where-Object { $_.objectClass -eq 'computer' })
                     foreach ($m in $members) {
-                        # Exempt set check is defensive; normally no computers are exempt
-                        if (-not $exemptSet.Contains($m.SamAccountName)) {
-                            $expectedMemberDns.Add($m.DistinguishedName) | Out-Null
-                        }
+                        $expectedMemberDns.Add($m.DistinguishedName) | Out-Null
                     }
                 } catch {
                     $issues += "Cannot expand computer group '$groupName': $($_.Exception.Message)"
                 }
             }
 
-            # Missing members: expected but not in silo Members list
+            # Missing computers: mandatory subset check
             $missingMembers = @($expectedMemberDns | Where-Object { -not $currentMemberDns.Contains($_) })
             if ($missingMembers.Count -gt 0) {
                 foreach ($dn in $missingMembers) {
@@ -225,17 +185,20 @@ function Test-TierModelAuthSilo {
                 }
             }
 
-            # Unexpected members: in silo Members list but not in expected set
-            $unexpectedMembers = @($currentMemberDns | Where-Object { -not $expectedMemberDns.Contains($_) })
-            if ($unexpectedMembers.Count -gt 0) {
-                foreach ($dn in $unexpectedMembers) {
+            # Extra members: in silo Members list but not in expected set — ALLOWED, informational.
+            # Customer may grant additional accounts silo access beyond the config-defined groups.
+            # This is a valid operational pattern (e.g. temporary exception accounts) and MUST NOT
+            # cause a compliance failure.
+            $extraMemberLabels = @()
+            $extraMembers = @($currentMemberDns | Where-Object { -not $expectedMemberDns.Contains($_) })
+            if ($extraMembers.Count -gt 0) {
+                foreach ($dn in $extraMembers) {
                     $sam = $null
                     try {
                         $obj = Get-ADObject -Identity $dn -Properties SamAccountName -Server $DomainController -ErrorAction SilentlyContinue
                         $sam = $obj.SamAccountName
                     } catch {}
-                    $label = if ($sam) { "$sam ($dn)" } else { $dn }
-                    $issues += "Unexpected member in silo (not in config groups): $label"
+                    $extraMemberLabels += if ($sam) { "$sam ($dn)" } else { $dn }
                 }
             }
 
@@ -244,21 +207,33 @@ function Test-TierModelAuthSilo {
                 $compliantCount++
                 $findings += [PSCustomObject]@{
                     SiloName = $siloName; Status = 'Compliant'; Issues = @()
+                    EnforceState = $enforceState; ExtraMembers = $extraMemberLabels
                 }
                 if (-not $Silent) {
-                    Write-Host "    ✅ Compliant (members: expected=$($expectedMemberDns.Count), current=$($currentMemberDns.Count))" -ForegroundColor Green
+                    Write-Host "    ✅ Compliant (enforce: $enforceState; members: expected=$($expectedMemberDns.Count), current=$($currentMemberDns.Count))" -ForegroundColor Green
+                    if ($extraMemberLabels.Count -gt 0) {
+                        Write-Host "    ℹ️  Extra members beyond config (allowed): $($extraMemberLabels.Count)" -ForegroundColor Cyan
+                        $extraMemberLabels | ForEach-Object { Write-Host "        $_" -ForegroundColor Cyan }
+                    }
                 }
             } else {
                 $nonCompliant++
                 $findings += [PSCustomObject]@{
                     SiloName = $siloName; Status = 'NonCompliant'; Issues = $issues
+                    EnforceState = $enforceState; ExtraMembers = $extraMemberLabels
                 }
                 if (-not $Silent) {
-                    Write-Host "    ❌ NonCompliant" -ForegroundColor Red
-                    $issues | ForEach-Object { Write-Host "      - $_" -ForegroundColor Yellow }
+                    foreach ($issue in $issues) {
+                        Write-Host "    ❌ NonCompliant — $issue" -ForegroundColor Red
+                    }
+                    if ($extraMemberLabels.Count -gt 0) {
+                        Write-Host "    ℹ️  Extra members beyond config (allowed): $($extraMemberLabels.Count)" -ForegroundColor Cyan
+                    }
+                    Write-Host "    ℹ️  Enforce state: $enforceState" -ForegroundColor DarkGray
                 }
-                Write-TierModelLog -Level Warning -Message "AuthSiloAuditNonCompliant" -Data @{
-                    SiloName = $siloName; IssueCount = $issues.Count; CorrelationId = $CorrelationId
+                # Log to file only — no Write-Warning (avoids "WARNING: ..." console spam)
+                Write-TierModelLog -Level Info -Message "AuthSiloAuditNonCompliant" -Data @{
+                    SiloName = $siloName; IssueCount = $issues.Count; EnforceState = $enforceState; CorrelationId = $CorrelationId
                 } | Out-Null
             }
         }

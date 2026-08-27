@@ -1,36 +1,33 @@
 function Set-TierModelAuthSiloMembership {
     <#
     .SYNOPSIS
-    Idempotently assign account and computer membership to AD Authentication Policy Silos.
+    Assign computer membership to AD Authentication Policy Silos (create-once model).
 
     .DESCRIPTION
-    For each silo defined in tiermodel-authsilos.json, expands the memberAccountGroups and
-    memberComputerGroups to their individual member accounts and computers, then assigns
-    each to the silo using the mandatory two-step sequence:
-      1. Grant-ADAuthenticationPolicySiloAccess  — adds the account to the silo's access list
-      2. Set-ADAccountAuthenticationPolicySilo   — stamps the silo reference on the account
+    For each silo defined in tiermodel-authsilos.json, expands memberComputerGroups to
+    their individual computer objects, then assigns each to the silo using the mandatory
+    two-step sequence:
+      1. Grant-ADAuthenticationPolicySiloAccess  — adds the computer to the silo access list
+      2. Set-ADAccountAuthenticationPolicySilo   — stamps the silo reference on the computer
 
-    Both steps are always performed in order; omitting either step leaves membership incomplete.
-    Each step is idempotent: accounts already in the desired state are detected and skipped.
+    COMPUTER MEMBERSHIP ONLY: The Tier Model does not manage user/account silo membership.
+    Tier admin account groups are always empty on a fresh TM deploy; account siloing is an
+    out-of-band operator task performed after accounts are created and hardened.
 
-    EXEMPTIONS — the following accounts are NEVER assigned to any silo:
-      - Configured domain-join service accounts (from authSilosExemptAccounts.samaccountnames
-        in tiermodel-authsilos.json): svc-pawdomainjoin, svc-t1srvdomainjoin, svc-t2euddomainjoin.
-        These authenticate from ephemeral provisioning hosts outside any approved device group.
-      - The built-in domain Administrator account identified by RID-500 (<DomainSID>-500),
-        resolved at runtime to handle renamed Administrator accounts. This account must remain
-        unsiloed as an emergency break-glass path that survives a silo misconfiguration or
-        enforced-silo lockout.
-
-    Groups are enumerated recursively (-Recursive). Empty groups result in zero assignments —
-    safe and expected during phased rollouts before group membership is populated.
+    Membership is create-once: use -OnlyForSilos to restrict processing to newly created
+    silos (pass CreatedSiloNames from New-TierModelAuthSilo). Omit -OnlyForSilos to process
+    all silos (direct invocation / backwards compat).
 
     .PARAMETER Config
-    TierModel configuration object from Get-TierModelConfig. Must contain authenticationSilos
-    and authSilosExemptAccounts (populated from tiermodel-authsilos.json).
+    TierModel configuration object from Get-TierModelConfig. Must contain authenticationSilos.
 
     .PARAMETER DomainController
     Preferred domain controller for all AD operations.
+
+    .PARAMETER OnlyForSilos
+    When specified, only process silos whose names are in this list. Pass the CreatedSiloNames
+    from New-TierModelAuthSilo for create-once behaviour. Empty array = process nothing.
+    Omit entirely to process ALL silos.
 
     .OUTPUTS
     PSCustomObject with Applied, Skipped, Errors, DurationMs, Converged, CorrelationId.
@@ -38,6 +35,11 @@ function Set-TierModelAuthSiloMembership {
     .EXAMPLE
     $config = Get-TierModelConfig
     Set-TierModelAuthSiloMembership -Config $config -DomainController 'DC01'
+
+    .EXAMPLE
+    # Create-once: only assign membership for newly created silos
+    $siloResult = New-TierModelAuthSilo -Plan $plan -DomainController 'DC01'
+    Set-TierModelAuthSiloMembership -Config $config -DomainController 'DC01' -OnlyForSilos $siloResult.CreatedSiloNames
 
     .EXAMPLE
     Set-TierModelAuthSiloMembership -Config $config -DomainController 'DC01' -WhatIf
@@ -48,7 +50,17 @@ function Set-TierModelAuthSiloMembership {
         [object]$Config,
 
         [Parameter(Mandatory)]
-        [string]$DomainController
+        [string]$DomainController,
+
+        # When specified, only process silos whose names are in this list.
+        # Pass the CreatedSiloNames from New-TierModelAuthSilo to implement the
+        # create-once membership model (only assign membership for newly created silos).
+        # Pass an empty array to process no silos.
+        # Omit entirely to process ALL silos (backwards-compat / direct invocation).
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [AllowNull()]
+        [string[]]$OnlyForSilos
     )
 
     $CorrelationId = [System.Guid]::NewGuid().ToString()
@@ -71,44 +83,22 @@ function Set-TierModelAuthSiloMembership {
             Write-TierModelLog -Level Warning -Message "No authentication silos in config — nothing to assign" -Data @{ CorrelationId = $CorrelationId } | Out-Null
         }
 
-        # ── Build the runtime exemption set ──────────────────────────────────────────────
-        # Configured domain-join service accounts (permanent structural exemptions)
-        $configuredExempts = @()
-        if ($Config.PSObject.Properties['authSilosExemptAccounts'] -and $Config.authSilosExemptAccounts) {
-            $configuredExempts = @($Config.authSilosExemptAccounts.samaccountnames)
-        }
-
-        # Resolve RID-500 (built-in Administrator) by SID — handles renamed accounts
-        $rid500SamName = $null
-        try {
-            $domainSid    = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DomainSID.Value
-            $adminSid     = "$domainSid-500"
-            $adminAccount = Get-ADUser -Identity $adminSid -Server $DomainController -ErrorAction Stop
-            $rid500SamName = $adminAccount.SamAccountName
-            Write-TierModelLog -Level Debug -Message "RID500Resolved" -Data @{
-                Sid           = $adminSid
-                SamAccountName = $rid500SamName
-                CorrelationId = $CorrelationId
-            } | Out-Null
-        } catch {
-            Write-TierModelLog -Level Warning -Message "Failed to resolve RID-500 Administrator account — proceeding without RID-500 exemption (check DC connectivity)" -Data @{
-                Exception     = $_.Exception.Message
-                CorrelationId = $CorrelationId
-            } | Out-Null
-        }
-
-        $exemptSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($name in $configuredExempts) { $exemptSet.Add($name) | Out-Null }
-        if ($null -ne $rid500SamName) { $exemptSet.Add($rid500SamName) | Out-Null }
-
-        Write-TierModelLog -Level Info -Message "AuthSiloMembershipExemptSet" -Data @{
-            ExemptAccounts = [string[]]$exemptSet
-            CorrelationId  = $CorrelationId
-        } | Out-Null
-
         # ── Process each silo ──────────────────────────────────────────────────────────
         foreach ($silo in $silos) {
             $siloName = $silo.name
+
+            # -OnlyForSilos filter: skip silos not in the caller-specified list.
+            # When -OnlyForSilos is bound (even as empty array), restrict to that list;
+            # when omitted ($null), process all silos.
+            if ($PSBoundParameters.ContainsKey('OnlyForSilos')) {
+                $filterSet = [System.Collections.Generic.HashSet[string]]::new(
+                    [string[]]($OnlyForSilos ?? @()),
+                    [System.StringComparer]::OrdinalIgnoreCase
+                )
+                if ($filterSet.Count -eq 0 -or -not $filterSet.Contains($siloName)) {
+                    continue   # not in the create-once target list; skip
+                }
+            }
 
             try {
                 Write-TierModelLog -Level Info -Message "AuthSiloMembershipProcessSilo" -Data @{
@@ -135,58 +125,14 @@ function Set-TierModelAuthSiloMembership {
                     [System.StringComparer]::OrdinalIgnoreCase
                 )
 
-                # ── Expand member account groups ───────────────────────────────────────
-                $accountsToAssign = [System.Collections.Generic.List[object]]::new()
-                foreach ($groupName in @($silo.memberAccountGroups)) {
-                    try {
-                        $members = @(Get-ADGroupMember -Identity $groupName -Recursive -Server $DomainController -ErrorAction Stop |
-                            Where-Object { $_.objectClass -eq 'user' })
-                        foreach ($member in $members) {
-                            if (-not $exemptSet.Contains($member.SamAccountName)) {
-                                $accountsToAssign.Add($member)
-                            } else {
-                                $skipped += [PSCustomObject]@{
-                                    Action = 'SkipExemptAccount'
-                                    SiloName = $siloName
-                                    SamAccountName = $member.SamAccountName
-                                    Reason = 'ExemptAccount'
-                                }
-                                Write-TierModelLog -Level Info -Message "AuthSiloMembershipSkipExempt" -Data @{
-                                    SiloName       = $siloName
-                                    SamAccountName = $member.SamAccountName
-                                    CorrelationId  = $CorrelationId
-                                } | Out-Null
-                            }
-                        }
-                    } catch {
-                        $errors += @{
-                            Timestamp = Get-Date; Category = 'External'; Code = 'GroupExpandFailed'
-                            Message   = "Failed to expand account group '$groupName' for silo '$siloName': $($_.Exception.Message)"
-                            Context   = @{ SiloName = $siloName; GroupName = $groupName; CorrelationId = $CorrelationId }
-                        }
-                        $converged = $false
-                    }
-                }
-
-                # ── Expand member computer groups ──────────────────────────────────────
+                # ── Expand member computer groups (computer membership only) ──────────
                 $computersToAssign = [System.Collections.Generic.List[object]]::new()
                 foreach ($groupName in @($silo.memberComputerGroups)) {
                     try {
                         $members = @(Get-ADGroupMember -Identity $groupName -Recursive -Server $DomainController -ErrorAction Stop |
                             Where-Object { $_.objectClass -eq 'computer' })
                         foreach ($member in $members) {
-                            # Apply the same exemption check to computers (future-proofs against
-                            # built-in computer objects that may appear in these groups)
-                            if (-not $exemptSet.Contains($member.SamAccountName)) {
-                                $computersToAssign.Add($member)
-                            } else {
-                                $skipped += [PSCustomObject]@{
-                                    Action = 'SkipExemptComputer'
-                                    SiloName = $siloName
-                                    SamAccountName = $member.SamAccountName
-                                    Reason = 'ExemptAccount'
-                                }
-                            }
+                            $computersToAssign.Add($member)
                         }
                     } catch {
                         $errors += @{
@@ -198,18 +144,56 @@ function Set-TierModelAuthSiloMembership {
                     }
                 }
 
-                # ── Assign accounts (Grant then Set — mandatory two-step order) ─────────
-                $allPrincipals = @($accountsToAssign) + @($computersToAssign)
+                # ── Assign computers (Grant then Set — mandatory two-step order) ─────────
+                $allPrincipals = @($computersToAssign)
                 foreach ($principal in $allPrincipals) {
-                    $sam = $principal.SamAccountName
-                    $dn  = $principal.DistinguishedName
+                    $sam         = $principal.SamAccountName
+                    $dn          = $principal.DistinguishedName
+                    $objectClass = $principal.objectClass
 
+                    # ── Read-only already-assigned pre-check (runs before ShouldProcess) ──
+                    # Placed here so WhatIf mode correctly categorises converged vs pending
+                    # instead of showing every principal as "would assign".
+                    $alreadyGranted    = $grantedDns.Contains($dn)
+                    $preCheckSiloRef   = $null
+                    try {
+                        $preCheckAcct = if ($objectClass -eq 'computer') {
+                            Get-ADComputer -Identity $sam -Properties 'msDS-AssignedAuthNPolicySilo' -Server $DomainController -ErrorAction Stop
+                        } else {
+                            Get-ADUser -Identity $sam -Properties 'msDS-AssignedAuthNPolicySilo' -Server $DomainController -ErrorAction Stop
+                        }
+                        $preCheckSiloRef = $preCheckAcct.'msDS-AssignedAuthNPolicySilo'
+                    } catch {
+                        # If the read fails, treat as pending (safer than silently skipping)
+                        Write-TierModelLog -Level Warning -Message "AuthSiloMembershipPreCheckFailed" -Data @{
+                            SiloName = $siloName; SamAccountName = $sam; Exception = $_.Exception.Message; CorrelationId = $CorrelationId
+                        } | Out-Null
+                    }
+                    $preCheckSiloName = if ($preCheckSiloRef -match '^CN=') {
+                        ($preCheckSiloRef -split ',')[0] -replace '^CN=', ''
+                    } else { "$preCheckSiloRef" }
+                    $alreadyAssigned  = $alreadyGranted -and ($preCheckSiloName -eq $siloName)
+
+                    if ($alreadyAssigned) {
+                        # Fully converged — skip without ShouldProcess (no side effects at all)
+                        $skipped += [PSCustomObject]@{
+                            Action         = 'AssignSiloMembership'
+                            SiloName       = $siloName
+                            SamAccountName = $sam
+                            ObjectClass    = $objectClass
+                            Reason         = 'AlreadyAssigned'
+                        }
+                        Write-Host "  ℹ️  Already assigned: $sam → $siloName" -ForegroundColor DarkGray
+                        continue
+                    }
+
+                    # Not yet converged — call ShouldProcess for the actual writes
                     if ($PSCmdlet.ShouldProcess("$sam → silo '$siloName'", "Grant-ADAuthenticationPolicySiloAccess then Set-ADAccountAuthenticationPolicySilo")) {
                         try {
                             $changed = $false
-                            # Step 1: Grant-ADAuthenticationPolicySiloAccess
-                            # Idempotency: only grant if the account DN is not already in the silo's Members list
-                            if (-not $grantedDns.Contains($dn)) {
+
+                            # Step 1: Grant — use pre-check result to skip redundant Members read
+                            if (-not $alreadyGranted) {
                                 Grant-ADAuthenticationPolicySiloAccess -Identity $siloName -Account $sam `
                                     -Server $DomainController -Confirm:$false -ErrorAction Stop
                                 $grantedDns.Add($dn) | Out-Null
@@ -219,23 +203,8 @@ function Set-TierModelAuthSiloMembership {
                                 } | Out-Null
                             }
 
-                            # Step 2: Set-ADAccountAuthenticationPolicySilo
-                            # Idempotency: only set if account's assigned silo DN differs from this silo
-                            $objectClass = $principal.objectClass
-                            $currentSiloRef = $null
-                            if ($objectClass -eq 'computer') {
-                                $acct = Get-ADComputer -Identity $sam -Properties 'msDS-AssignedAuthNPolicySilo' -Server $DomainController -ErrorAction Stop
-                            } else {
-                                $acct = Get-ADUser -Identity $sam -Properties 'msDS-AssignedAuthNPolicySilo' -Server $DomainController -ErrorAction Stop
-                            }
-                            $currentSiloRef = $acct.'msDS-AssignedAuthNPolicySilo'
-
-                            # Resolve the current assigned silo name from its DN (if set)
-                            $currentSiloName = if ($currentSiloRef -match '^CN=') {
-                                ($currentSiloRef -split ',')[0] -replace '^CN=', ''
-                            } else { "$currentSiloRef" }
-
-                            if ($currentSiloName -ne $siloName) {
+                            # Step 2: Set — use pre-check result to skip redundant account read
+                            if ($preCheckSiloName -ne $siloName) {
                                 Set-ADAccountAuthenticationPolicySilo -Identity $sam `
                                     -AuthenticationPolicySilo $siloName `
                                     -Server $DomainController -Confirm:$false -ErrorAction Stop
@@ -252,7 +221,9 @@ function Set-TierModelAuthSiloMembership {
                                     SamAccountName = $sam
                                     ObjectClass    = $objectClass
                                 }
+                                Write-Host "  ✅ Assigned $sam ($objectClass) to silo: $siloName" -ForegroundColor Green
                             } else {
+                                # Converged between pre-check and write (race-condition safety net)
                                 $skipped += [PSCustomObject]@{
                                     Action         = 'AssignSiloMembership'
                                     SiloName       = $siloName
@@ -260,6 +231,7 @@ function Set-TierModelAuthSiloMembership {
                                     ObjectClass    = $objectClass
                                     Reason         = 'AlreadyAssigned'
                                 }
+                                Write-Host "  ℹ️  Already assigned: $sam → $siloName" -ForegroundColor DarkGray
                             }
                         } catch {
                             Write-Host "  ERROR: Failed to assign '$sam' to silo '$siloName' — $($_.Exception.Message)" -ForegroundColor Red
@@ -277,7 +249,8 @@ function Set-TierModelAuthSiloMembership {
                             $converged = $false
                         }
                     } else {
-                        Write-Host "  [WhatIf] Would assign '$sam' to silo '$siloName'" -ForegroundColor DarkYellow
+                        # WhatIf or UserDeclined — principal is known PENDING (not already-assigned)
+                        Write-Host "  [WhatIf] Would assign '$sam' ($objectClass) to silo '$siloName'" -ForegroundColor DarkYellow
                         $skipped += [PSCustomObject]@{
                             Action         = 'AssignSiloMembership'
                             SiloName       = $siloName
@@ -300,6 +273,12 @@ function Set-TierModelAuthSiloMembership {
         }
 
         $durationMs = ((Get-Date) - $startTime).TotalMilliseconds
+
+        # One-line membership summary so Applied/Skipped totals are fully explained
+        $assignedCount = @($applied | Where-Object { $_.Action -eq 'AssignSiloMembership' }).Count
+        $alreadyCount  = @($skipped | Where-Object { $_.Reason -eq 'AlreadyAssigned'      }).Count
+        Write-Host "  Membership: $assignedCount assigned, $alreadyCount already-assigned" `
+            -ForegroundColor $(if ($errors.Count -gt 0) { 'Yellow' } elseif ($assignedCount -gt 0) { 'Green' } else { 'Gray' })
 
         Write-TierModelLog -Level Info -Message "AuthSiloMembershipComplete" -Data @{
             AppliedCount = $applied.Count

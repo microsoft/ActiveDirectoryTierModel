@@ -1,23 +1,16 @@
-function New-TierModelAuthPolicy {
+﻿function New-TierModelAuthPolicy {
     <#
     .SYNOPSIS
-    Idempotently create or update AD Authentication Policies for the Tier Model.
+    Create AD Authentication Policies for the Tier Model (create-once model).
 
     .DESCRIPTION
-    Executes the authentication policy deployment plan produced by Get-TierModelAuthPolicyFd.
-    For each CreateAuthPolicy action: creates a new AD Authentication Policy with
-    New-ADAuthenticationPolicy. For each UpdateAuthPolicy action: reconciles drift with
-    Set-ADAuthenticationPolicy and, if required, Set-ADObject for ProtectedFromAccidentalDeletion.
+    Executes CreateAuthPolicy actions from the plan produced by Get-TierModelAuthPolicyFd.
+    Each policy is created once with New-ADAuthenticationPolicy. If the policy already
+    exists in AD the creation is silently skipped — NO modifications are made to existing
+    policies (create-once model).
 
-    All policies are created and maintained in AUDIT mode (Enforce:$false). Enforcement is
-    a separate lifecycle step and is explicitly out of scope here. ProtectedFromAccidentalDeletion
-    is always set to $true.
-
-    The -UserTGTLifetimeMins parameter is set only when the config's userTGTLifetimeMinutes
-    is non-null. A null value means the account class inherits the domain-default TGT
-    lifetime (typically 10 hours) and no lifetime attribute is written.
-
-    Safe to re-run: policies that are already in the desired state are skipped.
+    All policies are created in AUDIT mode (Enforce=$false). ProtectedFromAccidentalDeletion=$true.
+    UserTGTLifetimeMins is set only when the config value is non-null (null = domain default).
 
     .PARAMETER Plan
     Deployment plan from Get-TierModelAuthPolicyFd.
@@ -26,12 +19,13 @@ function New-TierModelAuthPolicy {
     Preferred domain controller for all AD operations.
 
     .OUTPUTS
-    PSCustomObject with Applied, Skipped, Errors, DurationMs, Converged, CorrelationId.
+    PSCustomObject with Applied, Skipped, Errors, CreatedNames, DurationMs, Converged, CorrelationId.
+    CreatedNames is the [string[]] of policy names actually created in this run.
 
     .EXAMPLE
-    $config = Get-TierModelConfig
-    $plan   = Get-TierModelAuthPolicyFd -Config $config -DomainController 'DC01'
-    New-TierModelAuthPolicy -Plan $plan -DomainController 'DC01'
+    $plan = Get-TierModelAuthPolicyFd -Config $config -DomainController 'DC01'
+    $result = New-TierModelAuthPolicy -Plan $plan -DomainController 'DC01'
+    Write-Host "Created: $($result.CreatedNames -join ', ')"
 
     .EXAMPLE
     New-TierModelAuthPolicy -Plan $plan -DomainController 'DC01' -WhatIf
@@ -48,156 +42,109 @@ function New-TierModelAuthPolicy {
     $CorrelationId = [System.Guid]::NewGuid().ToString()
     $startTime = Get-Date
 
-    $actionCount = @($Plan.Actions | Where-Object { $_.Action -in @('CreateAuthPolicy', 'UpdateAuthPolicy') }).Count
-
     Write-TierModelLog -Level Info -Message "AuthPolicyExecutionStart" -Data @{
-        ActionCount      = $actionCount
-        DomainController = $DomainController
-        WhatIf           = $WhatIfPreference
-        CorrelationId    = $CorrelationId
+        ActionCount = @($Plan.Actions | Where-Object { $_.Action -eq 'CreateAuthPolicy' }).Count
+        DomainController = $DomainController; WhatIf = $WhatIfPreference; CorrelationId = $CorrelationId
     } | Out-Null
 
-    $applied   = @()
-    $skipped   = @()
-    $errors    = @()
-    $converged = $true
+    $applied      = @()
+    $skipped      = @()
+    $errors       = @()
+    $createdNames = [System.Collections.Generic.List[string]]::new()
+    $converged    = $true
 
     try {
         foreach ($action in $Plan.Actions) {
-            if ($action.Action -notin @('CreateAuthPolicy', 'UpdateAuthPolicy')) { continue }
+            if ($action.Action -ne 'CreateAuthPolicy') { continue }
 
             $policyName = $action.Name
 
             try {
-                if ($action.Action -eq 'CreateAuthPolicy') {
-                    # ── Create new Authentication Policy ──────────────────────────────────
-                    if ($PSCmdlet.ShouldProcess("Authentication Policy: $policyName", "New-ADAuthenticationPolicy (audit mode, not enforced)")) {
-                        Write-Host "  ✅ Creating Authentication Policy: $policyName" -ForegroundColor Green
-
-                        $newParams = @{
-                            Name                            = $policyName
-                            Description                     = $action.Description
-                            UserAllowedToAuthenticateFrom   = $action.ResolvedSddl
-                            Enforce                         = $false   # Audit mode — never enforce; splatted bool binds correctly
-                            ProtectedFromAccidentalDeletion = $true
-                            Server                          = $DomainController
-                            Confirm                         = $false
+                if ($PSCmdlet.ShouldProcess("Authentication Policy: $policyName", "New-ADAuthenticationPolicy (audit mode, not enforced)")) {
+                    # Resolve approved-device group SIDs and build the SDDL at EXECUTION time.
+                    # Create-once defers this from plan time so a fresh -FullDeployment can create
+                    # the tier device groups earlier in the same run. Honor a planner-supplied SDDL
+                    # if present; otherwise resolve now from the policy config. A genuinely missing
+                    # group at execution time is a clean red failure for this policy only.
+                    $resolvedSddl = $action.ResolvedSddl
+                    if ([string]::IsNullOrWhiteSpace($resolvedSddl)) {
+                        $resolvedSids        = @()
+                        $sidResolutionErrors = @()
+                        foreach ($groupName in @($action.Data.allowedToAuthenticateFromDeviceGroups)) {
+                            $sidResult = Resolve-TierModelPrincipalSid -Principal $groupName -DomainController $DomainController -CorrelationId $CorrelationId -WarningAction SilentlyContinue
+                            if ($sidResult.Success) {
+                                $resolvedSids += $sidResult.Sid
+                            } else {
+                                $sidResolutionErrors += "device group '$groupName' not found in Active Directory"
+                            }
                         }
-
-                        # Only set TGT lifetime when config specifies one (null = domain default, no attribute written)
-                        if ($null -ne $action.TGTLifetimeMinutes) {
-                            $newParams['UserTGTLifetimeMins'] = [int]$action.TGTLifetimeMinutes
+                        if ($sidResolutionErrors.Count -gt 0) {
+                            $reason = $sidResolutionErrors -join '; '
+                            Write-Host "  `u{274C} Failed to create Authentication Policy: $policyName - $reason" -ForegroundColor Red
+                            $errors += @{ Timestamp = Get-Date; Category = 'External'; Code = 'SidResolutionFailed'
+                                          Message = "Failed to create policy '$policyName': $reason"
+                                          Context = @{ PolicyName = $policyName; CorrelationId = $CorrelationId } }
+                            $converged = $false
+                            continue
                         }
-
-                        $newPolicy = New-ADAuthenticationPolicy @newParams -PassThru
-
-                        Write-TierModelLog -Level Info -Message "AuthPolicyCreated" -Data @{
-                            PolicyName        = $policyName
-                            DistinguishedName = $newPolicy.DistinguishedName
-                            TGTLifetimeMinutes = $action.TGTLifetimeMinutes
-                            CorrelationId     = $CorrelationId
-                        } | Out-Null
-
-                        $applied += [PSCustomObject]@{
-                            Action            = 'CreateAuthPolicy'
-                            Name              = $policyName
-                            DistinguishedName = $newPolicy.DistinguishedName
-                        }
-                    } else {
-                        Write-Host "  [WhatIf] Would create Authentication Policy: $policyName" -ForegroundColor DarkYellow
-                        $skipped += [PSCustomObject]@{
-                            Action = 'CreateAuthPolicy'
-                            Name   = $policyName
-                            Reason = if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }
-                        }
+                        $resolvedSddl = Build-TierModelAuthSddl -DeviceSids $resolvedSids
                     }
 
-                } elseif ($action.Action -eq 'UpdateAuthPolicy') {
-                    # ── Reconcile drift on existing Authentication Policy ─────────────────
-                    if ($PSCmdlet.ShouldProcess("Authentication Policy: $policyName", "Set-ADAuthenticationPolicy (reconcile: $($action.DriftReasons -join '; '))")) {
-                        Write-Host "  ✅ Updating Authentication Policy: $policyName ($($action.DriftReasons -join ', '))" -ForegroundColor Green
-
-                        $setParams = @{
-                            Identity                      = $policyName
-                            Description                   = $action.Description
-                            UserAllowedToAuthenticateFrom = $action.ResolvedSddl
-                            Enforce                       = $false   # Audit mode — never enforce
-                            Server                        = $DomainController
-                            Confirm                       = $false
-                        }
-
-                        if ($null -ne $action.TGTLifetimeMinutes) {
-                            $setParams['UserTGTLifetimeMins'] = [int]$action.TGTLifetimeMinutes
-                        }
-
-                        Set-ADAuthenticationPolicy @setParams
-
-                        # ProtectedFromAccidentalDeletion is an object-level attribute,
-                        # not a parameter of Set-ADAuthenticationPolicy — use Set-ADObject.
-                        if ($action.DriftReasons | Where-Object { $_ -match 'ProtectedFromAccidentalDeletion' }) {
-                            $policyObj = Get-ADAuthenticationPolicy -Identity $policyName -Server $DomainController
-                            Set-ADObject -Identity $policyObj.DistinguishedName -ProtectedFromAccidentalDeletion $true -Server $DomainController
-                        }
-
-                        Write-TierModelLog -Level Info -Message "AuthPolicyUpdated" -Data @{
-                            PolicyName    = $policyName
-                            DriftReasons  = $action.DriftReasons
-                            CorrelationId = $CorrelationId
-                        } | Out-Null
-
-                        $applied += [PSCustomObject]@{
-                            Action       = 'UpdateAuthPolicy'
-                            Name         = $policyName
-                            DriftReasons = $action.DriftReasons
-                        }
-                    } else {
-                        Write-Host "  [WhatIf] Would update Authentication Policy: $policyName ($($action.DriftReasons -join ', '))" -ForegroundColor DarkYellow
-                        $skipped += [PSCustomObject]@{
-                            Action = 'UpdateAuthPolicy'
-                            Name   = $policyName
-                            Reason = if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }
-                        }
+                    $newParams = @{
+                        Name                            = $policyName
+                        Description                     = $action.Description
+                        UserAllowedToAuthenticateFrom   = $resolvedSddl
+                        Enforce                         = $false
+                        ProtectedFromAccidentalDeletion = $true
+                        Server                          = $DomainController
+                        Confirm                         = $false
                     }
+                    if ($null -ne $action.TGTLifetimeMinutes) {
+                        $newParams['UserTGTLifetimeMins'] = [int]$action.TGTLifetimeMinutes
+                    }
+
+                    $newPolicy = New-ADAuthenticationPolicy @newParams -PassThru
+                    Write-Host "  `u{2705} Created Authentication Policy: $policyName" -ForegroundColor Green
+                    Write-TierModelLog -Level Info -Message "AuthPolicyCreated" -Data @{
+                        PolicyName = $policyName; Dn = $newPolicy.DistinguishedName; CorrelationId = $CorrelationId
+                    } | Out-Null
+
+                    $createdNames.Add($policyName)
+                    $applied += [PSCustomObject]@{ Action = 'CreateAuthPolicy'; Name = $policyName; DistinguishedName = $newPolicy.DistinguishedName }
+                } else {
+                    Write-Host "  [WhatIf] Would create Authentication Policy: $policyName" -ForegroundColor DarkYellow
+                    $skipped += [PSCustomObject]@{ Action = 'CreateAuthPolicy'; Name = $policyName; Reason = if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' } }
                 }
             } catch {
-                Write-Host "  ERROR: Failed to apply policy '$policyName' — $($_.Exception.Message)" -ForegroundColor Red
-                Write-TierModelLog -Level Error -Message "AuthPolicyExecutionFailed" -Data @{
-                    PolicyName    = $policyName
-                    Action        = $action.Action
-                    Exception     = $_.Exception.Message
-                    CorrelationId = $CorrelationId
-                } | Out-Null
-                $errors += @{
-                    Timestamp = Get-Date
-                    Category  = 'Execution'
-                    Code      = 'AuthPolicyApplyFailed'
-                    Message   = "Failed to apply policy '$policyName': $($_.Exception.Message)"
-                    Context   = @{ PolicyName = $policyName; Action = $action.Action; CorrelationId = $CorrelationId }
+                # If it already exists (race/idempotency), skip silently rather than error
+                if ($_.Exception.Message -match 'already exists|ObjectClass.*Violation|EntryAlreadyExists') {
+                    Write-Host "  ℹ️  Policy already exists (skipping): $policyName" -ForegroundColor DarkGray
+                    $skipped += [PSCustomObject]@{ Action = 'CreateAuthPolicy'; Name = $policyName; Reason = 'AlreadyExists' }
+                } else {
+                    Write-Host "  `u{274C} Failed to create Authentication Policy: $policyName - $($_.Exception.Message)" -ForegroundColor Red
+                    $errors += @{ Timestamp = Get-Date; Category = 'Execution'; Code = 'AuthPolicyCreateFailed'
+                                  Message = "Failed to create policy '$policyName': $($_.Exception.Message)"
+                                  Context = @{ PolicyName = $policyName; CorrelationId = $CorrelationId } }
+                    $converged = $false
                 }
-                $converged = $false
             }
         }
 
         $durationMs = ((Get-Date) - $startTime).TotalMilliseconds
-
         Write-TierModelLog -Level Info -Message "AuthPolicyExecutionComplete" -Data @{
-            AppliedCount  = $applied.Count
-            SkippedCount  = $skipped.Count
-            ErrorCount    = $errors.Count
-            DurationMs    = $durationMs
-            Converged     = $converged
-            CorrelationId = $CorrelationId
+            AppliedCount = $applied.Count; SkippedCount = $skipped.Count; ErrorCount = $errors.Count
+            DurationMs = $durationMs; CorrelationId = $CorrelationId
         } | Out-Null
 
         return [PSCustomObject]@{
             Applied       = $applied
             Skipped       = $skipped
             Errors        = $errors
+            CreatedNames  = [string[]]$createdNames
             DurationMs    = $durationMs
             Converged     = $converged
             CorrelationId = $CorrelationId
         }
-
     } catch {
         Write-TierModelLog -Level Error -Message "AuthPolicyExecutionFailed" -Data @{
             Exception = $_.Exception.Message; CorrelationId = $CorrelationId
@@ -207,9 +154,9 @@ function New-TierModelAuthPolicy {
             Applied = @(); Skipped = @()
             Errors  = @(@{ Timestamp = Get-Date; Category = 'Critical'; Code = 'AuthPolicyExecutionFailed'
                            Message = $_.Exception.Message; Context = @{ CorrelationId = $CorrelationId } })
-            DurationMs = ((Get-Date) - $startTime).TotalMilliseconds
-            Converged  = $false
-            CorrelationId = $CorrelationId
+            CreatedNames  = [string[]]@()
+            DurationMs    = ((Get-Date) - $startTime).TotalMilliseconds
+            Converged     = $false; CorrelationId = $CorrelationId
         }
     }
 }

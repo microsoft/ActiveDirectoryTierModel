@@ -1,21 +1,6 @@
 {
   "schemaVersion": "1.0.0",
-  "comment": "Authentication Policy Silos and Authentication Policies for Tier Model. Optional add-on — loaded only when -IncludeAuthSilos is specified. All objects are created in audit mode (enforce: false); enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist. Both policies and silos are created with protectedFromAccidentalDeletion: true. This file defines the 8-object (4 policies + 4 silos, 1:1) model only. Supporting security groups, domain-join service accounts, and ACL delegations are defined in tiermodel-groups.json, tiermodel-users.json, and tiermodel-acls.json respectively.",
-
-  "exemptAccounts": {
-    "comment": "These domain-join service accounts are structurally exempt from all silo membership (see also the built-in Administrator under wellKnownAccounts below, which is kept exempt as an emergency break-glass account). They authenticate from ephemeral Autopilot, MDT, and orchestration hosts that are not enrolled in any approved Tier device group; siloing them would break automated device provisioning. They are members of the *DomainJoin security groups — not the *ServiceAccounts or *Admins groups — so scoping silo membership through the account groups listed in authenticationSilos naturally excludes them. This exemption is permanent and technical (not a time-bounded governance waiver). Each account must be recorded in the exemption register with compensating controls: disabled by default, enabled only during provisioning windows, create-computer rights scoped to the relevant Staging OU, and all use monitored.",
-    "samaccountnames": [
-      "svc-pawdomainjoin",
-      "svc-t1srvdomainjoin",
-      "svc-t2euddomainjoin"
-    ],
-    "wellKnownAccounts": [
-      {
-        "rid": 500,
-        "description": "Built-in domain Administrator (emergency break-glass). Identified by the domain SID relative identifier 500 (that is, <DomainSID>-500), NOT by name, because this account is commonly renamed. The deploy/audit module must resolve RID-500 at runtime and must never assign it to a silo, so an administrative recovery path always survives a silo misconfiguration or enforced-silo lockout."
-      }
-    ]
-  },
+  "comment": "Authentication Policy Silos and Authentication Policies for Tier Model. Optional add-on — loaded only when -IncludeAuthSilos is specified. All objects are created in audit mode (enforce: false); enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist. Both policies and silos are created with protectedFromAccidentalDeletion: true. Silos govern COMPUTER membership only — tier device groups (DCs, servers, PAWs, EUD) are enrolled at deploy time. Admin-account siloing is an out-of-band operator task; the Tier Model does not manage user silo membership.",
 
   "authenticationPolicies": [
     {
@@ -30,7 +15,7 @@
       ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "'Domain Controllers' and 'Read-only Domain Controllers' are built-in AD security groups (confirmed correct names; not Tier Model groups). SDDL is NOT authored in this file — the deploy module resolves each group name to a SID at runtime and builds a Member_of_any (OR-logic) SDDL for AllowedToAuthenticateFrom; using AND / Member_of_each would require a device to simultaneously belong to all listed groups and is the documented lockout failure mode."
+      "comment": "'Domain Controllers' and 'Read-only Domain Controllers' are built-in AD security groups. SDDL is NOT authored in this file — the deploy module resolves each group name to a SID at runtime and builds a Member_of_any (OR-logic) SDDL for AllowedToAuthenticateFrom."
     },
     {
       "name": "*- Tier 1 Admins Authentication Policy",
@@ -64,7 +49,7 @@
       ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "userTGTLifetimeMinutes is null (confirmed): EUD local device operators intentionally inherit the domain-default Kerberos TGT lifetime, consistent with general domain users on those endpoints — no policy-set TGT lifetime is applied for this tier. SDDL is NOT authored in this file — the deploy module resolves the group name to a SID at runtime and builds a Member_of_any SDDL."
+      "comment": "userTGTLifetimeMinutes is null (confirmed): EUD local device operators intentionally inherit the domain-default Kerberos TGT lifetime. SDDL is NOT authored in this file — the deploy module resolves the group name to a SID at runtime and builds a Member_of_any SDDL."
     }
   ],
 
@@ -79,15 +64,9 @@
         "Tier0MemberServers",
         "Tier0PAWDevices"
       ],
-      "memberAccountGroups": [
-        "Tier0Admins",
-        "Tier0Operators",
-        "Tier0ServerOperators",
-        "Tier0ServiceAccounts"
-      ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "'Domain Controllers' and 'Read-only Domain Controllers' in memberComputerGroups are built-in AD security groups (confirmed correct names). memberAccountGroups scope confirmed: all roles that must obtain a TGT for Tier 0 devices are included (Admins, Operators, ServerOperators, ServiceAccounts). Tier0VpnAccounts is intentionally excluded — VPN-connectivity accounts are not covered by the admin/operator/server-operator rule; this is a deliberate, permanent exclusion. A VPN account signs in through a non-domain-joined VPN appliance (typically NTLM or RADIUS), which an enforced authentication silo would block (NTLM cannot be Kerberos-armored and the appliance is not an approved domain-joined device); VPN access is network-only and is governed by URA, not by an authentication silo."
+      "comment": "'Domain Controllers' and 'Read-only Domain Controllers' in memberComputerGroups are built-in AD security groups (confirmed correct names). Admin-account siloing is an operator task outside TM scope."
     },
     {
       "name": "*- Tier 1 Admins Authentication Silo",
@@ -97,15 +76,9 @@
         "Tier1MemberServers",
         "Tier1PAWDevices"
       ],
-      "memberAccountGroups": [
-        "Tier1Admins",
-        "Tier1Operators",
-        "Tier1ServerOperators",
-        "Tier1ServiceAccounts"
-      ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "memberAccountGroups scope confirmed: all roles that must obtain a TGT for Tier 1 devices are included (Admins, Operators, ServerOperators, ServiceAccounts). Tier1VpnAccounts is intentionally excluded — VPN-connectivity accounts are not covered by the admin/operator/server-operator rule; this is a deliberate, permanent exclusion. A VPN account signs in through a non-domain-joined VPN appliance (typically NTLM or RADIUS), which an enforced authentication silo would block (NTLM cannot be Kerberos-armored and the appliance is not an approved domain-joined device); VPN access is network-only and is governed by URA, not by an authentication silo."
+      "comment": "Admin-account siloing is an operator task outside TM scope."
     },
     {
       "name": "*- Tier 2 Admins Authentication Silo",
@@ -114,19 +87,9 @@
       "memberComputerGroups": [
         "Tier2PAWDevices"
       ],
-      "memberAccountGroups": [
-        "Tier2Admins",
-        "Tier2Operators",
-        "Tier2AccountOperators",
-        "Tier2ComputerQuarantineOperators",
-        "Tier2DeviceOperators",
-        "Tier2GroupOperators",
-        "Tier2HelpdeskOperators",
-        "Tier2ServiceAccounts"
-      ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "memberAccountGroups scope confirmed: all Tier 2 admin and operator roles that must obtain a TGT for Tier 2 PAW devices are included. Tier2LocalDeviceOperators is intentionally excluded — it belongs to the Tier 2 EUD silo (EUD device origin restriction), not this PAW-gated silo. Tier2VpnAccounts is intentionally excluded — VPN-connectivity accounts are not covered by the admin/operator rule; this is a deliberate, permanent exclusion. A VPN account signs in through a non-domain-joined VPN appliance (typically NTLM or RADIUS), which an enforced authentication silo would block (NTLM cannot be Kerberos-armored and the appliance is not an approved domain-joined device); VPN access is network-only and is governed by URA, not by an authentication silo."
+      "comment": "Admin-account siloing is an operator task outside TM scope."
     },
     {
       "name": "*- Tier 2 EUD Authentication Silo",
@@ -135,12 +98,9 @@
       "memberComputerGroups": [
         "Tier2EUDDevices"
       ],
-      "memberAccountGroups": [
-        "Tier2LocalDeviceOperators"
-      ],
       "enforce": false,
       "protectedFromAccidentalDeletion": true,
-      "comment": "memberAccountGroups confirmed: Tier2LocalDeviceOperators is the sole account group in the EUD silo — these accounts need TGT origin restriction to EUD devices only, not PAW devices. Tier2LocalDeviceOperators is deliberately kept here and NOT moved to the Tier 2 Admins silo."
+      "comment": "EUD local device operators are siloed by computer group (Tier2EUDDevices); account siloing is an operator task outside TM scope."
     }
   ]
 }
