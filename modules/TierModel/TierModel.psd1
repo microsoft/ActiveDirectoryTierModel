@@ -77,6 +77,8 @@
         'Get-TierModelWinLapsAclFd',
         'Get-TierModelAuditRule',
         'New-TierModelAuditRule',
+        'Test-TierModelAuthPolicy',
+        'Test-TierModelAuthSilo',
         'Test-TierModelAuditRule',
         'Get-TierModelAuditRuleFd',
         'Get-TierModelAuthPolicy',
