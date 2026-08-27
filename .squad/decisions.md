@@ -6,6 +6,73 @@
 
 ---
 
+# Decision: Auth Silo Test Realignment — Create-Once Model
+
+**Date:** 2026-08-27  
+**Author:** Wolverine (Tester)  
+**Status:** Implemented
+
+---
+
+## Context
+
+Commit 244ab52 on `feature/auth-silos` shipped a major behavioral change to the `-IncludeAuthSilos` deploy pipeline:
+
+- **Create-once model**: existing policies/silos are never modified by deploy. No drift/update actions.
+- **Deferred SDDL**: plan actions carry `ResolvedSddl = $null`; SID resolution and SDDL construction happen at execution time in `New-TierModelAuthPolicy`.
+- **User membership removed**: `memberAccountGroups`, `exemptAccounts`, RID-500 exemption all gone. Silos govern computers only (`memberComputerGroups`).
+- **New cmdlet**: `Get-TierModelAuthSiloMembershipFd` — read-only planner with `-OnlyForSilos` filter.
+
+The existing `Unit.AuthSiloOperations.Tests.ps1` (88 tests) was written against the old model and had **18 failures** against the new code.
+
+---
+
+## Decision: Test-code alignment (not production-code change)
+
+Per Joel's standing directive: tests must match the already-validated, committed production code. Where tests disagreed with working code, the tests were wrong.
+
+**Key alignments:**
+
+1. **Planner `ResolvedSddl`**: changed assertion from `Should -Match 'Member_of_any'` to `Should -BeNullOrEmpty` — SDDL is deferred at plan time in the create-once model.
+2. **UpdateAuthPolicy / UpdateAuthSilo tests**: removed entirely — these actions do not exist in the create-once planner.
+3. **memberAccountGroups / exemptAccounts**: removed from test config object and all related assertions. Production schema no longer has these fields.
+4. **Test-TierModelAuthSilo "unexpected member"**: inverted — extra members beyond config are now ALLOWED (informational), not NonCompliant.
+5. **Test-TierModelAuthPolicy assertions**: fixed issue message patterns (TGT drift: `'TGT'` not `'UserTGTLifetimeMins'`; SDDL drift: `'AllowedToAuthenticate'` not `'SDDL'`).
+
+---
+
+## Coverage Decisions
+
+Three auth-silo files are below 80% with structural barriers:
+
+| File | Coverage | Barrier |
+|------|----------|---------|
+| `Set-TierModelAuthSiloMembership.ps1` | 61.5% | 221-command file; ShouldProcess-UserDeclined branch, race-condition "converged-between-precheck-and-write" path, outer catch require interactive confirmation or live-AD |
+| `Get-TierModelAuthSiloMembershipFd.ps1` | 64.7% | Inner loop reads `msDS-AssignedAuthNPolicySilo` via `Get-ADComputer`; `Get-ADUser` path never called (computer-only model by design) |
+| `New-TierModelAuthSilo.ps1` | 79.8% | Outer catastrophic catch block (requires making `Get-Date` or similar fail); structurally equivalent to `Import-TierModelGpo.ps1` which is also exempted |
+
+**Ruling**: Apply same precedent as `Audit-TierModel.ps1` (77.16%) and `Test-TierModelCanonicalAcl.ps1` (92.86% ByServer-exempt). These files are exempt from the per-file 80% gate for the bounded structural paths. All deployment-critical cmdlets are above 80%.
+
+---
+
+## Update: Coverage Gap-Fill (2026-08-27, second pass)
+
+After the initial rewrite, three files remained below 85%. A targeted second pass brought all auth-silo files to 85%+:
+
+| Script | Before | After |
+|--------|--------|-------|
+| `New-TierModelAuthSilo` | 79.8% | **99.1%** |
+| `Get-TierModelAuthSiloMembershipFd` | 64.7% | **87.8%** |
+| `Set-TierModelAuthSiloMembership` | 61.5% | **87.8%** |
+
+**Confirmed unreachable paths (per-silo outer catch):** PowerShell ScriptProperty `{ throw }` returns `""` rather than propagating, confirmed by direct test. The per-silo outer catch (`AuthSiloMembershipFdSiloFailed`, `AuthSiloMembershipSiloFailed`) requires code inside the silo-level try but outside all inner try-catch blocks to throw. All such code paths (HashSet<string> ops, bool expressions, string formatting) are highly robust and won't throw in practice. This catch exists as a defensive safety net only, not for ordinary error scenarios.
+
+**New-TierModelAuthSilo 99.1%:** Only 1 command permanently unreachable: the `'UserDeclined'` branch of `if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }` — requires interactive ShouldProcess decline.
+
+**Final suite: 1,783 tests, 0 failures, 90.9% overall coverage.**
+
+---
+
 # Decision: Auth Silos Format-Duration Contract Locking
 
 **Date:** 2026-08-24  
