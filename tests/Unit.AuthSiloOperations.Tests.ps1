@@ -9,14 +9,20 @@ Tests for the auth-silo deploy pipeline (lab-validated on TierLab-DC01):
   - Compare-TierModelAuthSddl
   - Get-TierModelAuthPolicy
   - Get-TierModelAuthSilo
-  - Get-TierModelAuthPolicyFd
-  - Get-TierModelAuthSiloFd
-  - New-TierModelAuthPolicy
+  - Get-TierModelAuthPolicyFd         (create-once model: deferred SDDL)
+  - Get-TierModelAuthSiloFd           (create-once model)
+  - Get-TierModelAuthSiloMembershipFd (read-only membership planner)
+  - New-TierModelAuthPolicy           (execution-time SID resolution)
   - New-TierModelAuthSilo
-  - Set-TierModelAuthSiloMembership
+  - Set-TierModelAuthSiloMembership   (computer-only, -OnlyForSilos)
   - Test-TierModelAuthSiloPrerequisite
+  - Test-TierModelAuthPolicy
+  - Test-TierModelAuthSilo
 
 All AD cmdlets are mocked — no live domain required.
+
+Create-once model: existing policies/silos are NEVER modified by deploy.
+SDDL is deferred to execution time; plan actions carry ResolvedSddl=$null + Data.
 
 .NOTES
 Tags: Unit, AuthSilo
@@ -36,6 +42,8 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         $script:DomainSid  = 'S-1-5-21-111-222-333'
 
         # ── Config object matching the 4-policy / 4-silo production JSON ─────────
+        # User membership (memberAccountGroups) and exempt accounts have been removed
+        # from the schema. Silos govern COMPUTERS only (memberComputerGroups).
         $script:AuthSiloConfig = [PSCustomObject]@{
             authenticationPolicies = @(
                 [PSCustomObject]@{
@@ -77,7 +85,6 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     description = 'Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.'
                     policy      = '*- Tier 0 Admins Authentication Policy'
                     memberComputerGroups = @('Domain Controllers','Read-only Domain Controllers','Tier0MemberServers','Tier0PAWDevices')
-                    memberAccountGroups  = @('Tier0Admins','Tier0Operators','Tier0ServerOperators','Tier0ServiceAccounts')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
@@ -86,7 +93,6 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     description = 'Authentication Policy Silo for Tier 1 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 1 devices.'
                     policy      = '*- Tier 1 Admins Authentication Policy'
                     memberComputerGroups = @('Tier1MemberServers','Tier1PAWDevices')
-                    memberAccountGroups  = @('Tier1Admins','Tier1Operators','Tier1ServerOperators','Tier1ServiceAccounts')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
@@ -95,7 +101,6 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     description = 'Authentication Policy Silo for Tier 2 administrators, operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 2 PAW devices.'
                     policy      = '*- Tier 2 Admins Authentication Policy'
                     memberComputerGroups = @('Tier2PAWDevices')
-                    memberAccountGroups  = @('Tier2Admins','Tier2Operators','Tier2ServiceAccounts')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
@@ -104,14 +109,10 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     description = 'Authentication Policy Silo for Tier 2 End-User Device local device operators. Silo members may only obtain Kerberos TGTs from approved Tier 2 EUD devices.'
                     policy      = '*- Tier 2 EUD Authentication Policy'
                     memberComputerGroups = @('Tier2EUDDevices')
-                    memberAccountGroups  = @('Tier2LocalDeviceOperators')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
             )
-            authSilosExemptAccounts = [PSCustomObject]@{
-                samaccountnames = @('svc-pawdomainjoin','svc-t1srvdomainjoin','svc-t2euddomainjoin')
-            }
         }
 
         # Config with no auth-silo properties (simulates config without tiermodel-authsilos.json)
@@ -215,10 +216,59 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $result.Equal  | Should -BeFalse
             $result.Reason | Should -Not -BeNullOrEmpty
         }
-    }
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Get-TierModelAuthPolicy — config parsing (no AD)
+        It "RequireSubset — desired SIDs all present, extra SIDs in existing — Equal=true, ExtraSids populated" {
+            $desired  = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001)}))'
+            $existing = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001), SID(S-1-5-21-111-222-333-9999)}))'
+            $result   = Compare-TierModelAuthSddl -DesiredSddl $desired -ExistingSddl $existing -DomainController $script:TestDC -RequireSubset
+            $result.Equal         | Should -BeTrue
+            $result.Reason        | Should -BeNullOrEmpty
+            $result.ExtraSids     | Should -Not -BeNullOrEmpty
+            $result.ExtraSids     | Should -Contain 'S-1-5-21-111-222-333-9999'
+        }
+
+        It "RequireSubset — mandatory SID missing from existing — Equal=false" {
+            $desired  = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001), SID(S-1-5-21-111-222-333-1002)}))'
+            $existing = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001)}))'
+            $result   = Compare-TierModelAuthSddl -DesiredSddl $desired -ExistingSddl $existing -DomainController $script:TestDC -RequireSubset
+            $result.Equal  | Should -BeFalse
+            $result.Reason | Should -Not -BeNullOrEmpty
+        }
+
+        It "RequireSubset — exact match — Equal=true, ExtraSids empty" {
+            $sddl   = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001)}))'
+            $result = Compare-TierModelAuthSddl -DesiredSddl $sddl -ExistingSddl $sddl -DomainController $script:TestDC -RequireSubset
+            $result.Equal         | Should -BeTrue
+            @($result.ExtraSids).Count | Should -Be 0
+        }
+
+        It "domain SID fallback via Get-ADDomain when desired SDDL has no domain SID" {
+            # Desired SDDL uses only well-known SID aliases, so domain SID must be fetched via Get-ADDomain
+            Mock Get-ADDomain -ModuleName TierModel {
+                [PSCustomObject]@{ DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' } }
+            }
+            $desired  = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-516)}))'
+            $existing = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(DD)}))'
+            $result   = Compare-TierModelAuthSddl -DesiredSddl $desired -ExistingSddl $existing -DomainController $script:TestDC
+            $result.Equal | Should -BeTrue
+        }
+
+        It "exact mode — SID count differs — Equal=false with count-differ reason" {
+            $desired  = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001), SID(S-1-5-21-111-222-333-1002)}))'
+            $existing = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1001)}))'
+            $result   = Compare-TierModelAuthSddl -DesiredSddl $desired -ExistingSddl $existing -DomainController $script:TestDC
+            $result.Equal  | Should -BeFalse
+            $result.Reason | Should -Match 'count|differ'
+        }
+
+        It "whitespace fallback when Get-ADDomain fails — identical SDDLs Equal=true" {
+            Mock Get-ADDomain -ModuleName TierModel { throw "AD connection failed" }
+            # No domain SID pattern in these SDDLs; Get-ADDomain is the fallback; both match → Equal
+            $sddl   = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-1-0)}))'
+            $result = Compare-TierModelAuthSddl -DesiredSddl $sddl -ExistingSddl $sddl -DomainController $script:TestDC
+            $result.Equal | Should -BeTrue
+        }
+    }
     # ═══════════════════════════════════════════════════════════════════════════
     Context "Get-TierModelAuthPolicy — configuration loading" {
 
@@ -292,16 +342,16 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $silo.policy | Should -Be '*- Tier 2 EUD Authentication Policy'
         }
 
-        It "Tier 0 silo member account groups include Tier0Admins and Tier0ServiceAccounts" {
+        It "Tier 0 silo member computer groups include Domain Controllers and Tier0PAWDevices" {
             $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Admins*' }
-            $silo.memberAccountGroups | Should -Contain 'Tier0Admins'
-            $silo.memberAccountGroups | Should -Contain 'Tier0ServiceAccounts'
+            $silo.memberComputerGroups | Should -Contain 'Domain Controllers'
+            $silo.memberComputerGroups | Should -Contain 'Tier0PAWDevices'
         }
 
-        It "Tier 2 EUD silo has exactly one member account group (Tier2LocalDeviceOperators)" {
+        It "Tier 2 EUD silo has exactly one member computer group (Tier2EUDDevices)" {
             $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*EUD*' }
-            @($silo.memberAccountGroups).Count | Should -Be 1
-            $silo.memberAccountGroups         | Should -Contain 'Tier2LocalDeviceOperators'
+            @($silo.memberComputerGroups).Count | Should -Be 1
+            $silo.memberComputerGroups         | Should -Contain 'Tier2EUDDevices'
         }
 
         It "returns empty array when authenticationSilos is absent from config" {
@@ -310,19 +360,13 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
     }
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # Get-TierModelAuthPolicyFd — deployment planning (mock AD)
+    # Get-TierModelAuthPolicyFd — deployment planning (create-once model)
     # ═══════════════════════════════════════════════════════════════════════════
     Context "Get-TierModelAuthPolicyFd — deployment planning" {
 
         BeforeAll {
-            # Default happy-path mocks for this context
-            Mock Resolve-TierModelPrincipalSid -ModuleName TierModel {
-                [PSCustomObject]@{ Success = $true; Sid = 'S-1-5-21-111-222-333-1234'; Error = $null }
-            }
+            # Default: policy absent from AD (first-deploy scenario)
             Mock Get-ADAuthenticationPolicy -ModuleName TierModel { throw "Policy not found" }
-            Mock Compare-TierModelAuthSddl -ModuleName TierModel {
-                [PSCustomObject]@{ Equal = $true; Reason = $null }
-            }
         }
 
         It "emits one CreateAuthPolicy action per policy absent from AD" {
@@ -330,115 +374,52 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             @($result.Actions | Where-Object { $_.Action -eq 'CreateAuthPolicy' }).Count | Should -Be 4
         }
 
-        It "CreateAuthPolicy action carries ResolvedSddl with Member_of_any (OR-logic)" {
+        It "CreateAuthPolicy action has ResolvedSddl=null — SDDL is deferred to execution time" {
             $result = Get-TierModelAuthPolicyFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
             $action = $result.Actions | Where-Object { $_.Name -like '*Tier 0*' } | Select-Object -First 1
-            $action.ResolvedSddl | Should -Match 'Member_of_any'
-            $action.ResolvedSddl | Should -Not -Match 'Member_of_each'
+            $action.ResolvedSddl | Should -BeNullOrEmpty
         }
 
-        It "AlreadyConverged — zero actions and AlreadyExist=1 when existing policy matches" {
+        It "CreateAuthPolicy action Data carries the policy config (device groups present)" {
+            $result = Get-TierModelAuthPolicyFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            $action = $result.Actions | Where-Object { $_.Name -like '*Tier 0*' } | Select-Object -First 1
+            $action.Data | Should -Not -BeNullOrEmpty
+            $action.Data.allowedToAuthenticateFromDeviceGroups | Should -Contain 'Domain Controllers'
+        }
+
+        It "create-once — existing policy produces AlreadyExist=1 and zero actions" {
             Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
                 [PSCustomObject]@{
-                    Name            = '*- Tier 0 Admins Authentication Policy'
-                    Description     = 'Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).'
-                    UserTGTLifetimeMins              = 120
-                    UserAllowedToAuthenticateFrom    = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
-                    Enforce                          = $false
-                    ProtectedFromAccidentalDeletion  = $true
+                    Name = '*- Tier 0 Admins Authentication Policy'
+                    DistinguishedName = 'CN=*- Tier 0 Admins Authentication Policy,CN=AuthN Policies,CN=Configuration,DC=test,DC=local'
                 }
             }
             $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
             $result = Get-TierModelAuthPolicyFd -Config $singleCfg -DomainController $script:TestDC
-            @($result.Actions).Count   | Should -Be 0
+            @($result.Actions).Count     | Should -Be 0
             $result.Summary.AlreadyExist | Should -Be 1
         }
 
-        It "UpdateAuthPolicy — emitted when TGT lifetime drifts" {
+        It "create-once — all 4 policies existing produces AlreadyExist=4 and zero actions" {
             Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name            = '*- Tier 0 Admins Authentication Policy'
-                    Description     = 'Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).'
-                    UserTGTLifetimeMins              = 999  # drifted
-                    UserAllowedToAuthenticateFrom    = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
-                    Enforce                          = $false
-                    ProtectedFromAccidentalDeletion  = $true
-                }
+                param($Identity)
+                [PSCustomObject]@{ Name = "$Identity"; DistinguishedName = "CN=$Identity,CN=AuthN Policies,CN=Configuration,DC=test,DC=local" }
             }
-            $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
-            $result = Get-TierModelAuthPolicyFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthPolicy' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'UserTGTLifetimeMins' }) | Should -Not -BeNullOrEmpty
+            $result = Get-TierModelAuthPolicyFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            @($result.Actions).Count     | Should -Be 0
+            $result.Summary.AlreadyExist | Should -Be 4
         }
 
-        It "UpdateAuthPolicy — emitted when SDDL drifts" {
-            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name            = '*- Tier 0 Admins Authentication Policy'
-                    Description     = 'Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).'
-                    UserTGTLifetimeMins              = 120
-                    UserAllowedToAuthenticateFrom    = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-9999)}))'
-                    Enforce                          = $false
-                    ProtectedFromAccidentalDeletion  = $true
-                }
-            }
-            Mock Compare-TierModelAuthSddl -ModuleName TierModel {
-                [PSCustomObject]@{ Equal = $false; Reason = 'Device group SID sets differ' }
-            }
-            $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
-            $result = Get-TierModelAuthPolicyFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthPolicy' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'SDDL' }) | Should -Not -BeNullOrEmpty
+        It "empty config returns zero actions" {
+            $result = Get-TierModelAuthPolicyFd -Config $script:ConfigEmpty -DomainController $script:TestDC
+            @($result.Actions).Count | Should -Be 0
         }
 
-        It "UpdateAuthPolicy — emitted when ProtectedFromAccidentalDeletion is false" {
-            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name            = '*- Tier 0 Admins Authentication Policy'
-                    Description     = 'Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).'
-                    UserTGTLifetimeMins              = 120
-                    UserAllowedToAuthenticateFrom    = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
-                    Enforce                          = $false
-                    ProtectedFromAccidentalDeletion  = $false  # drift
-                }
+        It "result carries required envelope properties" {
+            $result = Get-TierModelAuthPolicyFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            foreach ($p in @('Actions','Summary','Warnings','Errors','DurationMs','CorrelationId')) {
+                $result.PSObject.Properties.Name | Should -Contain $p
             }
-            $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
-            $result = Get-TierModelAuthPolicyFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthPolicy' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'ProtectedFromAccidentalDeletion' }) | Should -Not -BeNullOrEmpty
-        }
-
-        It "error recorded and policy skipped when SID resolution fails" {
-            Mock Resolve-TierModelPrincipalSid -ModuleName TierModel {
-                [PSCustomObject]@{ Success = $false; Sid = $null; Error = 'Group not found in AD' }
-            }
-            $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
-            $result = Get-TierModelAuthPolicyFd -Config $singleCfg -DomainController $script:TestDC
-            $result.Errors.Count      | Should -BeGreaterThan 0
-            @($result.Actions).Count  | Should -Be 0
-        }
-
-        It "null TGT config (EUD) — no TGT drift when existing TGT is also absent" {
-            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name            = '*- Tier 2 EUD Authentication Policy'
-                    Description     = 'Authentication Policy for Tier 2 End-User Device local device operators. Restricts Kerberos TGT issuance to approved Tier 2 EUD origin devices; the Kerberos TGT lifetime is not lowered here, so EUD accounts inherit the domain-default lifetime (about 10 hours).'
-                    UserTGTLifetimeMins              = $null
-                    UserAllowedToAuthenticateFrom    = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
-                    Enforce                          = $false
-                    ProtectedFromAccidentalDeletion  = $true
-                }
-            }
-            # Index 3 = EUD policy with null TGT
-            $eudCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[3]) }
-            $result = Get-TierModelAuthPolicyFd -Config $eudCfg -DomainController $script:TestDC
-            $tgtDrift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthPolicy' } |
-                        ForEach-Object { $_.DriftReasons } |
-                        Where-Object { $_ -match 'UserTGTLifetimeMins' }
-            $tgtDrift | Should -BeNullOrEmpty
         }
     }
 
@@ -511,75 +492,37 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $result.Summary.AlreadyExist | Should -Be 1
         }
 
-        It "UpdateAuthSilo — emitted when description drifts" {
+        It "create-once — all 4 silos existing produces AlreadyExist=4 and zero actions" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name                         = '*- Tier 0 Admins Authentication Silo'
-                    Description                  = 'Old description'  # drift
-                    Enforce                      = $false
-                    ProtectedFromAccidentalDeletion = $true
-                    UserAuthenticationPolicy     = '*- Tier 0 Admins Authentication Policy'
-                    ComputerAuthenticationPolicy = '*- Tier 0 Admins Authentication Policy'
-                    ServiceAuthenticationPolicy  = '*- Tier 0 Admins Authentication Policy'
-                }
+                param($Identity)
+                [PSCustomObject]@{ Name = "$Identity"; DistinguishedName = "CN=$Identity,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local" }
             }
-            $singleCfg = [PSCustomObject]@{
-                authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies)
-                authenticationSilos    = @($script:AuthSiloConfig.authenticationSilos[0])
-            }
-            $result = Get-TierModelAuthSiloFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthSilo' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'Description' }) | Should -Not -BeNullOrEmpty
+            $result = Get-TierModelAuthSiloFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            @($result.Actions).Count     | Should -Be 0
+            $result.Summary.AlreadyExist | Should -Be 4
         }
 
-        It "UpdateAuthSilo — emitted when ProtectedFromAccidentalDeletion is false" {
-            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name                         = '*- Tier 0 Admins Authentication Silo'
-                    Description                  = 'Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.'
-                    Enforce                      = $false
-                    ProtectedFromAccidentalDeletion = $false  # drift
-                    UserAuthenticationPolicy     = '*- Tier 0 Admins Authentication Policy'
-                    ComputerAuthenticationPolicy = '*- Tier 0 Admins Authentication Policy'
-                    ServiceAuthenticationPolicy  = '*- Tier 0 Admins Authentication Policy'
-                }
-            }
-            $singleCfg = [PSCustomObject]@{
-                authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies)
-                authenticationSilos    = @($script:AuthSiloConfig.authenticationSilos[0])
-            }
-            $result = Get-TierModelAuthSiloFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthSilo' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'ProtectedFromAccidentalDeletion' }) | Should -Not -BeNullOrEmpty
+        It "CreateAuthSilo action carries PolicyDn=null — resolved at execution time" {
+            $result = Get-TierModelAuthSiloFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            $action = $result.Actions | Where-Object { $_.Name -like '*Tier 0*' } | Select-Object -First 1
+            $action.PolicyDn | Should -BeNullOrEmpty
         }
 
-        It "UpdateAuthSilo — emitted when UserAuthenticationPolicy reference drifts" {
-            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name                         = '*- Tier 0 Admins Authentication Silo'
-                    Description                  = 'Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.'
-                    Enforce                      = $false
-                    ProtectedFromAccidentalDeletion = $true
-                    UserAuthenticationPolicy     = 'Wrong Policy'  # drift
-                    ComputerAuthenticationPolicy = '*- Tier 0 Admins Authentication Policy'
-                    ServiceAuthenticationPolicy  = '*- Tier 0 Admins Authentication Policy'
-                }
+        It "empty config returns zero actions" {
+            $result = Get-TierModelAuthSiloFd -Config $script:ConfigEmpty -DomainController $script:TestDC
+            @($result.Actions).Count | Should -Be 0
+        }
+
+        It "result carries required envelope properties" {
+            $result = Get-TierModelAuthSiloFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
+            foreach ($p in @('Actions','Summary','Warnings','Errors','DurationMs','CorrelationId')) {
+                $result.PSObject.Properties.Name | Should -Contain $p
             }
-            $singleCfg = [PSCustomObject]@{
-                authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies)
-                authenticationSilos    = @($script:AuthSiloConfig.authenticationSilos[0])
-            }
-            $result = Get-TierModelAuthSiloFd -Config $singleCfg -DomainController $script:TestDC
-            $drift = $result.Actions | Where-Object { $_.Action -eq 'UpdateAuthSilo' }
-            $drift | Should -Not -BeNullOrEmpty
-            ($drift.DriftReasons | Where-Object { $_ -match 'UserAuthenticationPolicy' }) | Should -Not -BeNullOrEmpty
         }
     }
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # New-TierModelAuthPolicy — apply (mock New-AD* / Set-AD*)
+    # New-TierModelAuthPolicy — execution (create-once, deferred SDDL)
     # ═══════════════════════════════════════════════════════════════════════════
     Context "New-TierModelAuthPolicy — execution" {
 
@@ -601,21 +544,32 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     DistinguishedName = "CN=$Identity,CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local"
                 }
             }
-            Mock Set-ADObject -ModuleName TierModel { }
+            Mock Set-ADObject          -ModuleName TierModel { }
+            Mock Resolve-TierModelPrincipalSid -ModuleName TierModel {
+                [PSCustomObject]@{ Success = $true; Sid = 'S-1-5-21-111-222-333-1234'; Error = $null }
+            }
+            Mock Build-TierModelAuthSddl -ModuleName TierModel {
+                'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
+            }
 
-            # Helper: minimal auth-policy plan (defined in BeforeAll so It blocks can see it)
+            # Helper: plan with ResolvedSddl=$null and Data (create-once default)
             function NewAuthPolicyPlan {
-                param([string]$Name = 'Test T0 Policy', [object]$TGT = 120, [string]$Action = 'CreateAuthPolicy')
+                param(
+                    [string]$Name = 'Test T0 Policy',
+                    [object]$TGT  = 120,
+                    [string]$ResolvedSddl = $null
+                )
                 [PSCustomObject]@{
                     Actions = @(
                         [PSCustomObject]@{
-                            Action             = $Action
+                            Action             = 'CreateAuthPolicy'
                             Name               = $Name
                             Description        = 'Test description'
                             TGTLifetimeMinutes = $TGT
-                            ResolvedSddl       = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234)}))'
-                            DriftReasons       = @('Description differs')
-                            Data               = [PSCustomObject]@{}
+                            ResolvedSddl       = $ResolvedSddl
+                            Data               = [PSCustomObject]@{
+                                allowedToAuthenticateFromDeviceGroups = @('DeviceGroup1')
+                            }
                         }
                     )
                 }
@@ -625,8 +579,8 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         It "calls New-ADAuthenticationPolicy for a CreateAuthPolicy action" {
             $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan) -DomainController $script:TestDC
             Should -Invoke New-ADAuthenticationPolicy -ModuleName TierModel -Times 1
-            $result.Applied.Count | Should -Be 1
-            $result.Applied[0].Action | Should -Be 'CreateAuthPolicy'
+            $result.Applied.Count         | Should -Be 1
+            $result.Applied[0].Action     | Should -Be 'CreateAuthPolicy'
         }
 
         It "always creates in audit mode — Enforce=false is splatted to New-ADAuthenticationPolicy" {
@@ -670,19 +624,80 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             InModuleScope TierModel { $script:NewPolicyTGTBound | Should -BeFalse }
         }
 
-        It "calls Set-ADAuthenticationPolicy for an UpdateAuthPolicy action" {
-            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan -Action 'UpdateAuthPolicy') -DomainController $script:TestDC
-            Should -Invoke Set-ADAuthenticationPolicy -ModuleName TierModel -Times 1
-            $result.Applied.Count | Should -Be 1
-            $result.Applied[0].Action | Should -Be 'UpdateAuthPolicy'
+        It "deferred SDDL — executor calls Resolve-TierModelPrincipalSid when ResolvedSddl=null" {
+            # Plan has ResolvedSddl=$null; executor must resolve and build
+            New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan -ResolvedSddl $null) -DomainController $script:TestDC
+            Should -Invoke Resolve-TierModelPrincipalSid -ModuleName TierModel -Times 1
+        }
+
+        It "pre-supplied ResolvedSddl is honored — Resolve-TierModelPrincipalSid is NOT called" {
+            # Plan has ResolvedSddl pre-set (backward-compat); executor must use it directly
+            $preSetSddl = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-5678)}))'
+            New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan -ResolvedSddl $preSetSddl) -DomainController $script:TestDC
+            Should -Invoke Resolve-TierModelPrincipalSid -ModuleName TierModel -Times 0
+        }
+
+        It "SID resolution failure — SidResolutionFailed error recorded, Converged=false" {
+            Mock Resolve-TierModelPrincipalSid -ModuleName TierModel {
+                [PSCustomObject]@{ Success = $false; Sid = $null; Error = 'Group not found in AD' }
+            }
+            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan -ResolvedSddl $null) -DomainController $script:TestDC
+            $result.Converged    | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'SidResolutionFailed' }) | Should -Not -BeNullOrEmpty
+            Should -Invoke New-ADAuthenticationPolicy -ModuleName TierModel -Times 0
+        }
+
+        It "CreatedNames contains the name of the created policy" {
+            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan -Name 'My Policy') -DomainController $script:TestDC
+            $result.CreatedNames | Should -Contain 'My Policy'
+        }
+
+        It "already-exists exception — skipped with AlreadyExists reason, Converged=true" {
+            Mock New-ADAuthenticationPolicy -ModuleName TierModel {
+                throw [System.Exception]::new("Object already exists")
+            }
+            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan) -DomainController $script:TestDC
+            $result.Converged    | Should -BeTrue
+            ($result.Skipped | Where-Object { $_.Reason -eq 'AlreadyExists' }) | Should -Not -BeNullOrEmpty
         }
 
         It "empty plan produces no AD write calls and Converged=true" {
             $emptyPlan = [PSCustomObject]@{ Actions = @() }
             $result = New-TierModelAuthPolicy -Plan $emptyPlan -DomainController $script:TestDC
             Should -Invoke New-ADAuthenticationPolicy -ModuleName TierModel -Times 0
-            Should -Invoke Set-ADAuthenticationPolicy -ModuleName TierModel -Times 0
             $result.Converged | Should -BeTrue
+        }
+
+        It "WhatIf — no AD writes, skipped entry with Reason=WhatIf" {
+            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan) -DomainController $script:TestDC -WhatIf
+            Should -Invoke New-ADAuthenticationPolicy -ModuleName TierModel -Times 0
+            ($result.Skipped | Where-Object { $_.Reason -eq 'WhatIf' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "non-already-exists exception — error recorded, Converged=false" {
+            Mock New-ADAuthenticationPolicy -ModuleName TierModel {
+                throw [System.Exception]::new("Server is unavailable")
+            }
+            $result = New-TierModelAuthPolicy -Plan (NewAuthPolicyPlan) -DomainController $script:TestDC
+            $result.Converged     | Should -BeFalse
+            $result.Errors.Count  | Should -BeGreaterThan 0
+        }
+
+        It "multiple device groups — Resolve called for each group" {
+            $multiPlan = [PSCustomObject]@{
+                Actions = @([PSCustomObject]@{
+                    Action             = 'CreateAuthPolicy'
+                    Name               = 'Multi Group Policy'
+                    Description        = 'Test'
+                    TGTLifetimeMinutes = 120
+                    ResolvedSddl       = $null
+                    Data               = [PSCustomObject]@{
+                        allowedToAuthenticateFromDeviceGroups = @('Group1','Group2','Group3')
+                    }
+                })
+            }
+            New-TierModelAuthPolicy -Plan $multiPlan -DomainController $script:TestDC
+            Should -Invoke Resolve-TierModelPrincipalSid -ModuleName TierModel -Times 3
         }
     }
 
@@ -769,134 +784,264 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             }
         }
 
-        It "calls Set-ADAuthenticationPolicySilo for an UpdateAuthSilo action" {
-            $result = New-TierModelAuthSilo -Plan (NewSiloPlan -Action 'UpdateAuthSilo') -DomainController $script:TestDC
-            Should -Invoke Set-ADAuthenticationPolicySilo -ModuleName TierModel -Times 1
-            $result.Applied.Count     | Should -Be 1
-            $result.Applied[0].Action | Should -Be 'UpdateAuthSilo'
-        }
-
         It "empty plan produces no AD write calls and Converged=true" {
             $emptyPlan = [PSCustomObject]@{ Actions = @() }
             $result = New-TierModelAuthSilo -Plan $emptyPlan -DomainController $script:TestDC
             Should -Invoke New-ADAuthenticationPolicySilo -ModuleName TierModel -Times 0
-            Should -Invoke Set-ADAuthenticationPolicySilo -ModuleName TierModel -Times 0
             $result.Converged | Should -BeTrue
         }
-    }
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Set-TierModelAuthSiloMembership — membership assignment (mock all AD)
-    # ═══════════════════════════════════════════════════════════════════════════
+        It "CreatedSiloNames contains the name of the created silo" {
+            $result = New-TierModelAuthSilo -Plan (NewSiloPlan -Name 'My New Silo') -DomainController $script:TestDC
+            $result.CreatedSiloNames | Should -Contain 'My New Silo'
+        }
+
+        It "already-exists exception — skipped with AlreadyExists reason, Converged=true" {
+            Mock New-ADAuthenticationPolicySilo -ModuleName TierModel {
+                throw [System.Exception]::new("Object already exists")
+            }
+            $result = New-TierModelAuthSilo -Plan (NewSiloPlan) -DomainController $script:TestDC
+            $result.Converged | Should -BeTrue
+            ($result.Skipped | Where-Object { $_.Reason -eq 'AlreadyExists' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "WhatIf — no AD writes, skipped entry with Reason=WhatIf" {
+            $result = New-TierModelAuthSilo -Plan (NewSiloPlan) -DomainController $script:TestDC -WhatIf
+            Should -Invoke New-ADAuthenticationPolicySilo -ModuleName TierModel -Times 0
+            ($result.Skipped | Where-Object { $_.Reason -eq 'WhatIf' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "non-already-exists exception — error recorded, Converged=false" {
+            Mock New-ADAuthenticationPolicySilo -ModuleName TierModel {
+                throw [System.Exception]::new("Server is unavailable")
+            }
+            $result = New-TierModelAuthSilo -Plan (NewSiloPlan) -DomainController $script:TestDC
+            $result.Converged    | Should -BeFalse
+            $result.Errors.Count | Should -BeGreaterThan 0
+        }
+
+        It "outer catch — AuthSiloExecutionFailed on log failure inside try block" {
+            # Make Write-TierModelLog throw on the 2nd call — which is "AuthSiloExecutionComplete"
+            # inside the outer try block → triggers the outer function catch
+            InModuleScope TierModel {
+                $script:_tl_count = 0
+                Mock Write-TierModelLog {
+                    $script:_tl_count++
+                    if ($script:_tl_count -eq 2) { throw "Simulated log failure" }
+                }
+            }
+            $emptyPlan = [PSCustomObject]@{ Actions = @() }
+            $result = New-TierModelAuthSilo -Plan $emptyPlan -DomainController $script:TestDC
+            $result.Converged | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'AuthSiloExecutionFailed' }) | Should -Not -BeNullOrEmpty
+        }
+    }
     Context "Set-TierModelAuthSiloMembership — membership assignment" {
 
         BeforeAll {
-            Mock Get-ADDomain -ModuleName TierModel {
-                [PSCustomObject]@{ DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' } }
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                param($Identity, $Properties)
+                [PSCustomObject]@{ Name = "$Identity"; Members = @() }
             }
-            Mock Get-ADUser -ModuleName TierModel {
+            Mock Get-ADComputer -ModuleName TierModel {
                 param($Identity, $Properties, $Server, $ErrorAction)
-                if ("$Identity" -eq 'S-1-5-21-111-222-333-500') {
-                    [PSCustomObject]@{ SamAccountName = 'Administrator'; DistinguishedName = 'CN=Administrator,CN=Users,DC=test,DC=local' }
-                } else {
-                    [PSCustomObject]@{ SamAccountName = "$Identity"; DistinguishedName = "CN=$Identity,OU=T0,DC=test,DC=local"; 'msDS-AssignedAuthNPolicySilo' = $null }
+                [PSCustomObject]@{
+                    SamAccountName = "$Identity"
+                    DistinguishedName = "CN=$Identity,OU=Computers,DC=test,DC=local"
+                    'msDS-AssignedAuthNPolicySilo' = $null
                 }
             }
             Mock Get-ADGroupMember -ModuleName TierModel {
                 param($Identity)
-                if ("$Identity" -eq 'Tier0Admins') {
-                    @([PSCustomObject]@{ SamAccountName = 'Tier0Admin1'; DistinguishedName = 'CN=Tier0Admin1,OU=T0,DC=test,DC=local'; objectClass = 'user' })
+                if ("$Identity" -eq 'Tier0PAWDevices') {
+                    @([PSCustomObject]@{ SamAccountName = 'PAW01$'; DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'; objectClass = 'computer' })
                 } else {
                     @()
                 }
             }
-            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @() }
-            }
-            Mock Grant-ADAuthenticationPolicySiloAccess     -ModuleName TierModel { }
-            Mock Set-ADAccountAuthenticationPolicySilo      -ModuleName TierModel { }
+            Mock Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel { }
+            Mock Set-ADAccountAuthenticationPolicySilo  -ModuleName TierModel { }
 
-            # Helper: minimal config for one silo (defined in BeforeAll so It blocks can see it)
+            # Computer-only silo config helper (no memberAccountGroups, no exemptAccounts)
             function OneSiloConfig {
-                param([string]$SiloName = 'T0 Silo', [string[]]$AccountGroups = @('Tier0Admins'), [string[]]$ExemptSams = @())
+                param([string]$SiloName = 'T0 Silo', [string[]]$ComputerGroups = @('Tier0PAWDevices'))
                 [PSCustomObject]@{
                     authenticationSilos = @(
                         [PSCustomObject]@{
                             name                 = $SiloName
-                            memberComputerGroups = @()
-                            memberAccountGroups  = $AccountGroups
+                            memberComputerGroups = $ComputerGroups
                         }
                     )
-                    authSilosExemptAccounts = [PSCustomObject]@{ samaccountnames = $ExemptSams }
                 }
             }
         }
 
-        It "Grant-ADAuthenticationPolicySiloAccess is called BEFORE Set-ADAccountAuthenticationPolicySilo" {
+        It "computer member is assigned — Grant then Set both called" {
             InModuleScope TierModel {
                 $script:SiloMemberCallOrder = [System.Collections.Generic.List[string]]::new()
                 Mock Grant-ADAuthenticationPolicySiloAccess { $script:SiloMemberCallOrder.Add('Grant') }
                 Mock Set-ADAccountAuthenticationPolicySilo  { $script:SiloMemberCallOrder.Add('Set') }
             }
-            Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
             InModuleScope TierModel {
-                $script:SiloMemberCallOrder.Count | Should -BeGreaterThan 1
-                $script:SiloMemberCallOrder[0]    | Should -Be 'Grant'
-                $script:SiloMemberCallOrder[1]    | Should -Be 'Set'
+                $script:SiloMemberCallOrder | Should -Contain 'Grant'
+                $script:SiloMemberCallOrder | Should -Contain 'Set'
+                $script:SiloMemberCallOrder.IndexOf('Grant') | Should -BeLessThan $script:SiloMemberCallOrder.IndexOf('Set')
             }
         }
 
-        It "configured exempt accounts (svc-pawdomainjoin) are skipped — not assigned, Reason=ExemptAccount" {
-            Mock Get-ADGroupMember -ModuleName TierModel {
-                @(
-                    [PSCustomObject]@{ SamAccountName = 'svc-pawdomainjoin'; DistinguishedName = 'CN=svc-pawdomainjoin,OU=SVC,DC=test,DC=local'; objectClass = 'user' }
-                    [PSCustomObject]@{ SamAccountName = 'Tier0Admin1';       DistinguishedName = 'CN=Tier0Admin1,OU=T0,DC=test,DC=local';          objectClass = 'user' }
-                )
-            }
-            $cfg = OneSiloConfig -ExemptSams @('svc-pawdomainjoin','svc-t1srvdomainjoin','svc-t2euddomainjoin')
-            $result = Set-TierModelAuthSiloMembership -Config $cfg -DomainController $script:TestDC
-            $exemptSkip = $result.Skipped | Where-Object { $_.SamAccountName -eq 'svc-pawdomainjoin' }
-            $exemptSkip          | Should -Not -BeNullOrEmpty
-            $exemptSkip.Reason   | Should -Be 'ExemptAccount'
-            # Non-exempt account is still applied
-            ($result.Applied | Where-Object { $_.SamAccountName -eq 'Tier0Admin1' }) | Should -Not -BeNullOrEmpty
-        }
-
-        It "RID-500 built-in Administrator is skipped — not assigned to any silo" {
-            Mock Get-ADGroupMember -ModuleName TierModel {
-                @(
-                    [PSCustomObject]@{ SamAccountName = 'Administrator'; DistinguishedName = 'CN=Administrator,CN=Users,DC=test,DC=local'; objectClass = 'user' }
-                    [PSCustomObject]@{ SamAccountName = 'Tier0Admin1';   DistinguishedName = 'CN=Tier0Admin1,OU=T0,DC=test,DC=local';       objectClass = 'user' }
-                )
-            }
-            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig -ExemptSams @()) -DomainController $script:TestDC
-            ($result.Skipped | Where-Object { $_.SamAccountName -eq 'Administrator' }) | Should -Not -BeNullOrEmpty
-        }
-
-        It "already-assigned account — skipped with Reason=AlreadyAssigned, no Grant/Set calls" {
-            # Silo already holds the account's DN in Members; account already has silo stamped
+        It "already-assigned computer — skipped with Reason=AlreadyAssigned, no Grant/Set calls" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=Tier0Admin1,OU=T0,DC=test,DC=local') }
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
             }
-            Mock Get-ADUser -ModuleName TierModel {
-                param($Identity)
-                if ("$Identity" -eq 'S-1-5-21-111-222-333-500') {
-                    [PSCustomObject]@{ SamAccountName = 'Administrator' }
-                } else {
-                    [PSCustomObject]@{ SamAccountName = "$Identity"; DistinguishedName = "CN=$Identity,OU=T0,DC=test,DC=local"; 'msDS-AssignedAuthNPolicySilo' = 'T0 Silo' }
+            Mock Get-ADComputer -ModuleName TierModel {
+                param($Identity, $Properties)
+                [PSCustomObject]@{
+                    SamAccountName = "$Identity"
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = 'T0 Silo'
                 }
             }
-            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig -ExemptSams @()) -DomainController $script:TestDC
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
             ($result.Skipped | Where-Object { $_.Reason -eq 'AlreadyAssigned' }) | Should -Not -BeNullOrEmpty
             Should -Invoke Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel -Times 0
             Should -Invoke Set-ADAccountAuthenticationPolicySilo  -ModuleName TierModel -Times 0
         }
 
-        It "empty groups — zero Applied entries and zero Errors" {
+        It "empty computer groups — zero Applied entries and zero Errors" {
             Mock Get-ADGroupMember -ModuleName TierModel { @() }
-            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig -AccountGroups @('EmptyGroup') -ExemptSams @()) -DomainController $script:TestDC
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig -ComputerGroups @('EmptyGroup')) -DomainController $script:TestDC
             $result.Applied.Count | Should -Be 0
             $result.Errors.Count  | Should -Be 0
+        }
+
+        It "-OnlyForSilos empty list — no silos processed (create-once noop)" {
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC -OnlyForSilos @()
+            $result.Applied.Count | Should -Be 0
+            Should -Invoke Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel -Times 0
+        }
+
+        It "-OnlyForSilos with matching silo — only that silo is processed" {
+            $twoCfg = [PSCustomObject]@{
+                authenticationSilos = @(
+                    [PSCustomObject]@{ name = 'T0 Silo'; memberComputerGroups = @('Tier0PAWDevices') }
+                    [PSCustomObject]@{ name = 'T1 Silo'; memberComputerGroups = @('Tier0PAWDevices') }
+                )
+            }
+            # Only pass T0 Silo as the created silo
+            $result = Set-TierModelAuthSiloMembership -Config $twoCfg -DomainController $script:TestDC -OnlyForSilos @('T0 Silo')
+            # T0 Silo processed, T1 Silo skipped — Applied contains only T0 Silo entries
+            $t1Applied = $result.Applied | Where-Object { $_.SiloName -eq 'T1 Silo' }
+            $t1Applied | Should -BeNullOrEmpty
+        }
+
+        It "-OnlyForSilos omitted — all silos are processed (backwards-compat)" {
+            $twoCfg = [PSCustomObject]@{
+                authenticationSilos = @(
+                    [PSCustomObject]@{ name = 'T0 Silo'; memberComputerGroups = @('Tier0PAWDevices') }
+                    [PSCustomObject]@{ name = 'T1 Silo'; memberComputerGroups = @() }
+                )
+            }
+            $result = Set-TierModelAuthSiloMembership -Config $twoCfg -DomainController $script:TestDC
+            # Should process both silos (T1 has no members so no Grant/Set, but no errors)
+            $result.Errors.Count | Should -Be 0
+        }
+
+        It "silo not found in AD — error recorded, Converged=false" {
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel { throw "Silo not found in AD" }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            $result.Converged    | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'AuthSiloNotFound' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "WhatIf — no Grant/Set calls, pending computers go to Skipped" {
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC -WhatIf
+            Should -Invoke Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel -Times 0
+            Should -Invoke Set-ADAccountAuthenticationPolicySilo  -ModuleName TierModel -Times 0
+            ($result.Skipped | Where-Object { $_.Reason -eq 'WhatIf' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "already-granted but not assigned — only Set step called" {
+            # Silo already has DN in Members (Grant done) but account's silo ref is wrong
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
+            }
+            Mock Get-ADComputer -ModuleName TierModel {
+                [PSCustomObject]@{
+                    SamAccountName = 'PAW01$'
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = $null   # Set not done yet
+                }
+            }
+            InModuleScope TierModel {
+                $script:GrantCallCount = 0
+                $script:SetCallCount   = 0
+                Mock Grant-ADAuthenticationPolicySiloAccess { $script:GrantCallCount++ }
+                Mock Set-ADAccountAuthenticationPolicySilo  { $script:SetCallCount++ }
+            }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            InModuleScope TierModel {
+                $script:GrantCallCount | Should -Be 0   # Grant already done (in Members)
+                $script:SetCallCount   | Should -Be 1   # Set still needed
+            }
+        }
+
+        It "empty config — zero applied" {
+            $localEmptyCfg = [PSCustomObject]@{ authenticationSilos = @() }
+            $result = Set-TierModelAuthSiloMembership -Config $localEmptyCfg -DomainController $script:TestDC
+            $result.Applied.Count | Should -Be 0
+        }
+
+        It "group expand failure — GroupExpandFailed error recorded, Converged=false" {
+            Mock Get-ADGroupMember -ModuleName TierModel {
+                throw "Cannot reach domain controller"
+            }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            $result.Converged | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'GroupExpandFailed' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "pre-check Get-ADComputer throws — warning logged, computer assigned anyway" {
+            # Pre-check failure is non-fatal: computer is treated as pending and ShouldProcess is called
+            Mock Get-ADComputer -ModuleName TierModel {
+                throw "Computer read failed"
+            }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            # Applied should contain the computer (pre-check failure → assume pending → write)
+            $result.Applied.Count | Should -BeGreaterThan 0
+        }
+
+        It "DN-format preCheck silo ref — computed correctly for already-assigned check" {
+            # msDS-AssignedAuthNPolicySilo is a full DN — CN= prefix must be stripped
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
+            }
+            Mock Get-ADComputer -ModuleName TierModel {
+                [PSCustomObject]@{
+                    SamAccountName    = 'PAW01$'
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                }
+            }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            # Already assigned (both Grant done + Set done with DN-format ref) → skipped
+            ($result.Skipped | Where-Object { $_.Reason -eq 'AlreadyAssigned' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "Grant throws — AssignSiloMembershipFailed error recorded, Converged=false" {
+            Mock Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel {
+                throw "Access denied"
+            }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            $result.Converged | Should -BeFalse
+            ($result.Errors | Where-Object { $_.Code -eq 'AssignSiloMembershipFailed' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "outer function catch — AuthSiloMembershipFailed on Get-TierModelAuthSilo throw" {
+            Mock Get-TierModelAuthSilo -ModuleName TierModel { throw "Config read failure" }
+            $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
+            ($result.Errors | Where-Object { $_.Code -eq 'AuthSiloMembershipFailed' }) | Should -Not -BeNullOrEmpty
+            $result.Converged | Should -BeFalse
         }
     }
 
@@ -921,9 +1066,9 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             @($result.Failures).Count | Should -Be 0
         }
 
-        It "Checked count covers unique groups across all three reference lists (device/computer/account)" {
+        It "Checked count covers unique groups referenced across device groups and computer groups" {
             $result = Test-TierModelAuthSiloPrerequisite -Config $script:AuthSiloConfig -DomainController $script:TestDC
-            # 4 device groups (T0) + 2+1+1 more (T1/T2/EUD) + computer/account groups = well above 5
+            # T0: 4 device groups + 4 computer groups; T1: 2+2; T2: 1+1; EUD: 1+1 (unique across silos)
             $result.Checked | Should -BeGreaterThan 5
         }
 
@@ -939,15 +1084,16 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             ($result.Failures | Where-Object { $_ -match $missingGroup }) | Should -Not -BeNullOrEmpty
         }
 
-        It "Passed=false and failure message names the missing member account group" {
+        It "Passed=false and failure message names the missing computer group" {
+            $missingGroup = 'Domain Controllers'
             Mock Get-ADGroup -ModuleName TierModel {
                 param($Identity)
-                if ("$Identity" -eq 'Tier0Admins') { throw "Group not found: $Identity" }
+                if ("$Identity" -eq 'Domain Controllers') { throw "Group not found: $Identity" }
                 [PSCustomObject]@{ Name = "$Identity" }
             }
             $result = Test-TierModelAuthSiloPrerequisite -Config $script:AuthSiloConfig -DomainController $script:TestDC
             $result.Passed | Should -BeFalse
-            ($result.Failures | Where-Object { $_ -match 'Tier0Admins' }) | Should -Not -BeNullOrEmpty
+            ($result.Failures | Where-Object { $_ -match $missingGroup }) | Should -Not -BeNullOrEmpty
         }
 
         It "does NOT check user accounts — Get-ADUser is never called" {
@@ -1047,7 +1193,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $result = Test-TierModelAuthPolicy -Config $script:OnePolicyCfg -DomainController $script:TestDC -Silent
             $f = $result.Findings | Select-Object -First 1
             $f.Status | Should -Be 'NonCompliant'
-            ($f.Issues | Where-Object { $_ -match 'UserTGTLifetimeMins' }) | Should -Not -BeNullOrEmpty
+            ($f.Issues | Where-Object { $_ -match 'TGT' }) | Should -Not -BeNullOrEmpty
         }
 
         It "NonCompliant on UserAllowedToAuthenticateFrom SDDL drift (different SID in AD)" {
@@ -1063,7 +1209,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $result = Test-TierModelAuthPolicy -Config $script:OnePolicyCfg -DomainController $script:TestDC -Silent
             $f = $result.Findings | Select-Object -First 1
             $f.Status | Should -Be 'NonCompliant'
-            ($f.Issues | Where-Object { $_ -match 'SDDL' }) | Should -Not -BeNullOrEmpty
+            ($f.Issues | Where-Object { $_ -match 'AllowedToAuthenticate' }) | Should -Not -BeNullOrEmpty
         }
 
         It "NonCompliant on ProtectedFromAccidentalDeletion=false" {
@@ -1178,6 +1324,53 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             $result.Missing      | Should -Be 1
             $result.Drift        | Should -Be 1
         }
+
+        It "Compliant with extra device groups in AD — ExtraDeviceGroups populated, status Compliant" {
+            # AD has an ADDITIONAL device group beyond config — allowed, reported as extra
+            Mock Resolve-TierModelPrincipalSid -ModuleName TierModel {
+                [PSCustomObject]@{ Success = $true; Sid = 'S-1-5-21-111-222-333-1234'; Error = $null }
+            }
+            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
+                [PSCustomObject]@{
+                    Name = 'T0 Audit Policy'; Description = 'T0 policy desc'
+                    UserTGTLifetimeMins = 120
+                    UserAllowedToAuthenticateFrom = 'O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-111-222-333-1234), SID(S-1-5-21-111-222-333-9001)}))'
+                    ProtectedFromAccidentalDeletion = $true; Enforce = $false
+                }
+            }
+            $result = Test-TierModelAuthPolicy -Config $script:OnePolicyCfg -DomainController $script:TestDC -Silent
+            $f = $result.Findings | Select-Object -First 1
+            $f.Status                        | Should -Be 'Compliant'
+            @($f.ExtraDeviceGroups).Count    | Should -BeGreaterThan 0
+        }
+
+        It "non-Silent mode — output paths exercised (Compliant + summary)" {
+            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
+                [PSCustomObject]@{
+                    Name = 'T0 Audit Policy'; Description = 'T0 policy desc'
+                    UserTGTLifetimeMins = 120
+                    UserAllowedToAuthenticateFrom = $script:MatchingSddl
+                    ProtectedFromAccidentalDeletion = $true; Enforce = $false
+                }
+            }
+            # Call WITHOUT -Silent to exercise Write-Host output branches and summary block
+            $result = Test-TierModelAuthPolicy -Config $script:OnePolicyCfg -DomainController $script:TestDC
+            $result.Compliant | Should -Be 1
+        }
+
+        It "non-Silent + NonCompliant — Write-Host per-issue output exercised" {
+            Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
+                [PSCustomObject]@{
+                    Name = 'T0 Audit Policy'; Description = 'Wrong desc'
+                    UserTGTLifetimeMins = 120
+                    UserAllowedToAuthenticateFrom = $script:MatchingSddl
+                    ProtectedFromAccidentalDeletion = $true; Enforce = $false
+                }
+            }
+            $result = Test-TierModelAuthPolicy -Config $script:OnePolicyCfg -DomainController $script:TestDC -SuppressSummary
+            $f = $result.Findings | Select-Object -First 1
+            $f.Status | Should -Be 'NonCompliant'
+        }
     }
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -1186,15 +1379,6 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
     Context "Test-TierModelAuthSilo — read-only audit" {
 
         BeforeAll {
-            Mock Get-ADDomain -ModuleName TierModel {
-                [PSCustomObject]@{ DomainSID = [PSCustomObject]@{ Value = 'S-1-5-21-111-222-333' } }
-            }
-            Mock Get-ADUser -ModuleName TierModel {
-                param($Identity)
-                if ("$Identity" -eq 'S-1-5-21-111-222-333-500') {
-                    [PSCustomObject]@{ SamAccountName = 'Administrator' }
-                }
-            }
             # Default: silo absent from AD
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel { throw "Silo not found" }
             Mock Get-ADObject -ModuleName TierModel {
@@ -1202,7 +1386,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                 [PSCustomObject]@{ SamAccountName = ("$Identity" -split ',')[0] -replace '^CN=' }
             }
 
-            # Minimal single-silo config used by most tests
+            # Minimal single-silo config — computer membership only (new model)
             $script:OneSiloAuditCfg = [PSCustomObject]@{
                 authenticationSilos = @(
                     [PSCustomObject]@{
@@ -1210,30 +1394,21 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                         description = 'Test silo desc'
                         policy      = 'Test T0 Policy'
                         memberComputerGroups = @('TestComputerGroup')
-                        memberAccountGroups  = @('TestAccountGroup')
                     }
                 )
-                authSilosExemptAccounts = [PSCustomObject]@{
-                    samaccountnames = @('svc-pawdomainjoin','svc-t1srvdomainjoin','svc-t2euddomainjoin')
-                }
             }
 
-            # Expected member DNs used across tests
-            $script:AuditAdminDn = 'CN=TestAdmin1,OU=T0,DC=test,DC=local'
-            $script:AuditPawDn   = 'CN=TestPAW01,OU=PAWs,DC=test,DC=local'
+            $script:AuditPawDn = 'CN=TestPAW01,OU=PAWs,DC=test,DC=local'
 
-            # Default group expansion: TestAccountGroup→TestAdmin1, TestComputerGroup→TestPAW01
             Mock Get-ADGroupMember -ModuleName TierModel {
                 param($Identity)
-                if ("$Identity" -eq 'TestAccountGroup') {
-                    @([PSCustomObject]@{ SamAccountName = 'TestAdmin1'; DistinguishedName = $script:AuditAdminDn; objectClass = 'user' })
-                } elseif ("$Identity" -eq 'TestComputerGroup') {
+                if ("$Identity" -eq 'TestComputerGroup') {
                     @([PSCustomObject]@{ SamAccountName = 'TestPAW01$'; DistinguishedName = $script:AuditPawDn; objectClass = 'computer' })
                 } else { @() }
             }
         }
 
-        It "Compliant when silo matches config and all expected members are present" {
+        It "Compliant when silo matches config and all expected computer members are present" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
                 [PSCustomObject]@{
                     Name = 'Test T0 Silo'; Description = 'Test silo desc'
@@ -1241,7 +1416,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Test T0 Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
+                    Members = @($script:AuditPawDn)
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
@@ -1269,13 +1444,13 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Test T0 Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
+                    Members = @($script:AuditPawDn)
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
             $f = $result.Findings | Select-Object -First 1
             $f.Status | Should -Be 'NonCompliant'
-            ($f.Issues | Where-Object { $_ -match 'Description' }) | Should -Not -BeNullOrEmpty
+            ($f.Issues | Where-Object { $_ -match 'description' }) | Should -Not -BeNullOrEmpty
         }
 
         It "NonCompliant when UserAuthenticationPolicy references wrong policy" {
@@ -1286,7 +1461,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Wrong Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
+                    Members = @($script:AuditPawDn)
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
@@ -1303,7 +1478,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Test T0 Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
+                    Members = @($script:AuditPawDn)
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
@@ -1312,7 +1487,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             ($f.Issues | Where-Object { $_ -match 'ProtectedFromAccidentalDeletion' }) | Should -Not -BeNullOrEmpty
         }
 
-        It "NonCompliant when expected member is absent from silo Members list" {
+        It "NonCompliant when expected computer member is absent from silo Members list" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
                 [PSCustomObject]@{
                     Name = 'Test T0 Silo'; Description = 'Test silo desc'
@@ -1320,7 +1495,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Test T0 Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @()  # expected members absent
+                    Members = @()
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
@@ -1329,7 +1504,8 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             ($f.Issues | Where-Object { $_ -match 'Missing from silo Members' }) | Should -Not -BeNullOrEmpty
         }
 
-        It "NonCompliant when silo contains an unexpected member not in config groups" {
+        It "extra members beyond config are ALLOWED — silo is Compliant, ExtraMembers populated" {
+            # Extra members in silo (not in expected computer groups) are allowed (informational)
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
                 [PSCustomObject]@{
                     Name = 'Test T0 Silo'; Description = 'Test silo desc'
@@ -1337,70 +1513,22 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     UserAuthenticationPolicy     = 'Test T0 Policy'
                     ComputerAuthenticationPolicy = 'Test T0 Policy'
                     ServiceAuthenticationPolicy  = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn, 'CN=Intruder,OU=Unknown,DC=test,DC=local')
+                    Members = @($script:AuditPawDn, 'CN=ExtraDevice,OU=Unknown,DC=test,DC=local')
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
             $f = $result.Findings | Select-Object -First 1
-            $f.Status | Should -Be 'NonCompliant'
-            ($f.Issues | Where-Object { $_ -match 'Unexpected member' }) | Should -Not -BeNullOrEmpty
-        }
-
-        It "exempt account (svc-pawdomainjoin) excluded from expected — silo Compliant without it" {
-            Mock Get-ADGroupMember -ModuleName TierModel {
-                param($Identity)
-                if ("$Identity" -eq 'TestAccountGroup') {
-                    @(
-                        [PSCustomObject]@{ SamAccountName = 'svc-pawdomainjoin'; DistinguishedName = 'CN=svc-pawdomainjoin,OU=SVC,DC=test,DC=local'; objectClass = 'user' }
-                        [PSCustomObject]@{ SamAccountName = 'TestAdmin1';        DistinguishedName = $script:AuditAdminDn;                            objectClass = 'user' }
-                    )
-                } elseif ("$Identity" -eq 'TestComputerGroup') {
-                    @([PSCustomObject]@{ SamAccountName = 'TestPAW01$'; DistinguishedName = $script:AuditPawDn; objectClass = 'computer' })
-                } else { @() }
-            }
-            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name = 'Test T0 Silo'; Description = 'Test silo desc'
-                    Enforce = $false; ProtectedFromAccidentalDeletion = $true
-                    UserAuthenticationPolicy = 'Test T0 Policy'; ComputerAuthenticationPolicy = 'Test T0 Policy'; ServiceAuthenticationPolicy = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
-                }
-            }
-            $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
-            ($result.Findings | Select-Object -First 1).Status | Should -Be 'Compliant'
-        }
-
-        It "RID-500 Administrator excluded from expected — silo Compliant without it" {
-            Mock Get-ADGroupMember -ModuleName TierModel {
-                param($Identity)
-                if ("$Identity" -eq 'TestAccountGroup') {
-                    @(
-                        [PSCustomObject]@{ SamAccountName = 'Administrator'; DistinguishedName = 'CN=Administrator,CN=Users,DC=test,DC=local'; objectClass = 'user' }
-                        [PSCustomObject]@{ SamAccountName = 'TestAdmin1';    DistinguishedName = $script:AuditAdminDn;                        objectClass = 'user' }
-                    )
-                } elseif ("$Identity" -eq 'TestComputerGroup') {
-                    @([PSCustomObject]@{ SamAccountName = 'TestPAW01$'; DistinguishedName = $script:AuditPawDn; objectClass = 'computer' })
-                } else { @() }
-            }
-            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
-                [PSCustomObject]@{
-                    Name = 'Test T0 Silo'; Description = 'Test silo desc'
-                    Enforce = $false; ProtectedFromAccidentalDeletion = $true
-                    UserAuthenticationPolicy = 'Test T0 Policy'; ComputerAuthenticationPolicy = 'Test T0 Policy'; ServiceAuthenticationPolicy = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
-                }
-            }
-            $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
-            ($result.Findings | Select-Object -First 1).Status | Should -Be 'Compliant'
+            $f.Status                    | Should -Be 'Compliant'
+            @($f.ExtraMembers).Count     | Should -BeGreaterThan 0
         }
 
         It "Enforce=true in AD is NEVER audited — silo remains Compliant" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
                 [PSCustomObject]@{
                     Name = 'Test T0 Silo'; Description = 'Test silo desc'
-                    Enforce = $true; ProtectedFromAccidentalDeletion = $true  # enforced in AD
+                    Enforce = $true; ProtectedFromAccidentalDeletion = $true
                     UserAuthenticationPolicy = 'Test T0 Policy'; ComputerAuthenticationPolicy = 'Test T0 Policy'; ServiceAuthenticationPolicy = 'Test T0 Policy'
-                    Members = @($script:AuditAdminDn, $script:AuditPawDn)
+                    Members = @($script:AuditPawDn)
                 }
             }
             $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
@@ -1428,6 +1556,209 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             foreach ($p in @('TotalChecked','Compliant','Missing','NonCompliant','Errors','Drift','Findings','DurationMs','CorrelationId')) {
                 $result.PSObject.Properties.Name | Should -Contain $p
             }
+        }
+
+        It "group expansion failure — NonCompliant with error message" {
+            Mock Get-ADGroupMember -ModuleName TierModel {
+                throw "Cannot contact the server"
+            }
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{
+                    Name = 'Test T0 Silo'; Description = 'Test silo desc'
+                    Enforce = $false; ProtectedFromAccidentalDeletion = $true
+                    UserAuthenticationPolicy = 'Test T0 Policy'; ComputerAuthenticationPolicy = 'Test T0 Policy'; ServiceAuthenticationPolicy = 'Test T0 Policy'
+                    Members = @()
+                }
+            }
+            $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -Silent
+            $f = $result.Findings | Select-Object -First 1
+            $f.Status | Should -Be 'NonCompliant'
+            ($f.Issues | Where-Object { $_ -match 'Cannot expand|expand computer' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "non-Silent mode — output paths exercised (Compliant + extra members)" {
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{
+                    Name = 'Test T0 Silo'; Description = 'Test silo desc'
+                    Enforce = $false; ProtectedFromAccidentalDeletion = $true
+                    UserAuthenticationPolicy = 'Test T0 Policy'; ComputerAuthenticationPolicy = 'Test T0 Policy'; ServiceAuthenticationPolicy = 'Test T0 Policy'
+                    Members = @($script:AuditPawDn, 'CN=ExtraDevice,OU=Extra,DC=test,DC=local')
+                }
+            }
+            # Without -Silent exercises Write-Host output branches
+            $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC
+            ($result.Findings | Select-Object -First 1).Status | Should -Be 'Compliant'
+        }
+
+        It "non-Silent + NonCompliant — Write-Host per-issue output exercised" {
+            # Without -Silent and SuppressSummary to exercise both issue output and summary block
+            $result = Test-TierModelAuthSilo -Config $script:OneSiloAuditCfg -DomainController $script:TestDC -SuppressSummary
+            ($result.Findings | Select-Object -First 1).Status | Should -Be 'Missing'
+        }
+    }
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Get-TierModelAuthSiloMembershipFd — read-only membership planner
+    # ═══════════════════════════════════════════════════════════════════════════
+    Context "Get-TierModelAuthSiloMembershipFd — read-only membership planner" {
+
+        BeforeAll {
+            # Default: silo not yet in AD (fresh deploy scenario)
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel { throw "Silo not found" }
+            Mock Get-ADComputer -ModuleName TierModel {
+                param($Identity, $Properties)
+                [PSCustomObject]@{
+                    SamAccountName = "$Identity"
+                    DistinguishedName = "CN=$Identity,OU=Computers,DC=test,DC=local"
+                    'msDS-AssignedAuthNPolicySilo' = $null
+                }
+            }
+            Mock Get-ADGroupMember -ModuleName TierModel {
+                param($Identity)
+                if ("$Identity" -eq 'Tier0PAWDevices') {
+                    @([PSCustomObject]@{ SamAccountName = 'PAW01$'; DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'; objectClass = 'computer' })
+                } else {
+                    @()
+                }
+            }
+
+            # Minimal single-silo config for membership planner tests
+            $script:MembershipPlanCfg = [PSCustomObject]@{
+                authenticationSilos = @(
+                    [PSCustomObject]@{
+                        name                 = 'T0 Silo'
+                        memberComputerGroups = @('Tier0PAWDevices')
+                    }
+                )
+            }
+        }
+
+        It "silo absent from AD — all computers show as PENDING (warning, no error)" {
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Summary.TotalPending | Should -BeGreaterThan 0
+            $result.Warnings.Count       | Should -BeGreaterThan 0
+        }
+
+        It "all computers already assigned — TotalPending=0, TotalAlreadyAssigned=1" {
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
+            }
+            Mock Get-ADComputer -ModuleName TierModel {
+                [PSCustomObject]@{
+                    SamAccountName = 'PAW01$'
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = 'T0 Silo'
+                }
+            }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Summary.TotalPending         | Should -Be 0
+            $result.Summary.TotalAlreadyAssigned | Should -Be 1
+            @($result.Actions).Count             | Should -Be 0
+        }
+
+        It "-OnlyForSilos empty list — no silos processed, TotalPending=0" {
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC -OnlyForSilos @()
+            $result.Summary.TotalPending | Should -Be 0
+            @($result.Actions).Count     | Should -Be 0
+        }
+
+        It "-OnlyForSilos with matching silo — only that silo's computers counted" {
+            $twoCfg = [PSCustomObject]@{
+                authenticationSilos = @(
+                    [PSCustomObject]@{ name = 'T0 Silo'; memberComputerGroups = @('Tier0PAWDevices') }
+                    [PSCustomObject]@{ name = 'T1 Silo'; memberComputerGroups = @('Tier0PAWDevices') }
+                )
+            }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $twoCfg -DomainController $script:TestDC -OnlyForSilos @('T0 Silo')
+            # Only T0 Silo pending; T1 Silo was filtered out
+            ($result.Actions | Where-Object { $_.SiloName -eq 'T1 Silo' }) | Should -BeNullOrEmpty
+        }
+
+        It "absent computer group — error recorded, other silos still processed" {
+            Mock Get-ADGroupMember -ModuleName TierModel {
+                param($Identity)
+                throw "Group '$Identity' not found in AD"
+            }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Errors.Count | Should -BeGreaterThan 0
+            ($result.Errors | Where-Object { $_.Code -eq 'GroupExpandFailed' }) | Should -Not -BeNullOrEmpty
+        }
+
+        It "result carries required Summary keys" {
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Summary.Keys | Should -Contain 'TotalPending'
+            $result.Summary.Keys | Should -Contain 'TotalAlreadyAssigned'
+            $result.Summary.Keys | Should -Contain 'TotalActions'
+            $result.Summary.Keys | Should -Contain 'ExistingCount'
+        }
+
+        It "action entries carry SiloName, SamAccountName, ObjectClass" {
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            if (@($result.Actions).Count -gt 0) {
+                $action = $result.Actions | Select-Object -First 1
+                $action.SiloName       | Should -Not -BeNullOrEmpty
+                $action.SamAccountName | Should -Not -BeNullOrEmpty
+                $action.ObjectClass    | Should -Be 'computer'
+            } else {
+                Set-ItResult -Pending -Because "no pending actions to validate"
+            }
+        }
+
+        It "empty config — zero actions, Converged-style" {
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:ConfigEmpty -DomainController $script:TestDC
+            @($result.Actions).Count | Should -Be 0
+        }
+
+        It "state (b): granted in Members but silo ref unset — computer classified as PENDING" {
+            # Computer DN is in the silo's Members (Grant done) but msDS-AssignedAuthNPolicySilo is null
+            # → alreadyGranted=TRUE, fullyAssigned=FALSE → pending
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
+            }
+            Mock Get-ADComputer -ModuleName TierModel {
+                [PSCustomObject]@{
+                    SamAccountName = 'PAW01$'
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = $null   # Set step not done yet
+                }
+            }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Summary.TotalPending         | Should -Be 1
+            $result.Summary.TotalAlreadyAssigned | Should -Be 0
+        }
+
+        It "state (d): Get-ADComputer throws during classification — warning logged, computer PENDING" {
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @() }
+            }
+            Mock Get-ADComputer -ModuleName TierModel { throw "Cannot reach domain controller" }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            # Computer must be treated as pending (over-report safe)
+            $result.Summary.TotalPending | Should -BeGreaterThan 0
+        }
+
+        It "DN-format silo ref — already-assigned path uses CN-prefix extraction" {
+            # msDS-AssignedAuthNPolicySilo stored as full DN: CN=T0 Silo,CN=AuthN Policy,...
+            Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
+                [PSCustomObject]@{ Name = 'T0 Silo'; Members = @('CN=PAW01,OU=PAWs,DC=test,DC=local') }
+            }
+            Mock Get-ADComputer -ModuleName TierModel {
+                [PSCustomObject]@{
+                    SamAccountName    = 'PAW01$'
+                    DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                    'msDS-AssignedAuthNPolicySilo' = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                }
+            }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            $result.Summary.TotalPending         | Should -Be 0
+            $result.Summary.TotalAlreadyAssigned | Should -Be 1
+        }
+
+        It "outer function catch — AuthSiloMembershipFdPlanFailed on Get-TierModelAuthSilo throw" {
+            Mock Get-TierModelAuthSilo -ModuleName TierModel { throw "Config read failure" }
+            $result = Get-TierModelAuthSiloMembershipFd -Config $script:MembershipPlanCfg -DomainController $script:TestDC
+            @($result.Actions).Count  | Should -Be 0
+            ($result.Errors | Where-Object { $_.Code -eq 'AuthSiloMembershipFdPlanFailed' }) | Should -Not -BeNullOrEmpty
         }
     }
 }

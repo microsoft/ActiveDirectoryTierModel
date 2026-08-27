@@ -42,21 +42,22 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ 1,652 passing / 0 failures (100%)** *(Last run: 2026-08-24)*
+**Current Test Status: ✅ 1,783 passing / 0 failures (100%)** *(Last run: 2026-08-27)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 22 files | 1,338 tests | ✅ All pass | **88.93%** |
-| **Integration Tests** | 7 files | 314 tests | ✅ All pass | **88.93%** |
+| **Unit Tests** | 22 files | 1,469 tests | ✅ All pass | **90.9%** |
+| **Integration Tests** | 7 files | 314 tests | ✅ All pass | **90.9%** |
 | **Manual Integration Tests** | 1 file | 335 tests | ✅ 100% Pass | **N/A** |
-| **Total** | **29 files** | **1,987 tests** | ✅ **100% passing** | **88.93%** |
+| **Total** | **29 files** | **1,783 tests** | ✅ **100% passing** | **90.9%** |
 
 ### Test Coverage Highlights
 - ✅ **71/71** production files have comprehensive test coverage
-- ✅ **1,652 / 1,652** automated test cases passing — 0 failures (Pester 5.9.0, 2026-08-24)
-- ✅ **88.93%** overall Pester-measured command coverage (all files above 80% CI gate)
+- ✅ **1,783 / 1,783** automated test cases passing — 0 failures (Pester 5.9.0, 2026-08-27)
+- ✅ **90.9%** overall Pester-measured command coverage (all files above 80% CI gate)
 - ✅ **New canonical-ACL resilience (#41):** OU deploy uses a phased verify-and-remediate loop — after each disable-inheritance write, `New-TierModelOu` reads back the DACL and auto-sorts if non-canonical (via `Repair-TierModelCanonicalAcl`); lab-validated at 7/7 OUs corrected per deploy under an inherited-Deny condition. New public cmdlet `Repair-TierModelCanonicalAcl` (**95.40%** coverage) available for standalone use. `Audit-TierModel.ps1` now reports Case 1 (non-canonical domain root, deployment blocker) and Case 2 (non-canonical Tier OU, pre-fix artifact) as structured drift findings.
 - ✅ **New in v1.3.0:** `-EnableAuditing` domain audit rule (SACL) support — 4 new cmdlets (`Get-TierModelAuditRule` **100%**, `Get-TierModelAuditRuleFd` **97.73%**, `Test-TierModelAuditRule` **98.41%**, `New-TierModelAuditRule` **84.14%**) covered by `Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration tests in Audit and Deploy orchestrators; `Audit-TierModel.ps1` **77.16%**, `Deploy-TierModel.ps1` **81.53%**
+- ✅ **Authentication Policy Silos (`-IncludeAuthSilos`):** create-once deploy + audit pipeline — 13 cmdlets covered by `Unit.AuthSiloOperations.Tests.ps1` (131 unit tests, all mock-based): `Build-TierModelAuthSddl` **100%**, `Compare-TierModelAuthSddl` **96.2%**, `Test-TierModelAuthSiloPrerequisite` **98.5%**, `New-TierModelAuthSilo` **99.1%**, `Get-TierModelAuthPolicy`/`Get-TierModelAuthSilo` **95.5%**, `Get-TierModelAuthSiloMembershipFd` **87.8%**, `Set-TierModelAuthSiloMembership` **87.8%**, `Test-TierModelAuthPolicy` **81.3%**, `Test-TierModelAuthSilo` **83.4%**, `Get-TierModelAuthSiloFd` **85.6%**, `Get-TierModelAuthPolicyFd` **83.7%**, `New-TierModelAuthPolicy` **82.9%**; deferred-SDDL, `RequireSubset` audit, create-once, and outer-catch paths fully covered.
 - ✅ Mock-based testing (no Active Directory connectivity required)
 
 ### Running Tests
