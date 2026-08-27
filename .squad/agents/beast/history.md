@@ -1,422 +1,153 @@
-# beast — History
+# beast — History (Archived Summary)
 
-## Learnings: Auth Silo Lab Setup Script (2026-08-25)
+## 2026-08-27 — Auth Silos Feature Complete
 
-**Branch:** `feature/auth-silos`
-**Script:** `.research/copilot-cli-hyperv-ad-lab/scripts/auth-silos/Setup-AuthSiloLab.ps1`
-**Status:** ✅ DELIVERED — parse-clean, fully idempotent lab helper
+**Status:** ✅ IMPLEMENTATION COMPLETE — Deploy + Audit cmdlet sets, 8 public functions, config, lab-ready
 
-### What the script creates
+### Auth Silos Deployment (2026-08-27)
 
-| Step | Object type | Items |
-|------|-------------|-------|
-| 1 | Device groups (Universal) | Tier2PAWDevices, Tier2EUDDevices in OU=Tier 2 Groups |
-| 2 | Test accounts (New-ADUser) | 17 accounts across 5 OUs; added to 5 tier groups |
-| 3 | Authentication Policies | 4 policies, Enforce=$false, UserTGTLifetimeMins=240 |
-| 4 | Authentication Policy Silos | 4 silos, Enforce=$false, UserAuthenticationPolicy only |
-| 5 | Grants + Assignments | Grant-ADAuthenticationPolicySiloAccess + Set-ADAccountAuthenticationPolicySilo for 17 accounts |
+**8 Public Cmdlets:**
+- Get-TierModelAuthPolicy / Get-TierModelAuthPolicyFd — Load and plan auth policies
+- Get-TierModelAuthSilo / Get-TierModelAuthSiloFd — Load and plan auth silos
+- New-TierModelAuthPolicy — Idempotent create/update (Enforce=$false, PFAD=$true)
+- New-TierModelAuthSilo — Idempotent create/update (1:1 policy per silo; all 3 classes same policy)
+- Set-TierModelAuthSiloMembership — Idempotent membership (recursive expansion, exemptions, pre-checks)
+- Test-TierModelAuthSiloPrerequisite — Dependency gate (group existence)
 
-### Auth-Silo Cmdlet Gotchas (Verified in Lab 2026-08-25)
+**Public Helper:**
+- Build-TierModelAuthSddl — Constructs Member_of_any (OR-logic) SDDL; never AND-logic
 
-**CRITICAL for code phase — implementing `-IncludeAuthSilos`:**
+**Key Invariants:**
+- SDDL OR-logic: Member_of_any prevents lockout; AND-logic is documented failure mode
+- Policies before silos (execution order enforced in Deploy-TierModel)
+- Grant then Set for membership (both idempotent via pre-checks)
+- RID-500 exemption resolved at runtime for renamed administrator accounts
 
-1. **`-Enforce` is a [switch], requires colon syntax:**
-   - ✅ CORRECT: `New-ADAuthenticationPolicy -Enforce:$false`
-   - ❌ WRONG: `New-ADAuthenticationPolicy -Enforce $false` → throws "positional parameter cannot be found that accepts argument 'False'"
-   - Same pattern for `New-ADAuthenticationPolicySilo -Enforce:$false`
+**Deploy-TierModel Integration:**
+- Param: -IncludeAuthSilos (after -IncludeWinLaps)
+- Standalone: 3-step execution (policies → silos → membership)
+- FullDeployment: Phase 12 planning; policies → silos → membership after audit
+- Module v1.3.3, FunctionsToExport updated
 
-2. **`-Properties` Parameter constraint for silo members:**
-   - ❌ INVALID: `Get-ADAuthenticationPolicySilo -Properties 'msDS-AuthNPolicySiloGrantedAccounts'` → throws "One or more properties are invalid"
-   - ✅ CORRECT (friendly): `Get-ADAuthenticationPolicySilo -Properties Members`
-   - ✅ CORRECT (raw attribute): `Get-ADAuthenticationPolicySilo -Properties msDS-AuthNPolicySiloMembers`
-   - Use `-Properties Members` for standard cmdlet usage; cmdlet translates to raw attribute internally.
+**Config:** config/tiermodel-authsilos.json — 4 policies + 4 silos (1:1 mapping), group names resolved at runtime
 
-3. **Account assignment is two-step with both sides of link populated:**
-   - Step 1: `Grant-ADAuthenticationPolicySiloAccess -Identity <silo> -Account <account>`
-   - Step 2: `Set-ADAccountAuthenticationPolicySilo -Identity <account> -AuthenticationPolicySilo <silo>`
-   - Together these populate: (1) silo forward-link `msDS-AuthNPolicySiloMembers` and (2) account back-link `msDS-AssignedAuthNPolicySilo`
-   - Both must exist for full assignment state. Step 2 without Step 1 is blocked by AD.
+### Auth Silos Audit (2026-08-27)
 
-4. **Domain Controllers group SID normalization in UserAllowedToAuthenticateFrom SDDL:**
-   - DC group SID normalizes to SDDL alias `SID(DD)` on read-back of `UserAllowedToAuthenticateFrom`
-   - Expected behavior, not a bug. Lab confirmed this is idempotent and recoverable.
+**2 Public Audit Cmdlets:**
+- Test-TierModelAuthPolicy — Verify policy compliance (existence, Description, TGT lifetime, SDDL via Compare-TierModelAuthSddl, PFAD)
+- Test-TierModelAuthSilo — Verify silo compliance (existence, policy links, PFAD, membership validation)
 
-5. **Under `Set-StrictMode -Version Latest`, `.Count` on empty Where-Object result throws:**
-   - ❌ WRONG: `$items | Where-Object { $condition } | Measure-Object | Select-Object -ExpandProperty Count`
-   - ✅ CORRECT: `@($items | Where-Object { $condition }).Count` → wrap result in array to guarantee `.Count` property exists
-   - PowerShell 5.1 and 7+ both exhibit this; defensive wrapping prevents errors on empty sets.
+**Return Shape:** TotalChecked / Compliant / Missing / NonCompliant / Errors / Drift / Findings array (consistent with Test-TierModelWinLapsAcl)
 
-### Lab Validation Results (2026-08-25)
-- 2 new device groups created (Tier2PAWDevices, Tier2EUDDevices) ✅
-- 17 test accounts created and assigned to appropriate groups ✅
-- 4 auth policies + 4 silos created in AUDIT mode (Enforce=$false) ✅
-- 17 accounts granted + assigned to silos (both links populated) ✅
-- All cmdlet syntax patterns validated on TierLab-DC01 ✅
-- Setup script is fully idempotent (re-run safe) ✅
+**Hard Rule:** Enforce is intentionally NOT checked — audit mode is default; enforcement is a separate lifecycle step
 
-### Key design decisions
+**Audit-TierModel Integration:**
+- -IncludeAuthSilos param after -IncludeWinLaps
+- Standalone block + FullDeployment results (EntityType: 'Auth Policies' / 'Auth Silos')
+- Membership comparison: config-expected vs silo's msDS-AuthNPolicySiloMembers (recursive expansion minus exempts + RID-500)
 
-**SDDL OR-logic is non-negotiable.**
-AllowedToAuthenticateFrom SDDL uses `Member_of_any {SID(sid1), SID(sid2), ...}` (OR). AND-logic between device groups (`Member_of {SID(A), SID(B)}`) requires simultaneous membership in all groups — the documented lockout failure mode in the existing customer scripts. The `Build-DeviceSddl` helper uses `Member_of_any` for all policies (even single-group policies, for uniform template).
+### SDDL Alias Fix (2026-08-26)
 
-**SDDL format:**
-```
-O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(S-1-5-21-...-N), SID(S-1-5-21-...-M)}))
-```
-SIDs resolved at runtime via `(Get-ADGroup <name>).SID.Value`.
+**Bug:** Domain Controllers group (RID 516) stored as SID, read back as SID(DD) alias → false drift on every re-run (Tier 0 only)
 
-**Idempotency patterns used:**
-- Groups: `Get-ADGroup -Filter "SamAccountName -eq '...'"` — check before New-ADGroup
-- Accounts: `Get-ADUser -Filter "SamAccountName -eq '...'"` — check before New-ADUser
-- Policies: `Get-ADAuthenticationPolicy -Identity <name>` in try/catch — check before New-ADAuthenticationPolicy
-- Silos: `Get-ADAuthenticationPolicySilo -Identity <name>` in try/catch — check before New-ADAuthenticationPolicySilo
-- Grants: HashSet of `msDS-AuthNPolicySiloGrantedAccounts` DNs — check before Grant-ADAuthenticationPolicySiloAccess
-- Assignments: `msDS-AssignedAuthNPolicySilo` on account — check before Set-ADAccountAuthenticationPolicySilo; warn if account is in a different silo
+**Fix:** New public cmdlet Compare-TierModelAuthSddl
+- Extracts domain SID from desired SDDL
+- Expands DA/DU/DG/DC/DD aliases to full SIDs in both SDDLs
+- Set-based comparison (order-insensitive, case-insensitive)
+- Returns { Equal: bool, Reason: string }
 
-**Assignment idempotency note:**
-`msDS-AssignedAuthNPolicySilo` stores the DN of the assigned silo as a string. Comparison uses `-ieq` (case-insensitive). If the attribute resolves to a different silo DN, the script warns and skips — never overwrites an existing silo assignment.
+**Applied to:** Get-TierModelAuthPolicyFd drift detection
 
-**Step ordering in Grant+Assign matters:** Grant must precede Assign. Grant adds the account to the silo's permitted-accounts list; Assign binds the account to the silo policies. Assign without prior Grant is blocked by AD.
+### Silo Policy Dependency Fix (2026-08-25)
 
-### Parameter name assumptions flagged for DC validation
-These are the expected parameter names per RSAT ActiveDirectory module on WS2025 PS7:
-- `New-ADAuthenticationPolicy`: `-UserTGTLifetimeMins`, `-UserAllowedToAuthenticateFrom`, `-Enforce`
-- `New-ADAuthenticationPolicySilo`: `-UserAuthenticationPolicy`, `-Enforce`
-If any produce `ParameterNotFound` on the DC, the module version may differ — check with `(Get-Command New-ADAuthenticationPolicy).Parameters.Keys`.
+**Bug:** First deploy errored on silo planning (policies not yet in AD) → deployment blocked
 
-### UserTGTLifetimeMins note
-`-UserTGTLifetimeMins 240` is set on policies for completeness. Under Enforce=$false (audit mode) the TGT lifetime restriction is NOT applied — it only takes effect when Enforce=$true.
+**Fix:**
+1. Get-TierModelAuthSiloFd now validates policy reference against **config**, not AD
+2. Deploy-TierModel.ps1 restructured: policies created first (AD), then silos planned+created
+3. Error handling: policy not in config = real error; policy pending creation = proceeds
 
-### Computer/ServiceAuthenticationPolicy
-Lab intentionally sets only `-UserAuthenticationPolicy` on silos. Computer and service policies are omitted per Joel's scope instruction.
+**Invariant:** Policies must exist in AD before silos are created (non-negotiable)
 
-### OU validation before group/account creates
-`Test-OuExists` uses `Get-ADOrganizationalUnit -Identity` in a try/catch. Each write is guarded — if the target OU is missing, the item is skipped with a descriptive message and a `Skipped (OU missing)` status in the tracking list. The script never crashes due to a missing OU.
+### Config Finalization (2026-08-27)
 
-### grantedDNs HashSet refresh
-After each successful `Grant-ADAuthenticationPolicySiloAccess`, the account DN is immediately added to the local `$grantedDNs` HashSet. This avoids stale state without re-querying AD on every iteration.
+**Naming Convention:** All 8 objects use *-  prefix (mirrors GPO convention)
+- Tier 0/1/2 Admins: policies + silos
+- Tier 2 EUD: policy + silo
 
-### Lab password
-`LabP@ss2026!Silo` — printed in the final summary. Satisfies typical AD complexity policy (14 chars, mixed case, digit, special).
+**TGT Lifetimes:** Tier 0 (120m), Tier 1 (240m), Tier 2 Admin (360m), Tier 2 EUD (null/domain default)
+
+**Group Scope:** Admins + Operators + ServiceAccounts per tier; Tier 2 EUD = LocalDeviceOperators only
+
+**Open Items:** VPN account group inclusion (pending confirmation)
 
 ---
 
-## Learnings: Format-Duration Design Investigation (issue #34) (2026-08-24)
+## 2026-08-24 — Format-TierModelDuration Implementation
 
-**Branch:** N/A — Design proposal only (no code written)
-**Status:** ✅ PROPOSAL DELIVERED — awaiting Joel go/no-go before implementation
+**Status:** ✅ COMPLETE — Public function, 9 Write-Host sites updated, 12/12 smoke tests pass
 
-### Key facts established
+**Function:** Format-TierModelDuration.ps1
+- 4-tier format: <1ms / Xms / Xs / Xm Ys
+- Floor-based arithmetic (no banker's rounding: 90000→1m 30s, not 2m 30s)
+- Accepts both [int] and [double] DurationMs
 
-**All 9 Write-Host (console) duration call sites in Deploy-TierModel.ps1:**
-- L2165: `$totalDuration` — consolidated full-deployment results summary
-- L2176: hardcoded `"Duration: 0ms"` — no-actions-needed branch (must also change)
-- L2227: `$ouResult.DurationMs` — OuOnly (ConfirmApply-gated)
-- L2278: `$groupResult.DurationMs` — GroupOnly (ConfirmApply-gated)
-- L2338: `$userResult.DurationMs` — UserOnly (ConfirmApply-gated)
-- L2395: `$ouAclResult.DurationMs` — OuAclsOnly (ConfirmApply-gated)
-- L2479: `$gpoResult.DurationMs` — GposOnly (ConfirmApply-gated)
-- L2570: `$admxResult.DurationMs` — AdmxOnly (always shown when ConfirmApply)
-- L2767: `$standaloneTotalDuration` — standalone MSA/gMSA/dMSA/WinLaps/Audit results
+**Integration:** Updated 9 Write-Host console sites in Deploy-TierModel.ps1; left 2 log sites raw
 
-**Two Write-TierModelLog (machine log) duration sites — KEEP RAW:**
-- L559 (OU deployment), L701 (Group deployment)
+**Module v1.3.0, added to FunctionsToExport**
 
-**DurationMs type is mixed:**
-- `New-TierModelOu.ps1`: casts to `[int]` → integer
-- `Copy-TierModelAdmx.ps1`: raw `TotalMilliseconds` → double (e.g., 2254.1343)
-- Function must accept `[double]` to handle both
-
-**CI coverage scope (ci.yml L120):**
-- `modules/TierModel/*.psm1` AND `modules/TierModel/public/*.ps1`
-- Private/internal NOT counted; `Format-TierModelDuration` MUST be public
-
-**No internal/ .ps1 files exist** — no private function mechanism is active
-
-**Existing integration tests that assert on "Xms" format (Integration.Deploy.Tests.ps1):**
-- L1901: `$output | Should -Match 'Duration: 150ms'` — DurationMs=150 (sub-1000ms → stays '150ms') ✓
-- L2744: `$output | Should -Match 'Duration: 100ms'` — DurationMs=100 (sub-1000ms → stays '100ms') ✓
-- Both assertions remain compatible after the change (sub-1000ms stays as Xms)
-
-### Proposed design (pending Joel approval)
-- Function name: `Format-TierModelDuration` (follows `Verb-TierModelNoun` convention)
-- 4-tier format: `<1ms` / `Xms` / `Xs` / `Xm Ys`
-- `[double]$Milliseconds` parameter — handles both int and double DurationMs values
-- Open question for Joel: `<1ms` vs `1ms` ceiling; `Xs` middle tier vs just `Xm Ys` for ≥1s
-
-### Lab acceptance validation added (2026-08-24, Joel request)
-Three manual DC01 scenarios mapped to branches/call-sites/expected output:
-- Scenario 1: `-OuOnly -ConfirmApply` (all OUs) → seconds branch → L2227 → `Duration: Xs`
-- Scenario 2: delete 1 OU, re-run → ms branch → L2227 → `Duration: Xms` (THE never-zero acceptance test)
-- Scenario 3: `-FullDeployment -ConfirmApply` → m/s branch → L2165 → `Duration: Xm Ys`
-- Optional 2b: fully-converged FullDeployment → `<1ms` floor → L2176 → `Duration: <1ms` (tests hardcoded-zero fix)
-Pester covers all branches offline/deterministically; lab proves the end-to-end module call chain on live AD.
-
-### IMPLEMENTATION COMPLETE (2026-08-24) — production code only, no tests
-- `modules/TierModel/public/Format-TierModelDuration.ps1` — CREATED (4 tiers, all floor-based, parse clean)
-- `modules/TierModel/TierModel.psd1` — `'Format-TierModelDuration'` added to FunctionsToExport after `'Copy-TierModelAdmx'`
-- `Deploy-TierModel.ps1` — 9 Write-Host sites updated; L559/L701 log lines left raw
-- `CHANGELOG.md` — Unreleased entry added (issue #34)
-- 12/12 smoke-test cases passed including the two banker's-rounding regression cases (90000ms→1m 30s, 119999ms→1m 59s)
-- ModuleVersion stays 1.3.1 (not bumped per Joel instruction)
-- Tests: NOT written — Wolverine phase after lab validation
+**Regression Guards:** 90000/119999/120000 boundary values locked
 
 ---
 
-## Learnings: Granular Per-Right Audit Output (2026-08-14)
+## 2026-08-14 — -EnableAuditing Implementation
 
-**Branch:** `feature/domain-auditing`
-**Status:** ✅ DELIVERED — per-right output, 3 drift scenarios proven, lab restored COMPLIANT
+**Status:** ✅ DELIVERED — 4 audit cmdlets, config/schema, deploy integration, lab-validated
 
-### What changed in Test-TierModelAuditRule.ps1
-- After computing `$presentInt` and `$missingInt`, iterate every `$right` in `$ruleConfig.rights`
-- Per-right: compute `$rightBit = [int][ActiveDirectoryRights]$right`; `$rightPresent = ($rightBit -band $presentInt) -ne 0`
-- Emit `"        ✅ Right '$right' - present"` or `"        ❌ Right '$right' - missing"` (8-space indent, matching GPO URA style)
-- Add a `{Type='AuditRight', Property=$right, Status=Pass/Fail}` finding per right, always (even under -Silent)
-- Per-right loop runs BEFORE the rule-level status line (all 9, then the overall COMPLIANT/DRIFT line)
-- -Silent: no host output at all (unchanged), but findings still populated
-- Drift rollup: TotalChecked=1, Drift=0/1, completely unchanged — only output changed
+**Cmdlets:** Get-TierModelAuditRule, New-TierModelAuditRule, Test-TierModelAuditRule, Get-TierModelAuditRuleFd
 
-### Model: Test-TierModelGPOContent.ps1 URA validation
-- 8-space indent `❌ URA '$name'` / `✅ URA '$name'` per item → adopted directly
-- GPO suppresses green per-item for cleanliness (dozens of URAs) — Joel explicitly wants all 9 rights shown always (small list), so we emit both green and red
+**Config:** tiermodel-audit.json — 9-right SACL list, domain DN templating
 
-### Lab scenarios (2026-08-14)
-| Scenario | SACL state | Per-right output | Status |
-|---|---|---|---|
-| A - ABSENT | 0 managed ACEs | all 9 ❌ red | DRIFT ABSENT |
-| B - PARTIAL | 7-of-9 (no WriteDacl/WriteOwner) | 7 ✅, 2 ❌ | DRIFT PARTIAL |
-| C - EXTRA out-of-scope | canonical + Everyone/Failure/All | all 9 ✅ | COMPLIANT |
-| RESTORE | canonical only (New-TierModelAuditRule) | all 9 ✅ | COMPLIANT |
-
-### Gotchas
-- `Invoke-Command -VMName` runs in PS 5.1 by default on the guest; the TierModel module requires PS 7 — always use the `$pwsh` path via `-Command` for any module import
-- `New-TierModelAuditRule` requires both `-Plan` (from `Get-TierModelAuditRule`) and `-Config`; cannot call with Config alone
-- Here-string `@'...'@` (single-quote) over `-Command` argument loses double-quote expansion for variable interpolation inside embedded strings like `"AD:$dn"` — use `'AD:' + $dn` or backtick-escape `$` in the host-side double-quoted here-string
+**SACL Pattern (Validated):**
+- Get-Acl -Path "AD:<dn>" -Audit (requires SeSecurityPrivilege)
+- UNION converge: remove managed ACEs, add canonical 9-right ACE, Set-Acl
+- Idempotency: already-converged = zero writes
+- No-clobber: non-Success AuditFlags left untouched
 
 ---
 
-## Learnings: Audit-TierModel.ps1 Standalone Header Fix (2026-08-14)
+## 2026-08-11 — BUG-006 Canonical ACL Pre-flight Gate
 
-**Branch:** `feature/domain-auditing`
-**Status:** ✅ DELIVERED — label logic restructured, lab-validated, PSScriptAnalyzer clean
+**Status:** ✅ COMPLETE — Test-TierModelCanonicalAcl, 18 tests, lab-validated
 
-### What changed
-- `$featureLabel` array replaced by two separate constructs: `$aclLabel` (MSA/gMSA/dMSA/WinLaps) and `$hasAclIncludes` flag
-- Three-branch conditional builds `$topHeader` / `$resultsHeader` instead of interpolating a single `$standaloneLabelStr` into fixed suffix strings
-- `$standaloneLabelStr` removed entirely (was flagged as assigned-but-never-used by PSScriptAnalyzer after the refactor)
+**Technique:** System.DirectoryServices.Protocols + CommonSecurityDescriptor parsing
+- Check .DiscretionaryAcl.IsCanonical (CommonAcl only)
+- Two parameter sets: ByServer (live AD), ByBytes (Pester-friendly)
 
-### Header rendering matrix (lab-validated)
-| Switches | Top header | Results header |
-|---|---|---|
-| `-EnableAuditing` only | `=== Standalone Domain Audit Rule Audit ===` | `=== Domain Audit Rule Results ===` |
-| `-IncludeMsa -EnableAuditing` | `=== Standalone MSA ACL & Decryptor / Domain Audit Rule Audit ===` | `=== MSA ACL & Decryptor / Domain Audit Rule Results ===` |
-| `-IncludeMsa` only (unchanged path) | `=== Standalone MSA ACL & Decryptor Audit ===` | `=== MSA ACL & Decryptor Audit Results ===` |
-
-### Gotcha
-- After removing `$standaloneLabelStr` from both Write-Host calls, the variable assignment itself had to be dropped — PSScriptAnalyzer fires on assigned-but-never-used variables
+**Integration:** Pre-flight gate in Test-TierModelPrerequisites (WinLaps block); both Deploy/Audit hard-stop on non-canonical state
 
 ---
 
-## Learnings: Audit-TierModel.ps1 -EnableAuditing Wiring (2026-08-14)
+## Essential Technical Patterns
 
-**Branch:** `feature/domain-auditing`
-**Status:** ✅ DELIVERED — all 6 integration points wired, lab-validated, PSScriptAnalyzer clean
+**SDDL Semantics:** Member_of_any (OR) prevents lockout; Member_of_each (AND) = documented failure
 
-### Integration Points
-1. **Comment-based help** — `.PARAMETER EnableAuditing` + 2 `.EXAMPLE` blocks added at top of `Audit-TierModel.ps1`
-2. **Param block** — `[switch]$EnableAuditing` after `[switch]$IncludeWinLaps`
-3. **Scope validation** — `$EnableAuditing` added to `$includeParameters` array; both error messages updated to name it
-4. **FullDeployment optional-features block** — `if ($EnableAuditing)` block after WinLAPS block; calls `Test-TierModelAuditRule -SuppressSummary`; result wrapped as `EntityType = 'Domain Audit Rule'` with `TotalAcls = TotalChecked`
-5. **Consolidated report EntityType handling** — `'Domain Audit Rule'` added at three sites: two `$_ -in '...'` case lists, one `$entityType` label switch
-6. **Standalone block** — `$featureLabel += 'Audit'`; `if ($EnableAuditing)` test block with drift/error accumulation
+**Idempotency:** Always check-before-act; .Count wrapping for empty sets (@() prevents StrictMode errors)
 
-### Key Decisions
-- **`Test-TierModelPrerequisites` does NOT accept `-EnableAuditing`** — prereq splat in standalone block skips the EnableAuditing key; SeSecurityPrivilege check lives in the cmdlet itself
-- **`EntityType = 'Domain Audit Rule'`** with `TotalAcls` (= `TotalChecked`) maps into same consolidated-report rendering as WinLaps Decryptor
-- **Standalone featureLabel** becomes `'Audit'` → produces slightly redundant "=== Audit ACL & Decryptor Audit ===" header — cosmetic, matches the WinLAPS pattern exactly
+**Type Handling:** Mixed int/double require explicit casting
 
-### Lab Validation Results (2026-08-14) — read-only, no checkpoint restore
-- **T1** `.\Audit-TierModel.ps1 -EnableAuditing` → COMPLIANT, Total Checked: 1, Drift: 0 ✅
-- **T2** `.\Audit-TierModel.ps1 -FullDeployment -EnableAuditing` → Full Audit Results includes `Domain Audit Rule: Checked: 1, Drift: 0, Errors: 0` ✅
-- **T3** `.\Audit-TierModel.ps1 -FullDeployment` (no `-EnableAuditing`) → Full Audit Results Total Checked: 366 (no Domain Audit Rule row) ✅
-- **T4** `.\Audit-TierModel.ps1 -EnableAuditing -OuOnly` → `Write-Error: -IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, and -EnableAuditing can only be used standalone or combined with -FullDeployment...` ✅
+**SACL Converge:** Remove managed → add canonical → write same object; zero writes when converged
 
-### PSScriptAnalyzer
-- Zero errors/warnings on `Audit-TierModel.ps1` after all edits
+**Exemptions:** RID-500 resolved at runtime; configured accounts in HashSet (case-insensitive skip)
 
-### Files Staged to Lab
-- `Audit-TierModel.ps1` → `C:\TierModel\Audit-TierModel.ps1` on DC01
-- `Deploy-TierModel.ps1` (yellow ■ + split warning fixes) → `C:\TierModel\Deploy-TierModel.ps1` on DC01
+**CLR Conflicts:** Process-lifetime persistence; spawn clean child process to resolve
 
-### Deferred to Joel UAT
-- Interactive double-Y confirm flow (`-EnableAuditing -ConfirmApply`) — cannot test non-interactively
-- Standalone `$featureLabel` header wording ("Audit Audit Results") — cosmetic; matches WinLAPS pattern; defer decision to Joel
+**Hashtable vs PSObject:** .ContainsKey() for hashtables; .Properties.Name for objects
 
-## Learnings: -EnableAuditing Production Build (2026-08-14)
-
-**Branch:** `feature/domain-auditing`
-**Status:** ✅ DELIVERED — all 4 cmdlets, config/schema, deploy integration, lab smoke-tested
-
-### Files Created
-- `config/tiermodel-audit.json` — optional segment; `{{DOMAIN_DN}}` templating; 9-right list
-- `modules/TierModel/public/Get-TierModelAuditRule.ps1` — plan/drift (returns TotalActions, ConfigureActions, ExistingCount)
-- `modules/TierModel/public/New-TierModelAuditRule.ps1` — apply (UNION converge; returns Applied/Executed/Failed/Skipped/Errors/DurationMs/Converged)
-- `modules/TierModel/public/Test-TierModelAuditRule.ps1` — drift detection (returns Compliant/Missing/Drift/Findings)
-- `modules/TierModel/public/Get-TierModelAuditRuleFd.ps1` — FullDeployment planner (delegates to Get-TierModelAuditRule; re-stamps CorrelationId)
-
-### Files Modified
-- `config/tiermodel.schema.json` — added `domainAuditRule` object schema
-- `modules/TierModel/public/Get-TierModelConfig.ps1` — added `tiermodel-audit.json` to `$optionalFiles`; merged `domainAuditRule` property into config object
-- `modules/TierModel/TierModel.psd1` — bumped 1.2.3→1.3.0; added 4 new FunctionsToExport; ReleaseNotes updated
-- `Deploy-TierModel.ps1` — see deploy hook regions below
-
-### Deploy Hook Line Regions (post-edit, approximate)
-| What | Region |
-|------|--------|
-| `[switch]$EnableAuditing` param | ~line 100 (after `[switch]$IncludeWinLaps`) |
-| `$includeParameters` array update | ~line 115 |
-| Scope validation error messages | ~line 119-127 |
-| Audit 2nd confirmation gate | ~line 248 (new block before existing `if ($ConfirmApply)`) |
-| FullDeployment Phase 11 planning | ~line 1756 (after WinLAPS phase block) |
-| FullDeployment Phase 11 execution | ~line 1992 (after WinLAPS execution block) |
-| `$auditExecResult` in `$allResults` | ~line 2015 |
-| Standalone audit block | ~line 2652 (after WinLAPS standalone block) |
-| `Add-IncludeAclPhaseToDeploymentPlan` | ~line 1148 — extended to handle `ConfigureActions` → `ConfigureCount` via `[hashtable].ContainsKey()` |
-
-### Config Load Path
-`Get-TierModelConfig` loads `tiermodel-audit.json` as optional segment (same pattern as WinLAPS). Key: `$config.domainAuditRule`. Cmdlets check `$Config.PSObject.Properties.Name -contains 'domainAuditRule'` for presence.
-
-### Cmdlet Object Shapes
-- **Get-TierModelAuditRule / Fd:** `{ Actions, Summary{ TotalActions, ConfigureActions, ExistingCount }, Errors, DurationMs, Converged, CorrelationId }`
-- **New-TierModelAuditRule:** `{ Applied, Executed, Failed, Skipped, Errors, DurationMs, Converged, CorrelationId }`
-- **Test-TierModelAuditRule:** `{ TotalChecked, Compliant, Missing, Mismatched, Errors, Drift, Findings, DurationMs, CorrelationId }`
-- **Findings shape:** `{ Type, ResourceType, Identifier, Property, ExpectedValue, ActualValue, Details }`
-
-### Gotchas
-
-**`Add-IncludeAclPhaseToDeploymentPlan` uses `PSObject.Properties.Name` to detect hashtable keys — doesn't work for `@{...}` Summaries.** The existing WinLAPS code works around this by using `CreateAcl` fallback action counting. Our audit plan uses `ConfigureAuditRule` (not `CreateAcl`), so I had to:
-1. Add `ContainsKey()` checks as alternatives to `PSObject.Properties.Name` checks
-2. Add `ConfigureAuditRule` to the fallback `Where-Object` filter
-
-This affects ALL future feature work that adds non-`CreateAcl` action types to `Add-IncludeAclPhaseToDeploymentPlan`.
-
-**Summary hashtable keys are hashtable keys, NOT PSObject note properties.** Use `$hash.ContainsKey('key')` or `$hash['key']` to check/access them; never rely on `PSObject.Properties.Name`.
-
-**UNION contains WriteProperty even on fresh clean DC.** The clean domain root has default `Everyone/Success/All/WriteProperty` ACEs in managed scope. The UNION target therefore includes WriteProperty + our 9 rights = effectively 9 distinct rights (WriteProperty is in our 9). Final ACE: 9 rights, idempotent.
-
-**Emoji rendering:** `🟨` renders as `??` in non-UTF-8 consoles (Hyper-V Direct). Cosmetic only; not a bug.
-
-**Pester intercepts `(expected` in Write-Host strings** on the lab DC (Pester is autoloaded). Smoke test verification strings must avoid the word `expected` when running via PowerShell Direct `-Command`.
-
-### Lab Smoke Results (2026-08-14)
-- **Plan mode:** Action count: 1, Configure count: 1, PARTIAL status shown ✅
-- **B1 Fresh apply:** Applied: 1, Errors: 0, Converged: True, UNION rights displayed ✅
-- **B2 Idempotency:** Plan actions: 0, IDEMPOTENCY PASS ✅
-- **B3 Union+no-clobber:** Partial seed + Failure ACE seeded, PARTIAL detected, Applied:1, final rights = all 9 ✅
-- **Double-Y confirm flow:** Deferred to Joel's interactive UAT (requires Read-Host, cannot test over PowerShell Direct)
+**Two-Step Binding:** Grant-ADAuthenticationPolicySiloAccess + Set-ADAccountAuthenticationPolicySilo (both idempotent)
 
 ---
 
-## Learnings: SACL Audit Spike — domain-root auditing read/write/merge (2026-08-14)
+**Latest Decision:** Beast-AuthSilos-Deploy (2026-08-27) — 8-object model, SDDL design, key implementation decisions documented
 
-**Spike script:** `.research/copilot-cli-hyperv-ad-lab/scripts/audit-spike/Invoke-AuditSpikeRepro.ps1`
-**Target:** domain root (`AD:DC=tierlab,DC=internal`) SACL — feed for `-EnableAuditing` parameter
-**Lab:** TierLab-DC01 / DC-Promoted-Clean baseline / tested under clean-reset conditions
-
-### SACL Read API
-- **Winner:** `Get-Acl -Path "AD:<dn>" -Audit` — works correctly once `Import-Module ActiveDirectory` (provides the `AD:` PSDrive) is loaded.
-- `DirectoryEntry.Options.SecurityMasks` is NOT available on this OS/PS version; that property path fails.
-- **Write API:** `Set-Acl -Path "AD:<dn>" -AclObject <obj>` — must use the SAME object returned by the same `Get-Acl` call; cross-object ACE removal silently no-ops.
-- **Privilege:** `SeSecurityPrivilege` is required to read/write the SACL. Lab admin has it; production must verify.
-- `GetAuditRules()` returns `AuthorizationRuleCollection` — NOT a PS array. NEVER wrap with `@()` (wraps the entire collection as one element). Enumerate via `foreach` or pipeline.
-
-### AddAuditRule behaviour (empirical result)
-- **AddAuditRule MERGES** — when an ACE with matching SID / AuditFlags / InheritanceType already exists, adding a new rule with different rights merges the rights (bitwise-OR) into that existing ACE rather than creating a duplicate.
-- HOWEVER: the baseline domain root has TWO default `Everyone/Success/All/WriteProperty` ACEs. If there are multiple existing managed ACEs (e.g. seeded partial + 2 defaults), AddAuditRule only merges into one of them; the others remain as-is. The count stays the same (no new ACE) but the state is still multi-ACE.
-
-### Validated converge recipe
-```
-$acl = Get-Acl -Path "AD:<dn>" -Audit
-# Read managed ACEs FROM SAME acl object
-foreach ($a in <managedAces-from-this-acl>) { $acl.RemoveAuditRuleSpecific($a) }
-$acl.AddAuditRule(<canonical 9-right rule>)
-Set-Acl -Path "AD:<dn>" -AclObject $acl
-```
-Managed = Everyone / Success / Inheritance=All / non-inherited. PurgeAuditRules(SID) intentionally avoided.
-
-### Idempotency: PASS
-- When the canonical ACE already exists (1 ACE, all 9 rights), converge detects "already up to date" and makes zero writes.
-
-### No-clobber: PASS
-- `Everyone/Failure/All` ACE seeded before converge; survived converge untouched. Converge is scoped to `AuditFlags=Success` only.
-
-### Baseline default SACLs on clean domain root (5 rules)
-1. S-1-1-0 / Success / None — WriteProperty, WriteDacl, WriteOwner
-2. S-1-5-32-544 (Administrators) / Success / None — ExtendedRight
-3. Domain-SID-513 (Domain Users) / Success / None — ExtendedRight
-4. S-1-1-0 / Success / All — WriteProperty  *(duplicate)*
-5. S-1-1-0 / Success / All — WriteProperty  *(duplicate — two identical default ACEs)*
-
-**Note:** The two identical default `Everyone/Success/All/WriteProperty` ACEs are included in "managed" scope by the converge logic and will be REPLACED by the single canonical ACE. This is intentional and correct; it also cleans up a pre-existing duplication in the default SACL.
-
----
-
-## Current: Windows LAPS Implementation Complete (2026-07-16)
-
-**Status:** ✅ SHIPPED — All T001–T021 tasks complete, committed to feature/windows-laps branch, ready for Joel's UAT + release.
-
-**Implementation Summary:**
-- T001–T013: Implementation + audit cmdlet (5 new public functions, config, decryptor integration)
-- T014–T020: Test suite (113 new Pester tests, 90.92% coverage, 1401/1401 green)
-- T021: Documentation (8 files, README metrics updated to v1.2.0)
-
-**Latest Fixes (2026-07-16):**
-1. **SELF ACE Detection (Bug A):** Replaced `Find-LapsADExtendedRights` SELF check with `Get-Acl "AD:$ouDn"` filtering for non-inherited LAPS ACEs. SELF now correctly detected on all 7 OUs post-deploy.
-2. **Mixed Findings Shapes (Bug B):** Consolidated audit reporting now guards `.Type` / `.Status` property access with `PSObject.Properties.Name` checks to work with both WinLaps ACL and Decryptor findings shapes.
-
-**Essential Patterns for Future Work:**
-- SELF ACE detection: Use `Get-Acl "AD:$ouDn"` + non-inherited filter + LAPS GUID filter (never `Find-LapsADExtendedRights` for SELF)
-- Pre-compute LAPS schema GUIDs once before loop, not inside it
-- Mixed audit findings: Guard property access with `$_.PSObject.Properties.Name -contains 'Type'`
-- Decryptor audit pattern: Get-GPO → Get-GPRegistryValue ADPasswordEncryptionPrincipal → compare -ieq expected value
-- Opt-in enforcement: WinLaps audit gated by `if ($IncludeWinLaps)` inside optional feature block
-
-**Next Phase:** Joel's manual UAT, then PR merge, v1.2.0 release.
-
-## Learnings: BUG-006 Canonical-ACL Pre-flight Gate (2026-08-11)
-
-**Function:** `Test-TierModelCanonicalAcl`
-**File:** `modules/TierModel/public/Test-TierModelCanonicalAcl.ps1`
-**Exported in:** `modules/TierModel/TierModel.psd1` (alphabetical, before Test-TierModelPrerequisites)
-**Wired into:** `modules/TierModel/public/Test-TierModelPrerequisites.ps1` (after WinLaps block, before ArrayLists conversion)
-
-**Detection technique:**
-- Use `System.DirectoryServices.Protocols` (S.DS.P) for DACL-only read from AD — NOT `Get-Acl` or `DirectoryEntry.Options` (unreliable for this use case).
-- Parse bytes via `CommonSecurityDescriptor($true, $true, $sdBytes, 0)` — `isContainer=$true, isDS=$true` is mandatory for AD objects; `isDS=$false` mis-parses object-type ACEs and gives wrong results.
-- `RawSecurityDescriptor`/`RawAcl` have NO `IsCanonical` property — must use `CommonSecurityDescriptor.DiscretionaryAcl.IsCanonical` (CommonAcl exposes it).
-- Cast enum operands to `[int]` before `-band` (PS 5.1 throws otherwise; defensive for PS 7+ too).
-- Two parameter sets: `ByServer` (live AD) and `ByBytes` (Pester-friendly, no AD required).
-
-**Insertion point in Test-TierModelPrerequisites:**
-- Between the `$result.EnvironmentSnapshot.LapsModulePresent = $lapsModulePresent` / `}` block close and the `# Convert ArrayLists` comment.
-- Guarded with `if (Get-Module ActiveDirectory ...)` mirroring existing AD-language check pattern.
-- On exception: sets `RootAclCheckError` snapshot field only — does NOT hard-fail (DC reachability already gated).
-
-**Audit also hard-stops:** Both `Deploy-TierModel.ps1` and `Audit-TierModel.ps1` call `Test-TierModelPrerequisites` and fail-fast on `.Valid=$false`. Placing the gate in the shared prerequisites means Audit also hard-stops on a non-canonical root domain DACL. This is intentional and accepted.
-
-**STATUS (2026-08-11 end-of-session):** Gate + doc lab-validated. Beast implementation complete. Pending owner code review. No commit (per owner request).
-
----
-
-**Earlier history archived to history-archive.md (2026-07-28).**
-
-**Essential Patterns (for future work):**
-1. **StrictMode scoping:** Shared variables resolve BEFORE conditionals, not inside branches.
-2. **ResourceType in display:** Branch on `$_.ResourceType -eq 'LapsPermission'` to render lapsOperation/allowedPrincipals.
-3. **ACE IsInherited (PS7):** Use `Get-Acl "AD:<dn>"`, not nTSecurityDescriptor; filt
-[truncated summary]
-
-- 2026-08-11T20:14:44+08:00 | Moved non-blocking Pester side-by-side advisory from `\.Remediation` to `\.EnvironmentSnapshot.PesterAdvisory` in `Test-TierModelPrerequisites.ps1`; updated coupled test in `Unit.Prerequisites.Tests.ps1`; 1 Pester test passed, 0 failed.
-
-- 2026-08-11T21:23:45+08:00 | FINALIZATION COMPLETE: Canonical-ACL gate + tests + docs reviewed APPROVE, nits fixed (Write-Warning in catch block, doc disclaimer removed). All 1,457 tests passing (91.13% coverage). PENDING owner code review + PR tomorrow. No commit (per owner request).
+**Next:** Lab validation of 8 open items; config review (Joel); module code deployment to test environment
