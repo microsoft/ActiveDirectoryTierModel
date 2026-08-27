@@ -47,7 +47,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         $script:AuthSiloConfig = [PSCustomObject]@{
             authenticationPolicies = @(
                 [PSCustomObject]@{
-                    name        = '*- Tier 0 Admins Authentication Policy'
+                    name        = '*- Tier 0 Authentication Policy'
                     description = 'Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).'
                     userTGTLifetimeMinutes = 120
                     allowedToAuthenticateFromDeviceGroups = @('Domain Controllers','Read-only Domain Controllers','Tier0MemberServers','Tier0PAWDevices')
@@ -55,7 +55,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     protectedFromAccidentalDeletion = $true
                 }
                 [PSCustomObject]@{
-                    name        = '*- Tier 1 Admins Authentication Policy'
+                    name        = '*- Tier 1 Authentication Policy'
                     description = 'Authentication Policy for Tier 1 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 1 origin devices, and lowers the Kerberos TGT lifetime to 4 hours (240 minutes).'
                     userTGTLifetimeMinutes = 240
                     allowedToAuthenticateFromDeviceGroups = @('Tier1MemberServers','Tier1PAWDevices')
@@ -63,7 +63,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     protectedFromAccidentalDeletion = $true
                 }
                 [PSCustomObject]@{
-                    name        = '*- Tier 2 Admins Authentication Policy'
+                    name        = '*- Tier 2 Authentication Policy'
                     description = 'Authentication Policy for Tier 2 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 2 PAW devices, and lowers the Kerberos TGT lifetime to 6 hours (360 minutes).'
                     userTGTLifetimeMinutes = 360
                     allowedToAuthenticateFromDeviceGroups = @('Tier2PAWDevices')
@@ -81,25 +81,25 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             )
             authenticationSilos = @(
                 [PSCustomObject]@{
-                    name        = '*- Tier 0 Admins Authentication Silo'
+                    name        = '*- Tier 0 Authentication Silo'
                     description = 'Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.'
-                    policy      = '*- Tier 0 Admins Authentication Policy'
+                    policy      = '*- Tier 0 Authentication Policy'
                     memberComputerGroups = @('Domain Controllers','Read-only Domain Controllers','Tier0MemberServers','Tier0PAWDevices')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
                 [PSCustomObject]@{
-                    name        = '*- Tier 1 Admins Authentication Silo'
+                    name        = '*- Tier 1 Authentication Silo'
                     description = 'Authentication Policy Silo for Tier 1 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 1 devices.'
-                    policy      = '*- Tier 1 Admins Authentication Policy'
+                    policy      = '*- Tier 1 Authentication Policy'
                     memberComputerGroups = @('Tier1MemberServers','Tier1PAWDevices')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
                 }
                 [PSCustomObject]@{
-                    name        = '*- Tier 2 Admins Authentication Silo'
+                    name        = '*- Tier 2 Authentication Silo'
                     description = 'Authentication Policy Silo for Tier 2 administrators, operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 2 PAW devices.'
-                    policy      = '*- Tier 2 Admins Authentication Policy'
+                    policy      = '*- Tier 2 Authentication Policy'
                     memberComputerGroups = @('Tier2PAWDevices')
                     enforce                       = $false
                     protectedFromAccidentalDeletion = $true
@@ -278,24 +278,24 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
 
         It "all four policy names are present" {
             $names = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | ForEach-Object { $_.name }
-            $names | Should -Contain '*- Tier 0 Admins Authentication Policy'
-            $names | Should -Contain '*- Tier 1 Admins Authentication Policy'
-            $names | Should -Contain '*- Tier 2 Admins Authentication Policy'
+            $names | Should -Contain '*- Tier 0 Authentication Policy'
+            $names | Should -Contain '*- Tier 1 Authentication Policy'
+            $names | Should -Contain '*- Tier 2 Authentication Policy'
             $names | Should -Contain '*- Tier 2 EUD Authentication Policy'
         }
 
         It "Tier 0 policy TGT lifetime is 120 minutes" {
-            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Admins*' }
+            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Auth*' }
             $policy.userTGTLifetimeMinutes | Should -Be 120
         }
 
         It "Tier 1 policy TGT lifetime is 240 minutes" {
-            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 1 Admins*' }
+            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 1 Auth*' }
             $policy.userTGTLifetimeMinutes | Should -Be 240
         }
 
-        It "Tier 2 Admins policy TGT lifetime is 360 minutes" {
-            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 2 Admins*' }
+        It "Tier 2 policy TGT lifetime is 360 minutes" {
+            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 2 Auth*' }
             $policy.userTGTLifetimeMinutes | Should -Be 360
         }
 
@@ -305,7 +305,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         }
 
         It "Tier 0 device groups include Domain Controllers and Tier0PAWDevices" {
-            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Admins*' }
+            $policy = @(Get-TierModelAuthPolicy -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Auth*' }
             $policy.allowedToAuthenticateFromDeviceGroups | Should -Contain 'Domain Controllers'
             $policy.allowedToAuthenticateFromDeviceGroups | Should -Contain 'Tier0PAWDevices'
         }
@@ -326,15 +326,15 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
 
         It "all four silo names are present" {
             $names = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | ForEach-Object { $_.name }
-            $names | Should -Contain '*- Tier 0 Admins Authentication Silo'
-            $names | Should -Contain '*- Tier 1 Admins Authentication Silo'
-            $names | Should -Contain '*- Tier 2 Admins Authentication Silo'
+            $names | Should -Contain '*- Tier 0 Authentication Silo'
+            $names | Should -Contain '*- Tier 1 Authentication Silo'
+            $names | Should -Contain '*- Tier 2 Authentication Silo'
             $names | Should -Contain '*- Tier 2 EUD Authentication Silo'
         }
 
         It "Tier 0 silo references the Tier 0 policy (1:1 design)" {
-            $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Admins*' }
-            $silo.policy | Should -Be '*- Tier 0 Admins Authentication Policy'
+            $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Auth*' }
+            $silo.policy | Should -Be '*- Tier 0 Authentication Policy'
         }
 
         It "Tier 2 EUD silo references the EUD policy" {
@@ -343,7 +343,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         }
 
         It "Tier 0 silo member computer groups include Domain Controllers and Tier0PAWDevices" {
-            $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Admins*' }
+            $silo = @(Get-TierModelAuthSilo -Config $script:AuthSiloConfig) | Where-Object { $_.name -like '*Tier 0 Auth*' }
             $silo.memberComputerGroups | Should -Contain 'Domain Controllers'
             $silo.memberComputerGroups | Should -Contain 'Tier0PAWDevices'
         }
@@ -390,8 +390,8 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         It "create-once — existing policy produces AlreadyExist=1 and zero actions" {
             Mock Get-ADAuthenticationPolicy -ModuleName TierModel {
                 [PSCustomObject]@{
-                    Name = '*- Tier 0 Admins Authentication Policy'
-                    DistinguishedName = 'CN=*- Tier 0 Admins Authentication Policy,CN=AuthN Policies,CN=Configuration,DC=test,DC=local'
+                    Name = '*- Tier 0 Authentication Policy'
+                    DistinguishedName = 'CN=*- Tier 0 Authentication Policy,CN=AuthN Policies,CN=Configuration,DC=test,DC=local'
                 }
             }
             $singleCfg = [PSCustomObject]@{ authenticationPolicies = @($script:AuthSiloConfig.authenticationPolicies[0]) }
@@ -442,7 +442,7 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         It "CreateAuthSilo action carries the correct PolicyName" {
             $result = Get-TierModelAuthSiloFd -Config $script:AuthSiloConfig -DomainController $script:TestDC
             $t0 = $result.Actions | Where-Object { $_.Name -like '*Tier 0*' } | Select-Object -First 1
-            $t0.PolicyName | Should -Be '*- Tier 0 Admins Authentication Policy'
+            $t0.PolicyName | Should -Be '*- Tier 0 Authentication Policy'
         }
 
         It "policy pending creation in same run is NOT an error (absent from AD is expected)" {
@@ -474,13 +474,13 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         It "AlreadyConverged — zero actions and AlreadyExist=1 when existing silo matches" {
             Mock Get-ADAuthenticationPolicySilo -ModuleName TierModel {
                 [PSCustomObject]@{
-                    Name                         = '*- Tier 0 Admins Authentication Silo'
+                    Name                         = '*- Tier 0 Authentication Silo'
                     Description                  = 'Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.'
                     Enforce                      = $false
                     ProtectedFromAccidentalDeletion = $true
-                    UserAuthenticationPolicy     = '*- Tier 0 Admins Authentication Policy'
-                    ComputerAuthenticationPolicy = '*- Tier 0 Admins Authentication Policy'
-                    ServiceAuthenticationPolicy  = '*- Tier 0 Admins Authentication Policy'
+                    UserAuthenticationPolicy     = '*- Tier 0 Authentication Policy'
+                    ComputerAuthenticationPolicy = '*- Tier 0 Authentication Policy'
+                    ServiceAuthenticationPolicy  = '*- Tier 0 Authentication Policy'
                 }
             }
             $singleCfg = [PSCustomObject]@{

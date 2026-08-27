@@ -4,8 +4,8 @@
 
   "authenticationPolicies": [
     {
-      "name": "*- Tier 0 Admins Authentication Policy",
-      "description": "Authentication Policy for Tier 0 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).",
+      "name": "*- Tier 0 Authentication Policy",
+      "description": "Authentication Policy for Tier 0 accounts. Restricts Kerberos TGT issuance to approved Tier 0 origin devices, and lowers the Kerberos TGT lifetime to 2 hours (120 minutes).",
       "userTGTLifetimeMinutes": 120,
       "allowedToAuthenticateFromDeviceGroups": [
         "Domain Controllers",
@@ -18,8 +18,8 @@
       "comment": "'Domain Controllers' and 'Read-only Domain Controllers' are built-in AD security groups. SDDL is NOT authored in this file — the deploy module resolves each group name to a SID at runtime and builds a Member_of_any (OR-logic) SDDL for AllowedToAuthenticateFrom."
     },
     {
-      "name": "*- Tier 1 Admins Authentication Policy",
-      "description": "Authentication Policy for Tier 1 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 1 origin devices, and lowers the Kerberos TGT lifetime to 4 hours (240 minutes).",
+      "name": "*- Tier 1 Authentication Policy",
+      "description": "Authentication Policy for Tier 1 accounts. Restricts Kerberos TGT issuance to approved Tier 1 origin devices, and lowers the Kerberos TGT lifetime to 4 hours (240 minutes).",
       "userTGTLifetimeMinutes": 240,
       "allowedToAuthenticateFromDeviceGroups": [
         "Tier1MemberServers",
@@ -30,8 +30,8 @@
       "comment": "SDDL is NOT authored in this file — the deploy module resolves group names to SIDs at runtime and builds a Member_of_any (OR-logic) SDDL for AllowedToAuthenticateFrom."
     },
     {
-      "name": "*- Tier 2 Admins Authentication Policy",
-      "description": "Authentication Policy for Tier 2 administrative accounts. Restricts Kerberos TGT issuance to approved Tier 2 PAW devices, and lowers the Kerberos TGT lifetime to 6 hours (360 minutes).",
+      "name": "*- Tier 2 Authentication Policy",
+      "description": "Authentication Policy for Tier 2 accounts. Restricts Kerberos TGT issuance to approved Tier 2 PAW devices, and lowers the Kerberos TGT lifetime to 6 hours (360 minutes).",
       "userTGTLifetimeMinutes": 360,
       "allowedToAuthenticateFromDeviceGroups": [
         "Tier2PAWDevices"
@@ -55,9 +55,9 @@
 
   "authenticationSilos": [
     {
-      "name": "*- Tier 0 Admins Authentication Silo",
+      "name": "*- Tier 0 Authentication Silo",
       "description": "Authentication Policy Silo for Tier 0 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 0 devices.",
-      "policy": "*- Tier 0 Admins Authentication Policy",
+      "policy": "*- Tier 0 Authentication Policy",
       "memberComputerGroups": [
         "Domain Controllers",
         "Read-only Domain Controllers",
@@ -69,9 +69,9 @@
       "comment": "'Domain Controllers' and 'Read-only Domain Controllers' in memberComputerGroups are built-in AD security groups (confirmed correct names). Admin-account siloing is an operator task outside TM scope."
     },
     {
-      "name": "*- Tier 1 Admins Authentication Silo",
+      "name": "*- Tier 1 Authentication Silo",
       "description": "Authentication Policy Silo for Tier 1 administrators, operators, server operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 1 devices.",
-      "policy": "*- Tier 1 Admins Authentication Policy",
+      "policy": "*- Tier 1 Authentication Policy",
       "memberComputerGroups": [
         "Tier1MemberServers",
         "Tier1PAWDevices"
@@ -81,9 +81,9 @@
       "comment": "Admin-account siloing is an operator task outside TM scope."
     },
     {
-      "name": "*- Tier 2 Admins Authentication Silo",
+      "name": "*- Tier 2 Authentication Silo",
       "description": "Authentication Policy Silo for Tier 2 administrators, operators, and service accounts. Silo members may only obtain Kerberos TGTs from approved Tier 2 PAW devices.",
-      "policy": "*- Tier 2 Admins Authentication Policy",
+      "policy": "*- Tier 2 Authentication Policy",
       "memberComputerGroups": [
         "Tier2PAWDevices"
       ],
