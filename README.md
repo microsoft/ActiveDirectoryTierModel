@@ -49,7 +49,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 | **Unit Tests** | 22 files | 1,469 tests | ✅ All pass | **90.9%** |
 | **Integration Tests** | 7 files | 314 tests | ✅ All pass | **90.9%** |
 | **Manual Integration Tests** | 1 file | 378 tests | ✅ 100% Pass | **N/A** |
-| **Total** | **29 files** | **1,783 tests** | ✅ **100% passing** | **90.9%** |
+| **Total** | **30 files** | **2,161 tests** | ✅ **100% passing** | **90.9%** |
 
 ### Test Coverage Highlights
 - ✅ **71/71** production files have comprehensive test coverage

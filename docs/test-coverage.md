@@ -31,8 +31,8 @@
 |------|-------|-------|
 | ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink`, `Get-TierModelAuditRule`, `Format-TierModelDuration`, `Build-TierModelAuthSddl` | 15 |
 | 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor`, `Test-TierModelCanonicalAcl`, `Test-TierModelAuditRule`, `Get-TierModelAuditRuleFd`, `Repair-TierModelCanonicalAcl`, `Compare-TierModelAuthSddl` (96.2%), `Test-TierModelAuthSiloPrerequisite` (98.5%), `New-TierModelAuthSilo` (99.1%), `Get-TierModelAuthPolicy`/`Get-TierModelAuthSilo` (95.5%) | 38 |
-| 🟠 80-89% | `Audit-TierModel` (77.16% — ByServer paths exempt), `Deploy-TierModel`, `New-Tier*` (incl. `New-TierModelOu` 84.86%), `New-TierModelAuditRule`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites` (85.12%), `Test-TierModelWinLapsAcl`, `Get-TierModelAuthPolicyFd` (83.7%), `Get-TierModelAuthSiloFd` (85.6%), `New-TierModelAuthPolicy` (82.9%), `Test-TierModelAuthPolicy` (81.3%), `Test-TierModelAuthSilo` (83.4%), `Get-TierModelAuthSiloMembershipFd` (87.8%), `Set-TierModelAuthSiloMembership` (87.8%) | 27 |
-| 🔴 50-79% | `Test-TierModelOu.ps1` (79.4%) | 1 |
+| 🟠 80-89% | `New-Tier*` (incl. `New-TierModelOu` 84.86%), `New-TierModelAuditRule`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites` (85.12%), `Test-TierModelWinLapsAcl`, `Get-TierModelAuthPolicyFd` (83.7%), `Get-TierModelAuthSiloFd` (85.6%), `New-TierModelAuthPolicy` (82.9%), `Test-TierModelAuthPolicy` (81.3%), `Test-TierModelAuthSilo` (83.4%), `Get-TierModelAuthSiloMembershipFd` (87.8%), `Set-TierModelAuthSiloMembership` (87.8%) | 25 |
+| 🔴 50-79% | `Test-TierModelOu.ps1` (79.4%), `Deploy-TierModel.ps1` (74.6% — top-level script, exempt from module gate), `Audit-TierModel.ps1` (73.3% — top-level script, exempt from module gate) | 3 |
 | 🚨 0-25% | **No critical gaps!** 🎉 | 0 |
 
 ### 📋 All Files — Line Coverage (sorted by % ascending)
@@ -41,7 +41,7 @@
 |------|---------|--------|-------|---|
 | `modules/TierModel/public/Test-TierModelOu.ps1` | 194 | 46 | 240 | 🔴 80.8% |
 | `modules/TierModel/public/Import-TierModelGpo.ps1` | 89 | 21 | 110 | 🟠 80.9% ✦ |
-| `Deploy-TierModel.ps1` | 1854 | 420 | 2274 | 🟠 81.53% ✦ |
+| `Deploy-TierModel.ps1` | 1871 | 638 | 2509 | 🔴 74.6% ✦ |
 | `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
 | `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 409 | 72 | 481 | 🟠 85.12% ✦ |
 | `modules/TierModel/TierModel.psm1` | 581 | 122 | 703 | 🟠 82.65% ✦ |
@@ -67,7 +67,7 @@
 | `modules/TierModel/public/Test-TierModelWinLapsAcl.ps1` | 233 | 30 | 263 | 🟠 88.6% |
 | `modules/TierModel/public/New-TierModelOu.ps1` | 207 | 26 | 233 | 🟠 84.86% |
 | `modules/TierModel/public/Repair-TierModelCanonicalAcl.ps1` | — | — | — | 🟡 95.40% ✦ |
-| `Audit-TierModel.ps1` | 847 | 139 | 986 | 🟠 77.16% ✦ (ByServer exempt) |
+| `Audit-TierModel.ps1` | 873 | 318 | 1191 | 🔴 73.3% ✦ (ByServer exempt) |
 | `modules/TierModel/public/Get-TierModelDmsaAclFd.ps1` | 193 | 21 | 214 | 🟡 90.2% |
 | `modules/TierModel/public/New-TierModelWinLapsAcl.ps1` | — | — | 257 | 🟡 90.7% |
 | `modules/TierModel/public/Get-TierModelMsaAclFd.ps1` | 186 | 17 | 203 | 🟡 91.6% |
@@ -195,7 +195,7 @@
 | `Test-TierModelOu.ps1` | 194 | 46 | 240 | 80.8% |
 | `Test-TierModelAuthPolicy.ps1` | 161 | 37 | 198 | 81.3% |
 | `Import-TierModelGpo.ps1` | 89 | 21 | 110 | 80.9% ✦ |
-| `Deploy-TierModel.ps1` | 1765 | 403 | 2168 | 81.4% ✦ |
+| `Deploy-TierModel.ps1` | 1871 | 638 | 2509 | 🔴 74.6% ✦ |
 | `TierModel.psm1` | 581 | 122 | 703 | 82.65% ✦ |
 | `New-TierModelAuthPolicy.ps1` | 107 | 22 | 129 | 82.9% |
 | `Test-TierModelAuthSilo.ps1` | 181 | 36 | 217 | 83.4% |
@@ -219,17 +219,18 @@
 | `Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 81.6% |
 | `Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 83.4% |
 
-### 🔴 Needs Work: 50-79% Coverage (1 file)
+### 🔴 Needs Work: 50-79% Coverage (3 files)
 
 | File | Covered | Missed | Total | Coverage |
 |------|---------|--------|-------|----------|
-| `Audit-TierModel.ps1` | 692 | 255 | 947 | 73.1% |
+| `Audit-TierModel.ps1` | 873 | 318 | 1191 | 🔴 73.3% |
+| `Deploy-TierModel.ps1` | 1871 | 638 | 2509 | 🔴 74.6% |
 
-> **Note:** `Audit-TierModel.ps1` fell from 85.6% (v1.2.0) to 73.1% in v1.2.1 due to ~481 new production lines added by BUG-001..011. The CI gate applies to `modules/TierModel/*` scope — `Audit-TierModel.ps1` is exempt per team ruling.
+> **Note:** Both `Audit-TierModel.ps1` and `Deploy-TierModel.ps1` are top-level orchestrator scripts (not under `modules/TierModel/*`) and are exempt from the module-scope 80% CI gate. Both grew in total line count with every feature addition (BUG fixes, canonical-ACL, audit-rule, auth-silo), shrinking the percentage even as covered lines increased. `Audit-TierModel.ps1` has ByServer live-LDAP paths (`Invoke-CanonicalAclAudit` ByServer-mode) exempt per team ruling; the module-scope aggregate remains **90.9%** and all module-scope files remain above the 80% gate.
 
 ### 🚨 Critical Gaps: <25% Coverage (0 files)
 
-**🎉 No critical gaps remaining!** All `modules/TierModel/*` files now sit at **80%+** (CI gate met). `Audit-TierModel.ps1` is 73.1% in the docs scope — see 🔴 tier above.
+**🎉 No critical gaps remaining!** All `modules/TierModel/*` files now sit at **80%+** (CI gate met). `Audit-TierModel.ps1` (73.3%) and `Deploy-TierModel.ps1` (74.6%) are in the docs 🔴 tier but exempt from the module-scope gate — see 🔴 tier above.
 
 ### 🧱 Hard Coverage Limits — Files That Cannot Reach 95% Without Refactoring
 
@@ -253,7 +254,7 @@ Some files have structural barriers that prevent full mock-based coverage. The t
 | `Get-TierModelOuAclFd.ps1` | **99.49%** ✅ | Line 228: `return $false` inside the inner `catch {}` of the `Where-Object` scriptblock that compares ACEs (lines 202–229). Triggering this requires a real `.NET` `ActiveDirectoryAccessRule` property getter (`.IdentityReference`, `.AccessControlType`, etc.) to throw during comparison iteration. PSCustomObject mock properties never throw on read; only live CLR `DirectoryServices.ActiveDirectoryAccessRule` objects could trigger this. | 1 command | Extract the ACE comparison into a private helper function (e.g. `Test-AceMatch`) mockable with `-ModuleName TierModel`, OR accept 99.49% as the hard limit. |
 | `Test-TierModelCanonicalAcl.ps1` | **92.86%** ✅ | ByServer live-LDAP path (4 lines): `New-Object LdapConnection`, `Bind`, actual `SearchRequest`, raw `ntSecurityDescriptor` attribute extraction. These require a real DC. Tested in `Unit.CanonicalAcl.Tests.ps1` (4 ByServer tests mocked at the New-Object level). **Team ruling: ByServer live-LDAP paths exempt from coverage requirement.** | ~4 LDAP lines | Accept. Live-LDAP exemption. |
 | `Repair-TierModelCanonicalAcl.ps1` | **95.40%** ✅ | ByServer live-write path: `ModifyRequest.Modifications` attribute binding (`nTSecurityDescriptor` DirectoryAttributeModification) and the post-write verify `SearchRequest`. Mocked offline in `Unit.CanonicalAclRepair.Tests.ps1` ByServer context. **Team ruling: same ByServer live-LDAP exemption as `Test-TierModelCanonicalAcl.ps1` — exempted per precedent.** | ~4–5 LDAP-write lines | Accept. Live-LDAP exemption (same precedent). |
-| `Audit-TierModel.ps1` | **77.16%** | `Invoke-CanonicalAclAudit` ByServer-mode canonical check and ByServer error paths require a live DC. Exempt from the module-scope CI gate (`Audit-TierModel.ps1` is a top-level script, not under `modules/TierModel/*`). **Team ruling: ByServer live-LDAP paths in `Audit-TierModel.ps1` are exempt per same precedent.** All module-scope files remain above 80% gate. | ByServer audit paths | Accept. Live-LDAP exemption (same precedent). CI gate applies to module scope only. |
+| `Audit-TierModel.ps1` | **73.3%** | `Invoke-CanonicalAclAudit` ByServer-mode canonical check and ByServer error paths require a live DC. Exempt from the module-scope CI gate (`Audit-TierModel.ps1` is a top-level script, not under `modules/TierModel/*`). **Team ruling: ByServer live-LDAP paths in `Audit-TierModel.ps1` are exempt per same precedent.** All module-scope files remain above 80% gate. | ByServer audit paths | Accept. Live-LDAP exemption (same precedent). CI gate applies to module scope only. |
 > **Note:** All files in this table have test cases that cover every path reachable without AD connectivity. The remaining uncovered lines require either production refactoring or a live domain environment.
 
 ---
@@ -267,8 +268,8 @@ Files below 95% target, sorted by missed lines descending (most impactful work f
 | 1 | `TierModel.psm1` | 82.65% ✦ | 122 | at hard limit | 7 structural barriers — see Hard Coverage Limits |
 | 2 | `Test-TierModelOu.ps1` | 80.8% | 46 | +14.2% | |
 | 3 | `Test-TierModelOuAcl.ps1` | 86.2% | 44 | +8.8% | |
-| 4 | `Audit-TierModel.ps1` | 85.6% | 67 | +9.4% | |
-| 5 | `Deploy-TierModel.ps1` | 89.0% ✦ | 181 | +6.0% | Large file; many remaining lines are structural dead code |
+| 4 | `Audit-TierModel.ps1` | 73.3% | 318 | +21.7% | Top-level script, exempt from gate; ByServer paths + feature growth |
+| 5 | `Deploy-TierModel.ps1` | 74.6% ✦ | 638 | +20.4% | Top-level script, exempt from gate; large file — many remaining lines are structural dead code |
 | 6 | `Get-TierModelGpo.ps1` | 96.2% | 20 | ✅ above 95% | |
 | 7 | `Import-TierModelGpo.ps1` | 80.9% ✦ | 21 | at hard limit | Outer catastrophic catch unreachable without prod refactor |
 | 8 | `Test-TierModelUser.ps1` | 85.9% | 26 | +9.1% | |
@@ -304,8 +305,8 @@ Files below 95% target, sorted by missed lines descending (most impactful work f
 
 | Script | Has Tests? | Should Have Tests? | Current Coverage | Notes |
 |--------|------------|-------------------|------------------|-------|
-| `Audit-TierModel.ps1` | ✅ Yes | ✅ Yes | **Good** 🟠 77.16% ✦ | Integration tests + `Unit.CanonicalAclAudit.Tests.ps1` (22 tests — `Invoke-CanonicalAclAudit` Case 1, Case 2, all-canonical, mix/error/exception/skip/missing-OU paths, return-shape, CorrelationId, DurationMs). ByServer live-LDAP paths exempt per team ruling (precedent Test-TierModelCanonicalAcl ByServer). All module-scope files meet 80% CI gate; `Audit-TierModel.ps1` is top-level script scope. |
-| `Deploy-TierModel.ps1` | ✅ Yes | ✅ Yes | **Excellent** | Integration tests - `Integration.Deploy.Tests.ps1` - 67 tests covering all deployment modes (OuOnly, GroupOnly, UserOnly, OuAclsOnly, GposOnly, AdmxOnly, FullDeployment), planning & execution modes, error handling, logging integration |
+| `Audit-TierModel.ps1` | ✅ Yes | ✅ Yes | **🔴 73.3%** ✦ | Integration tests + `Unit.CanonicalAclAudit.Tests.ps1` (22 tests — `Invoke-CanonicalAclAudit` Case 1, Case 2, all-canonical, mix/error/exception/skip/missing-OU paths, return-shape, CorrelationId, DurationMs). ByServer live-LDAP paths exempt per team ruling. Top-level script; exempt from module-scope 80% gate. Percentage fell as total lines grew with each feature addition. |
+| `Deploy-TierModel.ps1` | ✅ Yes | ✅ Yes | **🔴 74.6%** ✦ | Integration tests - `Integration.Deploy.Tests.ps1` - 67 tests covering all deployment modes (OuOnly, GroupOnly, UserOnly, OuAclsOnly, GposOnly, AdmxOnly, FullDeployment), planning & execution modes, error handling, logging integration. Top-level script; exempt from module-scope 80% gate. Percentage fell as total lines grew with each feature addition. |
 
 ---
 
