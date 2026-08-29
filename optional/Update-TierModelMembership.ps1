@@ -107,7 +107,7 @@
 .NOTES
     Target: Windows PowerShell 5.1 + ActiveDirectory module on a Domain Controller.
     Execution: Local scheduled task, SYSTEM context. NOT SYSVOL/NETLOGON.
-    Version: 1.2.0 (Milestones 1-3: Tier 0 Operators + Service Accounts + Computers)
+    Version: 1.3.0 (Milestones 1-4: Tier 0 + Tier 1 Operators, Service Accounts, Computers)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -999,33 +999,133 @@ function Invoke-Tier0Staging {
 }
 
 function Invoke-Tier1Operators {
-    # STUB: Milestone 3 - same as Tier0Operators with Tier 1 values
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier1Operators: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 1 Operators: Tier 1 Accounts OU users -> Tier1Operators + Tier 1 policy.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 1 Accounts' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 1 Operators' -GroupConfig $Config.Groups
+    $policyName     = Resolve-PolicyName -PolicyName '*- Tier 1 Authentication Policy' -AuthSiloConfig $Config.AuthSilos
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier1Operators' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $policyName `
+        -ObjectFilter      '(objectClass=user)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false  # All Tier 1 users are operators - exclusion does NOT apply to group
 }
 
 function Invoke-Tier1ServiceActt {
-    # STUB: Milestone 3
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier1ServiceActt: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 1 Service Accounts: Tier 1 Service Accounts OU (user + gMSA + dMSA + sMSA)
+        -> Tier1ServiceAccounts group + Tier 1 auth policy.
+        Exclusion applies to BOTH group and policy.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 1 Service Accounts' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 1 Service Accounts' -GroupConfig $Config.Groups
+    $policyName     = Resolve-PolicyName -PolicyName '*- Tier 1 Authentication Policy' -AuthSiloConfig $Config.AuthSilos
+
+    $svcAcctFilter = '(|(&(objectClass=user)(objectCategory=person))(objectClass=msDS-GroupManagedServiceAccount)(objectClass=msDS-DelegatedManagedServiceAccount)(objectClass=msDS-ManagedServiceAccount))'
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier1ServiceActt' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $policyName `
+        -ObjectFilter      $svcAcctFilter `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $true  # Exclusion applies to BOTH group and policy for Service Accounts
 }
 
 function Invoke-Tier1PawDevices {
-    # STUB: Milestone 3
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier1PawDevices: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 1 PAW Devices: Tier 1 PAW Devices OU computers -> Tier1PAWDevices group.
+        No policy assignment (computers get policy via device group SDDL).
+        No exclusions (exclusions never apply to computers).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 1 PAW Devices' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 1 PAW Devices' -GroupConfig $Config.Groups
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier1PawDevices' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $null `
+        -ObjectFilter      '(objectClass=computer)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false
 }
 
 function Invoke-Tier1MemberServers {
-    # STUB: Milestone 3
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier1MemberServers: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 1 Member Servers: computers in the Tier 1 Member Servers OU
+        (subtree) -> Tier1MemberServers group, EXCLUDING the Tier 1 Server
+        Staging child OU (handled by Invoke-Tier1Staging).
+        No policy assignment. No exclusions.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 1 Member Servers' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 1 Member Servers' -GroupConfig $Config.Groups
+    $stagingOuDn    = Resolve-OuDn -OuName 'Tier 1 Server Staging' -OuConfig $Config.OUs
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier1MemberServers' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $null `
+        -ObjectFilter      '(objectClass=computer)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false `
+        -ExcludeChildOuDn  $stagingOuDn
 }
 
 function Invoke-Tier1Staging {
-    # STUB: Milestone 3
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier1Staging: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 1 Staging: computers in the Tier 1 Server Staging OU (subtree)
+        -> Tier1MemberServers group (same target group as -Tier1MemberServers).
+        No policy assignment. No exclusions.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 1 Server Staging' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 1 Member Servers' -GroupConfig $Config.Groups
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier1Staging' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $null `
+        -ObjectFilter      '(objectClass=computer)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false
 }
 
 function Invoke-Tier2Operators {
