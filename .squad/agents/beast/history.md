@@ -1,4 +1,354 @@
-# beast — History (Archived Summary)
+# beast -- History (Archived Summary)
+
+## 2026-08-29 -- Milestone 7: -EnableDebug Deep Troubleshooting Dump (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- -EnableDebug fully implemented (version 1.6.0)
+
+### Key Changes
+
+#### Per-run CorrelationId
+- `$script:CorrelationId = [guid]::NewGuid()` generated once per run, before any logging or debug init.
+- Embedded in the debug filename, the debug log header, every Write-DebugLog line, and both the run-start and run-end Write-Log messages.
+- Allows cross-referencing the change log (-EnableLogging) and the debug dump for the same run.
+
+#### Write-DebugLog function
+- Writes timestamped, CorrelationId-tagged, structured lines (key=value pairs via -Data hashtable).
+- No-op when -EnableDebug is off (`if (-not $script:DebugFilePath) { return }` -- zero overhead, zero output).
+- NOT Start-Transcript (too noisy, per plan section 16.2).
+
+#### Initialize-Debug function (hardening from plan section 17 medium findings)
+- Dir: `%ProgramData%\TierModel\Debug` (SEPARATE from Logs dir; created if missing).
+- File: `Update-TierModelMembership.debug.<yyyyMMdd-HHmmss>.<CorrelationId>.log`
+- **FREE-SPACE precheck**: if target volume has <50 MB free, throws fail-fast before any AD change.
+- **PRE-OPEN**: creates/opens the debug file BEFORE any AD write. If file creation fails, throws fail-fast with clear message -- no silent fallback.
+- **BOUNDED RETENTION** (triple-cap pruning at init):
+  - Age: deletes files older than 7 days.
+  - Count: keeps at most 30 most-recent files.
+  - Size: caps total directory size at 200 MB, deleting oldest beyond the cap.
+
+#### Instrumentation points (26 Write-DebugLog calls)
+- **Run lifecycle**: run-started (with DC/domain/PS-version/switches/exclusion config), switches-resolved, run-completed (with total elapsed ms), fatal-error (with stack trace).
+- **Config resolution**: Resolve-OuDn, Resolve-GroupSam, Resolve-PolicyName each log the resolved value.
+- **Built-in exclusions**: each exclusion account logged during init; each account checked in Phase 1 with result (not-found / has-policy+clear / no-policy+correct).
+- **Per-phase timing**: Stopwatch start/stop with elapsed ms logged for Phase 1 and every reconciliation function.
+- **Per-object in Invoke-TierReconciliation**: sAMAccountName, DN, BuiltInExcluded, CustomerExcluded, ExclAttrValue, CurrentPolicy vs DesiredPolicy, PolicyAction (assign/clear/excluded-no-policy/already-current/no-policy-configured), GroupAction (add/skip-excluded/already-member).
+- **Per-object in Invoke-Tier2Operators**: adds IsOp/IsLDO/Role classification; logs skip-eud with reason; operator decisions with full exclusion + policy + group tracking.
+- **Per-object in Invoke-Tier2Eud**: adds IsOp/IsLDO/Role classification; logs skip-operator with reason; EUD decisions with policy tracking (GroupAction=N/A since LDO is customer-managed).
+
+#### -WhatIf compatibility
+- Debug tracking variables are set BEFORE ShouldProcess, recording the DECISION (not whether it executed). With -WhatIf, the debug file documents what WOULD have changed.
+
+#### -EnableLogging verification
+- Initialize-Logging and Write-Log are UNCHANGED (no regression).
+- Run-start and run-end Write-Log messages now include CorrelationId for cross-referencing with debug.
+- Change log entries (policy assigned/cleared, group added) are all preserved.
+
+### Design decisions
+- Debug and Logging use SEPARATE dirs (`%ProgramData%\TierModel\Debug` vs `\Logs`) -- both can be on simultaneously.
+- Tracking variables ($debugPolicyAction, $debugGroupAction) are simple string assignments added at each decision branch; one Write-DebugLog per object at the end captures the full decision summary. Overhead when -EnableDebug is off is negligible (a few string assignments, no I/O).
+- Initialize-Debug is called AFTER Assert-Preflight (needs validated DC) but BEFORE Phase 1 (first AD write). A debug-file failure aborts the entire run.
+
+---
+
+## 2026-08-29 -- Milestone 6: Tier 2 Operators/EUD Account Pair (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- Invoke-Tier2Operators + Invoke-Tier2Eud implemented (version 1.5.0, all 15 switches complete)
+- `.research/auth-silos/lab/Setup-Tier2AccountsLab.ps1` -- idempotent lab-data setup for the Tier 2 Operators/EUD account pair
+
+### Key Changes
+
+#### Invoke-Tier2Operators (dedicated function, not Invoke-TierReconciliation)
+- Enumerates ALL user objects in `Tier 2 Accounts` OU (Subtree).
+- Builds two DN HashSets from current Tier2Operators and Tier2LocalDeviceOperators group members.
+- Classification per user:
+  - EUD (isLDO AND NOT isOp): SKIP (handled by -Tier2Eud)
+  - OPERATOR (all others, including both-groups and no-group): process
+- Policy: assigns `*- Tier 2 Authentication Policy` via Set-TmObjectAuthPolicy. Exclusion APPLIES (skip excluded; clear policy from excluded operator that has one).
+- Group: adds to Tier2Operators if not already a member. Exclusion does NOT apply (all tier users are operators, matching Tier 0/1 behavior).
+- Fail-closed: policy FIRST, then group.
+
+#### Invoke-Tier2Eud (dedicated function)
+- Enumerates ALL user objects in `Tier 2 Accounts` OU (same OU as Operators).
+- Same two DN HashSets for classification.
+- Only processes pure-LDO users (isLDO AND NOT isOp). All others skipped.
+- Policy: assigns `*- Tier 2 EUD Authentication Policy`. Exclusion APPLIES.
+- NO group add ever -- the script never writes to Tier2LocalDeviceOperators (LDO membership is customer-managed).
+- Single-valued msDS-AssignedAuthNPolicy interaction: a user transitioning from pure-LDO to both-groups will have their EUD policy overwritten by the Tier 2 operator policy on the next -Tier2Operators run. Correct: operator wins.
+
+#### Why NOT Invoke-TierReconciliation
+The existing reusable function assumes one-OU-to-one-group-plus-policy. The Tier 2 Operators/EUD pair breaks this:
+- SAME OU, TWO policies, TWO target groups, user-level classification by a THIRD group (LDO).
+- -Tier2Eud does NO group add at all.
+- Exclusion semantics differ per step (policy vs group) and per function.
+- Forcing this into Invoke-TierReconciliation would require many special-case parameters, defeating its simplicity. Dedicated functions reuse the same helpers (Set-TmObjectAuthPolicy, Clear-TmObjectAuthPolicy, Test-IsBuiltInExcluded, Test-IsCustomerExcluded, Write-Log, -Server $script:PreferredDc) for consistency.
+
+#### Aggregate Wiring
+- -AllTier2 resolves to: Tier2Operators, Tier2Eud, Tier2ServiceActt, Tier2PawDevices, Tier2EudDevices.
+- -All resolves to AllTier0 + AllTier1 + AllTier2 (all 15 switches).
+- Tier2Operators is before Tier2Eud in both $allGranular and $tier2Granular arrays (mandatory Operators-first order).
+- Classification uses group-membership snapshot, so candidate sets are disjoint and order-independent in practice, but Operators-first is maintained for safety.
+
+#### Truth Table Verification
+| isOp | isLDO | -Tier2Operators does                      | -Tier2Eud does          |
+|------|-------|-------------------------------------------|-------------------------|
+| No   | No    | Assigns T2 policy + adds to Tier2Operators | Skips (not LDO)         |
+| Yes  | No    | Assigns T2 policy (already in group)       | Skips (not LDO)         |
+| No   | Yes   | Skips (pure LDO)                           | Assigns T2 EUD policy   |
+| Yes  | Yes   | Assigns T2 policy (already in group)       | Skips (isOp=true)       |
+With exclusion (No/No + excluded): NO policy, but STILL added to Tier2Operators group.
+
+#### Lab Script (Setup-Tier2AccountsLab.ps1)
+- 10 users t2op01..10 in Tier2Operators (expect T2 policy)
+- 10 users t2ldo01..10 in Tier2LocalDeviceOperators ONLY (expect T2 EUD policy)
+- 10 users t2new01..10 with NO group; t2new09/10 excluded (expect default->operator T2 policy + added to Tier2Operators; excluded pair -> no policy but still added to group)
+- 2 users t2both01..02 in BOTH groups (expect operator wins -> T2 policy)
+- -Reset: clears msDS-AssignedAuthNPolicy from all test users, removes t2new* from Tier2Operators (script-added); leaves pre-staged fixture memberships intact
+- -Remove: deletes all test users
+- Uses trailing-digit index extraction: [int]([regex]::Match($name, '\d+$').Value)
+- Expected counts: 20 operator policy, 10 EUD policy, 2 no-policy, 10 new Tier2Operators members
+
+### Learnings
+- The LDO classification approach (two HashSets, per-user predicate) was the cleanest way to disambiguate Operator vs EUD from a single OU.
+- Operator-wins semantics for single-valued msDS-AssignedAuthNPolicy are naturally enforced by the Operators-first execution order and the classification predicate (both-groups -> operator, not EUD).
+- A dedicated function per complex switch (rather than stretching Invoke-TierReconciliation) keeps the code simple and auditable. The reusable helpers (Set-TmObjectAuthPolicy, exclusion tests, Write-Log, -Server pattern) provide consistency without the complexity of a heavily parameterized generic function.
+- New no-group users defaulting to OPERATOR is the fail-secure choice (OQ-1 resolution): they get the restrictive Tier 2 operator policy immediately. Customer must explicitly add to LDO to make a user EUD.
+- The script NEVER adds to Tier2LocalDeviceOperators. LDO membership is a customer decision that determines the user's role.
+- All 15 granular switches are now implemented. The script is feature-complete for v1.
+
+---
+
+## 2026-08-29 -- Milestone 5: Tier 2 Simple (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- 3 simple Tier 2 functions implemented (version 1.4.0)
+- `.research/auth-silos/lab/Setup-Tier2SimpleLab.ps1` -- idempotent lab-data setup for all 3 simple Tier 2 switches
+
+### Key Changes
+
+#### Three Simple Tier 2 Functions Implemented (mechanical swap from Tier 0/1)
+Each mirrors its Tier 0/1 counterpart exactly, changing only the tier-specific config values:
+
+- **Invoke-Tier2PawDevices**: source `Tier 2 PAW Devices` OU (OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,<domainDN>), target `Tier2PAWDevices` group, no policy, filter `(objectClass=computer)`. Same as Tier 0/1 PAW Devices.
+- **Invoke-Tier2ServiceActt**: source `Tier 2 Service Accounts` OU (OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,<domainDN>), target `Tier2ServiceAccounts` group, policy `*- Tier 2 Authentication Policy`, LDAP filter for user+gMSA+dMSA+sMSA, `ApplyExclusionToGroup=$true`. Same as Tier 0/1 ServiceActt.
+- **Invoke-Tier2EudDevices**: source `Tier 2 End-User Devices` OU (OU=Tier 2 End-User Devices,<domainDN>), target `Tier2EUDDevices` group, no policy, filter `(objectClass=computer)`, `ExcludeChildOuDn` = `Disabled End-User Devices` DN. Same child-OU exclusion pattern as MemberServers.
+
+#### Remaining Stubs
+- `Invoke-Tier2Operators` and `Invoke-Tier2Eud` remain stubbed -- deferred to next milestone (complex Tier 2 Operators/EUD account pair with Tier2LocalDeviceOperators disambiguation).
+
+#### OU DN Resolution Verification (Tier 2)
+- `Tier 2 PAW Devices`: config path=`OU=Tier 2,OU=Tier Model Administration` -> resolves to `OU=Tier 2 PAW Devices,OU=Tier 2,OU=Tier Model Administration,<domainDN>`. Correct.
+- `Tier 2 Service Accounts`: config path=`OU=Tier 2,OU=Tier Model Administration` -> resolves to `OU=Tier 2 Service Accounts,OU=Tier 2,OU=Tier Model Administration,<domainDN>`. Correct.
+- `Tier 2 End-User Devices`: config path=`{{DOMAIN_DN}}` -> resolves to `OU=Tier 2 End-User Devices,<domainDN>` (domain root). Correct.
+- `Disabled End-User Devices`: config path=`OU=Tier 2 End-User Devices` -> resolves to `OU=Disabled End-User Devices,OU=Tier 2 End-User Devices,<domainDN>` (child). Correct.
+- All 4 OU entries exist in tiermodel-ous.json. All 3 group entries exist in tiermodel-groups.json. Policy `*- Tier 2 Authentication Policy` exists in tiermodel-authsilos.json.
+- Built-in exclusion: `svc-t2euddomainjoin` is in tiermodel-users.json built-in exclusion list (lives in Tier 2 Service Accounts OU). Confirmed.
+
+#### Lab Script
+- Single script `Setup-Tier2SimpleLab.ps1` covers all 3 simple Tier 2 switches
+- Tier 2 Service Accounts OU: 10 users (svc-t2-u01..10) + 10 gMSAs (svc-t2-g01..10) + dMSA attempt (svc-t2-d01..10), excluded indices 9/10 each
+- Tier 2 PAW Devices OU: 5 computers (t2paw01..05)
+- Tier 2 End-User Devices OU (domain root): 5 computers (t2eud01..05), OU created if missing
+- Disabled End-User Devices OU (child): 3 computers (t2eudx01..03), OU created if missing
+- Uses TRAILING-DIGIT index extraction: `[int]([regex]::Match($name, '\d+$').Value)` to avoid the Tier 1 lab bug where `[int]($sam -replace '[^0-9]','')` strips ALL digits (including tier digit)
+- Reset mode: clears all group membership + policy for all test objects
+- Remove mode: deletes all test objects
+- KDS root key: reuses if present, creates with past effective time if absent
+- Expected-state summary and verification commands for all 3 switches
+
+### Learnings
+- Tier 2 simple switches are a true mechanical swap from Tier 0/1 -- identical `Invoke-TierReconciliation` calls with different config names. No logic changes required.
+- `Tier 2 End-User Devices` OU is at the domain root (path=`{{DOMAIN_DN}}`), matching the Member Servers pattern.
+- `Disabled End-User Devices` child OU exclusion uses the same `ExcludeChildOuDn` mechanism as Staging OU exclusion in MemberServers.
+- Lab index extraction bug: the old pattern `[int]($sam -replace '[^0-9]','')` strips ALL digits including the tier digit (e.g., `svc-t2-u09` -> `209`, not `9`). Fixed pattern: `[int]([regex]::Match($name, '\d+$').Value)` extracts only trailing digits.
+- Script now targets PowerShell 7.0+ (pwsh.exe). Windows PowerShell 5.1 is blocked via `#requires -Version 7.0` (first line) plus a belt-and-suspenders version guard in Assert-Preflight. The TierModel deployment already requires PS7. Scheduled task action must use pwsh.exe, not powershell.exe.
+
+---
+
+## 2026-08-29 -- Milestone 4: Tier 1 (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- All 5 Tier 1 functions implemented (version 1.3.0)
+- `.research/auth-silos/lab/Setup-Tier1MembershipLab.ps1` -- combined idempotent lab-data setup for all Tier 1 switches
+
+### Key Changes
+
+#### Five Tier 1 Functions Implemented (mechanical swap from Tier 0)
+Each mirrors its Tier 0 counterpart exactly, changing only the tier-specific config values:
+
+- **Invoke-Tier1Operators**: source `Tier 1 Accounts` OU (OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,<domainDN>), target `Tier1Operators` group, policy `*- Tier 1 Authentication Policy`, filter `(objectClass=user)`, `ApplyExclusionToGroup=$false`.
+- **Invoke-Tier1ServiceActt**: source `Tier 1 Service Accounts` OU (OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,<domainDN>), target `Tier1ServiceAccounts` group, policy `*- Tier 1 Authentication Policy`, LDAP filter for user+gMSA+dMSA+sMSA, `ApplyExclusionToGroup=$true`.
+- **Invoke-Tier1PawDevices**: source `Tier 1 PAW Devices` OU (OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,<domainDN>), target `Tier1PAWDevices` group, no policy, filter `(objectClass=computer)`.
+- **Invoke-Tier1MemberServers**: source `Tier 1 Member Servers` OU (OU=Tier 1 Member Servers,<domainDN>), target `Tier1MemberServers` group, no policy, filter `(objectClass=computer)`, `ExcludeChildOuDn` = `Tier 1 Server Staging` DN.
+- **Invoke-Tier1Staging**: source `Tier 1 Server Staging` OU (OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,<domainDN>), target `Tier1MemberServers` group (same as MemberServers), no policy, filter `(objectClass=computer)`.
+
+#### OU DN Resolution Verification (Tier 1)
+- `Tier 1 Accounts`: config path=`OU=Tier 1,OU=Tier Model Administration` -> resolves to `OU=Tier 1 Accounts,OU=Tier 1,OU=Tier Model Administration,<domainDN>`. Correct.
+- `Tier 1 Service Accounts`: config path=`OU=Tier 1,OU=Tier Model Administration` -> resolves to `OU=Tier 1 Service Accounts,OU=Tier 1,OU=Tier Model Administration,<domainDN>`. Correct.
+- `Tier 1 PAW Devices`: config path=`OU=Tier 1,OU=Tier Model Administration` -> resolves to `OU=Tier 1 PAW Devices,OU=Tier 1,OU=Tier Model Administration,<domainDN>`. Correct.
+- `Tier 1 Member Servers`: config path=`{{DOMAIN_DN}}` -> resolves to `OU=Tier 1 Member Servers,<domainDN>` (domain root). Correct. Mirrors Tier 0.
+- `Tier 1 Server Staging`: config path=`OU=Tier 1 Member Servers` -> resolves to `OU=Tier 1 Server Staging,OU=Tier 1 Member Servers,<domainDN>`. Correct. Mirrors Tier 0.
+- All 5 OU entries exist in tiermodel-ous.json. All 4 group entries exist in tiermodel-groups.json. Policy `*- Tier 1 Authentication Policy` exists in tiermodel-authsilos.json.
+- Built-in exclusion: `svc-t1srvdomainjoin` is in tiermodel-users.json built-in exclusion list (lives in Tier 1 Service Accounts OU). Confirmed.
+
+#### Lab Script (Combined)
+- Single script `Setup-Tier1MembershipLab.ps1` covers all 5 Tier 1 switches
+- Tier 1 Accounts OU: 10 users (t1-user01..10, 09/10 excluded)
+- Tier 1 Service Accounts OU: 10 users (svc-t1-u01..10) + 10 gMSAs (svc-t1-g01..10) + dMSA attempt (svc-t1-d01..10), excluded indices 9/10 each
+- Tier 1 PAW Devices OU: 5 computers (t1paw01..05)
+- Tier 1 Member Servers OU (domain root): 5 computers (t1srv01..05), OU created if missing
+- Tier 1 Server Staging OU (child of Member Servers): 5 computers (t1stg01..05), OU created if missing
+- Reset mode: clears all group membership + policy for all test objects
+- Remove mode: deletes all test objects
+- KDS root key: reuses if present, creates with past effective time if absent
+- Expected-state summary and verification commands for all 5 switches
+
+### Learnings
+- Tier 1 is a true mechanical swap from Tier 0 -- identical `Invoke-TierReconciliation` calls with different config names. No logic changes required.
+- OU nesting pattern is identical: Accounts/ServiceAccounts/PAWDevices under `OU=Tier 1,OU=Tier Model Administration`, Member Servers at domain root, Server Staging as child of Member Servers.
+- Combined lab script is more efficient than 3 separate scripts (Tier 0 used 3). Single -Reset/-Remove handles all object types.
+- PowerShell `$var:` in double-quoted strings is parsed as a scope-qualified variable reference. Use `${var}:` to delimit the variable name when followed by a colon.
+
+---
+
+## 2026-08-29 -- Milestone 3: Tier 0 Computers (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- Invoke-Tier0PawDevices, Invoke-Tier0MemberServers, Invoke-Tier0Staging implemented (version 1.2.0)
+- `.research/auth-silos/lab/Setup-Tier0ComputersLab.ps1` -- idempotent lab-data setup for computers
+
+### Key Changes
+
+#### Three Computer Functions Implemented
+- All three use `Invoke-TierReconciliation` with `PolicyName=$null`, `ObjectFilter='(objectClass=computer)'`, `ApplyExclusionToGroup=$false`
+- **Invoke-Tier0PawDevices**: source `Tier 0 PAW Devices` OU (under Tier Model Administration), target `Tier0PAWDevices` group. Subtree search, no child-OU exclusion.
+- **Invoke-Tier0MemberServers**: source `Tier 0 Member Servers` OU (domain root), target `Tier0MemberServers` group. Subtree search with `ExcludeChildOuDn` set to the resolved `Tier 0 Server Staging` DN. Post-filter in `Invoke-TierReconciliation` excludes objects whose DN ends with the Staging OU suffix.
+- **Invoke-Tier0Staging**: source `Tier 0 Server Staging` OU (child of Member Servers at domain root), target `Tier0MemberServers` group (same group as MemberServers). Subtree search.
+
+#### OU DN Resolution Verification
+- `Tier 0 Member Servers`: config path=`{{DOMAIN_DN}}` -> resolves to `OU=Tier 0 Member Servers,DC=tierlab,DC=internal` (domain root). Correct.
+- `Tier 0 Server Staging`: config path=`OU=Tier 0 Member Servers` (relative) -> resolves to `OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,DC=tierlab,DC=internal`. Correct.
+- `Tier 0 PAW Devices`: config path=`OU=Tier 0,OU=Tier Model Administration` (relative) -> resolves to `OU=Tier 0 PAW Devices,OU=Tier 0,OU=Tier Model Administration,DC=tierlab,DC=internal`. Correct.
+- No config gaps found. All three OU entries exist in tiermodel-ous.json. Both group entries (Tier0PAWDevices, Tier0MemberServers) exist in tiermodel-groups.json.
+
+#### Lab Script
+- Creates 15 computer objects: 5 in PAW Devices (t0paw01..05), 5 in Member Servers (t0srv01..05), 5 in Server Staging (t0stg01..05)
+- Ensures Member Servers and Server Staging OUs exist at domain root (creates if missing)
+- Reset mode: removes test computers from both groups
+- Remove mode: deletes test computer objects
+- Expected-state summary and verification commands printed
+
+### Learnings
+- OU DN resolution for root-level OUs: config uses `{{DOMAIN_DN}}` as path for root-level OUs (Member Servers, End-User Devices), while nested OUs use relative OU chains. Resolve-OuDn handles both by checking if path starts with `DC=`.
+- Child-OU exclusion mechanics: the `ExcludeChildOuDn` parameter in `Invoke-TierReconciliation` works via DN suffix matching. A computer in `OU=Tier 0 Server Staging,OU=Tier 0 Member Servers,DC=...` has a DN that ends with the Staging OU DN, so it is post-filtered out when enumerating from the parent Member Servers OU with Subtree scope.
+- Computer objects have no auth policy assignment -- the device GROUP membership is what feeds the silo SDDL. Exclusions never apply to computers.
+- Computer sAMAccountNames have a `$` suffix (auto-appended by AD). New-ADComputer -SamAccountName should include the `$`.
+- Tier 0 Member Servers and Tier 0 Server Staging OUs may not exist from the base Deploy-TierModel.ps1 run -- they are in the config but the deploy script may not create root-level OUs. The lab script ensures they exist.
+
+---
+
+## 2026-08-29 -- Milestone 2: Tier 0 Service Accounts (Update-TierModelMembership.ps1)
+
+**Status:** CODE AUTHORED -- awaiting lab validation by coordinator
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` -- Invoke-Tier0ServiceActt implemented + type-agnostic policy refactor
+- `.research/auth-silos/lab/Setup-Tier0ServiceAcctLab.ps1` -- idempotent lab-data setup for service accounts
+
+### Key Changes
+
+#### Type-Agnostic Policy Refactor (affects Operators path too)
+- Replaced `Set-ADUser -AuthenticationPolicy $name` with `Set-ADObject -Replace @{ 'msDS-AssignedAuthNPolicy' = $dn }` for policy assignment
+- Replaced `Set-ADUser -Clear 'msDS-AssignedAuthNPolicy'` with `Set-ADObject -Clear 'msDS-AssignedAuthNPolicy'` for policy removal
+- Extracted two helpers: `Set-TmObjectAuthPolicy` and `Clear-TmObjectAuthPolicy` (use Set-ADObject internally)
+- Helpers used in both `Invoke-TierReconciliation` loop AND `Invoke-BuiltInExclusionEnforcement`
+- `Invoke-TierReconciliation` now resolves the policy DN at validation time (not just name) and passes the DN to the helper
+- **Operators path preserved:** same LDAP filter `(objectClass=user)`, same `ApplyExclusionToGroup=$false`, same idempotency check (CN extraction from DN for comparison). Set-ADObject works identically to Set-ADUser for user objects.
+
+#### Service Accounts Implementation
+- LDAP filter: `(|(&(objectClass=user)(objectCategory=person))(objectClass=msDS-GroupManagedServiceAccount)(objectClass=msDS-DelegatedManagedServiceAccount)(objectClass=msDS-ManagedServiceAccount))`
+- objectCategory=person in the user clause excludes computer objects from matching
+- gMSA/dMSA/sMSA classes absent from schema simply return zero results (safe; no error)
+- `ApplyExclusionToGroup = $true` -- both group and policy respect exclusions
+- Same policy (*- Tier 0 Authentication Policy) shared with Operators
+
+#### Lab Script
+- KDS root key: checks `Get-KdsRootKey`; if absent, creates with `Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))` for immediate lab use. This is domain-persistent -- logged clearly.
+- Creates 10 users (svc-t0-u01..u10), 10 gMSAs (svc-t0-g01..g10), attempts 10 dMSAs (svc-t0-d01..d10, skips if DFL < 2025)
+- 2 of each type marked excluded (indices 9, 10) via adminDescription=TierModelExclude
+- Reset/Remove modes use Get-ADObject/Set-ADObject/Remove-ADObject (type-agnostic)
+- Expected-state summary accounts for svc-pawdomainjoin (built-in excluded, lives in this OU)
+
+### Learnings
+- `Set-ADUser -AuthenticationPolicy` only works on user objects -- gMSA/dMSA/sMSA need `Set-ADObject -Replace @{ 'msDS-AssignedAuthNPolicy' = <policyDN> }` instead
+- `Set-ADObject` with `-Replace`/`-Clear` on msDS-AssignedAuthNPolicy works uniformly for all security principal types
+- The LDAP filter for mixed account types must use `(objectCategory=person)` with `(objectClass=user)` to exclude computers, since sMSA inherits from computer which inherits from user
+- gMSA creation needs a KDS root key; `Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))` makes it immediately usable in a lab (normally requires 10-hour propagation delay)
+- dMSA (msDS-DelegatedManagedServiceAccount) requires Windows Server 2025 DFL; schema queries return zero results on older DFLs (safe, not an error)
+- gMSA sAMAccountNames have a `$` suffix (auto-appended); built-in exclusion matching is by sAMAccountName so these never collide with the plain-user built-in exclusion list
+- CRITICAL: Windows PowerShell 5.1 without BOM reads .ps1 as ANSI. ANY non-ASCII byte (> 0x7F) causes ParserError. Always verify with a byte-scan.
+
+---
+
+## 2026-08-29 -- Milestone 1: Tier 0 Operators (Update-TierModelMembership.ps1)
+
+**Status:** LAB-VALIDATED -- working
+
+### Deliverables
+- `optional/Update-TierModelMembership.ps1` — shared scaffold + Tier 0 Operators implemented
+- `.research/auth-silos/lab/Setup-Tier0OperatorsLab.ps1` — idempotent lab-data setup
+
+### Scaffold Shape
+- Full param block: 4 aggregates (All/AllTier0/AllTier1/AllTier2) + 15 granular switches + ExclusionAttribute/ExclusionValue + EnableLogging + reserved EnableDebug/LogEventID
+- Switch resolution: no-switch → All → AllTierX → granular. Ordered list preserves mandatory Tier2Operators-before-Tier2Eud sequence
+- Preflight: AD module import → writable non-RODC DC → dNSHostName identity → GC check → ADWS probe
+- Config loading: standalone JSON reader (4 files), `{{DOMAIN_DN}}` resolved via Get-ADDomain
+- Built-in exclusions: HashSet from tiermodel-users.json (3 svc accounts), always enforced
+- Customer exclusions: parameterized attribute/value, validated at startup
+- Logging: %ProgramData%\TierModel\Logs, one file per run, 7-day retention
+
+### Reusable Per-Tier Function Signature
+```powershell
+Invoke-TierReconciliation
+    -SwitchName        [string]      # Display name for logging
+    -SourceOuDn        [string]      # Source OU distinguished name
+    -TargetGroupSam    [string]      # Target group sAMAccountName
+    -PolicyName        [string]      # Auth policy name ($null if no policy)
+    -ObjectFilter      [string]      # LDAP filter (default: (objectClass=user))
+    -SearchScope       [string]      # Subtree/OneLevel (default: Subtree)
+    -ApplyExclusionToGroup [bool]    # $true for ServiceAccounts, $false for Operators
+    -ExcludeChildOuDn  [string]      # Child OU to post-filter exclude
+```
+
+### Key Implementation Decisions
+- **Fail-closed ordering:** policy assigned FIRST, then group add. Error stops the run with account NOT in group
+- **Policy assignment:** `Set-ADUser -AuthenticationPolicy` (clear: `Set-ADUser -Clear 'msDS-AssignedAuthNPolicy'`)
+- **Policy idempotency:** AD stores `msDS-AssignedAuthNPolicy` as a DN; script extracts CN via regex `'^CN=(.+?),'` for comparison
+- **DC targeting:** `$script:PreferredDc` set once from `Get-ADDomainController` .HostName; passed to every AD cmdlet via `-Server`
+- **Group membership cache:** `HashSet<string>` (DN, OrdinalIgnoreCase) per switch for O(1) membership checks
+- **Exclusion predicate:** universal `Test-IsExcludedFromPolicy` combines built-in + customer checks; built-in also has Step 0 enforcement
+- **Stub architecture:** each future tier/switch has a named `Invoke-TierXYZ` function stub; dispatch hashtable preserves execution order
+- **Config resolution:** `Resolve-OuDn`, `Resolve-GroupSam`, `Resolve-PolicyName` look up by display name in JSON
+
+### Learnings
+- `Set-ADUser -AuthenticationPolicy` accepts the policy CN (name), not the DN — works on WS2012R2+ AD module
+- AD returns `msDS-AssignedAuthNPolicy` as a full DN (`CN=*- Tier 0...,CN=AuthN Policies,...`); must normalize for comparison
+- `Get-ADDomainController -Identity $env:COMPUTERNAME` resolves the local DC; `.HostName` gives the FQDN (safe for disjoint namespaces)
+- Config `path` field in tiermodel-ous.json is the PARENT path, not the full DN; construct DN as `OU=<name>,<path>`
+- Lab script uses `adminDescription` = `TierModelExclude` per Joel's §18 decision
+
+---
 
 ## 2026-08-27 — Design Plan: Update-TierModelMembership.ps1
 

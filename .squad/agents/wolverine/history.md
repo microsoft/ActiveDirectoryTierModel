@@ -1,5 +1,25 @@
 # wolverine — History (Summarized)
 
+---
+
+## PENDING: Pester Tests for optional/Update-TierModelMembership.ps1
+
+**Status:** BLOCKED (awaiting Joel UAT completion)  
+**Blocking:** Joel-supplied test scenarios (Tier switches, exclusion model, PS7 target validation, -EnableDebug/-EnableLogging)  
+**Trigger:** Once Beast confirms UAT complete, write comprehensive Pester test suite covering all 15 tier switches + optional flags. Lab-validation already confirmed by Beast; test authoring per standing rule (code + lab-validate FIRST, then tests).
+
+**Test Matrix TBD:**
+- Tier 0/1/2 Operator switches
+- ServiceAcct / PawDevices / MemberServers / Staging switches
+- Tier 2 EUD vs Tier 2 Operators (Option X conflict resolution)
+- -All aggregates
+- Exclusion attribute handling (operator vs service account removal)
+- -EnableDebug structured output
+- -EnableLogging change audit
+- PS 7.0+ requirement + 5.1 block
+
+---
+
 ## Session 2026-08-27 — Auth Silo Coverage Gap-Fill Pass
 
 **Status:** ✅ COMPLETE — 1,783 total tests, 1,783 passing, 0 failures
