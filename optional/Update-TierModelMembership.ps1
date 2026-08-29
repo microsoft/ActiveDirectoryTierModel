@@ -1,3 +1,4 @@
+#requires -Version 7.0
 <#
 .SYNOPSIS
     Reconciles Tier Model group membership and Authentication Policy assignments.
@@ -105,9 +106,12 @@
     Dry run - shows what changes would be made without modifying AD.
 
 .NOTES
-    Target: Windows PowerShell 5.1 + ActiveDirectory module on a Domain Controller.
+    Requires: PowerShell 7.0+ (pwsh.exe). Windows PowerShell 5.1 is blocked.
+    The scheduled task action MUST run pwsh.exe, not powershell.exe.
+    The TierModel deployment already requires PowerShell 7.
+    ActiveDirectory module required. Run on a Domain Controller in SYSTEM context.
     Execution: Local scheduled task, SYSTEM context. NOT SYSVOL/NETLOGON.
-    Version: 1.3.0 (Milestones 1-4: Tier 0 + Tier 1 Operators, Service Accounts, Computers)
+    Version: 1.4.0 (Milestones 1-5: Tier 0 + Tier 1 + Tier 2 Simple (PAW, ServiceAccounts, EUD Devices))
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -289,8 +293,16 @@ function Resolve-ActiveSwitches {
 function Assert-Preflight {
     <#
     .SYNOPSIS
-        Fail-fast preflight: AD module, writable DC, DC identity, GC, ADWS.
+        Fail-fast preflight: PS version, AD module, writable DC, DC identity, GC, ADWS.
     #>
+
+    # (0) PowerShell version guard (belt-and-suspenders with #requires -Version 7.0)
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        throw ('PREFLIGHT FAILED: This script requires PowerShell 7.0 or later. ' +
+               'Windows PowerShell 5.1 is closed-source, no longer updated, and is blocked. ' +
+               'The TierModel deployment already requires PowerShell 7. ' +
+               'Configure the scheduled task action to run pwsh.exe (not powershell.exe).')
+    }
 
     # (a) ActiveDirectory module
     try {
@@ -1129,33 +1141,96 @@ function Invoke-Tier1Staging {
 }
 
 function Invoke-Tier2Operators {
-    # STUB: Milestone 4 - Tier 2 Accounts OU; Tier2LocalDeviceOperators disambiguation
+    # STUB: Deferred to next milestone (Tier 2 Operators/EUD account pair)
     param([hashtable]$Config)
-    Write-Log -Message 'Tier2Operators: NOT YET IMPLEMENTED (stub)' -Level Warning
+    Write-Log -Message 'Tier2Operators: NOT YET IMPLEMENTED (stub - next milestone)' -Level Warning
 }
 
 function Invoke-Tier2Eud {
-    # STUB: Milestone 4 - assigns EUD policy to Tier2LocalDeviceOperators members (not in Tier2Operators)
+    # STUB: Deferred to next milestone (Tier 2 Operators/EUD account pair)
     param([hashtable]$Config)
-    Write-Log -Message 'Tier2Eud: NOT YET IMPLEMENTED (stub)' -Level Warning
+    Write-Log -Message 'Tier2Eud: NOT YET IMPLEMENTED (stub - next milestone)' -Level Warning
 }
 
 function Invoke-Tier2ServiceActt {
-    # STUB: Milestone 4
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier2ServiceActt: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 2 Service Accounts: Tier 2 Service Accounts OU (user + gMSA + dMSA + sMSA)
+        -> Tier2ServiceAccounts group + Tier 2 auth policy.
+        Exclusion applies to BOTH group and policy.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 2 Service Accounts' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 2 Service Accounts' -GroupConfig $Config.Groups
+    $policyName     = Resolve-PolicyName -PolicyName '*- Tier 2 Authentication Policy' -AuthSiloConfig $Config.AuthSilos
+
+    $svcAcctFilter = '(|(&(objectClass=user)(objectCategory=person))(objectClass=msDS-GroupManagedServiceAccount)(objectClass=msDS-DelegatedManagedServiceAccount)(objectClass=msDS-ManagedServiceAccount))'
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier2ServiceActt' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $policyName `
+        -ObjectFilter      $svcAcctFilter `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $true  # Exclusion applies to BOTH group and policy for Service Accounts
 }
 
 function Invoke-Tier2PawDevices {
-    # STUB: Milestone 4
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier2PawDevices: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 2 PAW Devices: Tier 2 PAW Devices OU computers -> Tier2PAWDevices group.
+        No policy assignment (computers get policy via device group SDDL).
+        No exclusions (exclusions never apply to computers).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn     = Resolve-OuDn -OuName 'Tier 2 PAW Devices' -OuConfig $Config.OUs
+    $targetGroupSam = Resolve-GroupSam -GroupName 'Tier 2 PAW Devices' -GroupConfig $Config.Groups
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier2PawDevices' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $null `
+        -ObjectFilter      '(objectClass=computer)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false
 }
 
 function Invoke-Tier2EudDevices {
-    # STUB: Milestone 4
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier2EudDevices: NOT YET IMPLEMENTED (stub)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 2 EUD Devices: computers in the Tier 2 End-User Devices OU
+        (subtree) -> Tier2EUDDevices group, EXCLUDING the Disabled End-User
+        Devices child OU.
+        No policy assignment. No exclusions.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $sourceOuDn      = Resolve-OuDn -OuName 'Tier 2 End-User Devices' -OuConfig $Config.OUs
+    $targetGroupSam  = Resolve-GroupSam -GroupName 'Tier 2 EUD Devices' -GroupConfig $Config.Groups
+    $disabledOuDn    = Resolve-OuDn -OuName 'Disabled End-User Devices' -OuConfig $Config.OUs
+
+    Invoke-TierReconciliation `
+        -SwitchName        'Tier2EudDevices' `
+        -SourceOuDn        $sourceOuDn `
+        -TargetGroupSam    $targetGroupSam `
+        -PolicyName        $null `
+        -ObjectFilter      '(objectClass=computer)' `
+        -SearchScope       'Subtree' `
+        -ApplyExclusionToGroup $false `
+        -ExcludeChildOuDn  $disabledOuDn
 }
 
 # ============================================================================
