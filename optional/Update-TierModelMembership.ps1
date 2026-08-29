@@ -59,9 +59,13 @@
 
 .PARAMETER Tier2Operators
     Reconcile Tier 2 Accounts OU users -> Tier2Operators group + Tier 2 auth policy.
+    Disambiguates from EUD via Tier2LocalDeviceOperators membership; operator wins
+    for both-groups users. New no-group users default to operator.
 
 .PARAMETER Tier2Eud
-    Assign Tier 2 EUD Authentication Policy to Tier2LocalDeviceOperators members.
+    Assign Tier 2 EUD Authentication Policy to pure Tier2LocalDeviceOperators
+    members in the Tier 2 Accounts OU. Does not add to any group (LDO membership
+    is customer-managed). Skips users also in Tier2Operators (operator wins).
 
 .PARAMETER Tier2ServiceActt
     Reconcile Tier 2 Service Accounts OU -> Tier2ServiceAccounts group + Tier 2 auth policy.
@@ -111,7 +115,7 @@
     The TierModel deployment already requires PowerShell 7.
     ActiveDirectory module required. Run on a Domain Controller in SYSTEM context.
     Execution: Local scheduled task, SYSTEM context. NOT SYSVOL/NETLOGON.
-    Version: 1.4.0 (Milestones 1-5: Tier 0 + Tier 1 + Tier 2 Simple (PAW, ServiceAccounts, EUD Devices))
+    Version: 1.5.0 (Milestones 1-6: Tier 0 + Tier 1 + Tier 2 complete)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -1141,15 +1145,435 @@ function Invoke-Tier1Staging {
 }
 
 function Invoke-Tier2Operators {
-    # STUB: Deferred to next milestone (Tier 2 Operators/EUD account pair)
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier2Operators: NOT YET IMPLEMENTED (stub - next milestone)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 2 Operators: Tier 2 Accounts OU users -> Tier2Operators group +
+        Tier 2 Authentication Policy.  Disambiguates from EUD users via
+        Tier2LocalDeviceOperators group membership (Option X).
+    .DESCRIPTION
+        Both -Tier2Operators and -Tier2Eud enumerate the SAME OU (Tier 2 Accounts).
+        A user's role is determined by group membership, not OU:
+
+          OPERATOR: (NOT isLDO) OR (isOp)
+                    Anyone not purely-LDO, including both-groups and no-group users.
+          EUD:      (isLDO AND NOT isOp)
+                    Pure LDO only -- handled by -Tier2Eud, skipped here.
+
+        New no-group users default to OPERATOR (fail-secure, OQ-1 resolution).
+        Operator ALWAYS wins for the single-valued msDS-AssignedAuthNPolicy.
+
+        Fail-closed ordering: policy FIRST, then group membership.
+        Exclusion applies to policy only -- NOT to the operator group (all tier
+        users are operators, matching Tier 0/1 Operators behavior).
+
+        Must run BEFORE -Tier2Eud when both are active (-AllTier2 / -All).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $switchName = 'Tier2Operators'
+    Write-Log -Message "--- $switchName ---"
+
+    # Resolve config-driven names
+    $sourceOuDn  = Resolve-OuDn -OuName 'Tier 2 Accounts' -OuConfig $Config.OUs
+    $opGroupSam  = Resolve-GroupSam -GroupName 'Tier 2 Operators' -GroupConfig $Config.Groups
+    $ldoGroupSam = Resolve-GroupSam -GroupName 'Tier 2 Local Device Operators' -GroupConfig $Config.Groups
+    $policyName  = Resolve-PolicyName -PolicyName '*- Tier 2 Authentication Policy' -AuthSiloConfig $Config.AuthSilos
+
+    # Validate source OU exists
+    try {
+        Get-ADOrganizationalUnit -Identity $sourceOuDn -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: Source OU '$sourceOuDn' does not exist in AD. $_"
+    }
+
+    # Validate operator group exists
+    try {
+        Get-ADGroup -Identity $opGroupSam -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: Operator group '$opGroupSam' does not exist in AD. $_"
+    }
+
+    # Validate LDO group exists
+    try {
+        Get-ADGroup -Identity $ldoGroupSam -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: LDO group '$ldoGroupSam' does not exist in AD. $_"
+    }
+
+    # Resolve policy DN
+    $policyDn = $null
+    try {
+        $configNC   = (Get-ADRootDSE -Server $script:PreferredDc).configurationNamingContext
+        $searchBase = "CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,$configNC"
+        $policyObjs = @(Get-ADObject -Filter "name -eq '$policyName'" `
+            -SearchBase $searchBase `
+            -Server $script:PreferredDc -ErrorAction Stop)
+        if ($policyObjs.Count -eq 0) {
+            throw "Authentication Policy '$policyName' not found."
+        }
+        $policyDn = $policyObjs[0].DistinguishedName
+    }
+    catch {
+        throw "$switchName FAILED: Authentication Policy '$policyName' does not exist in AD. $_"
+    }
+
+    # Build properties list
+    $propsToFetch = @('sAMAccountName', 'DistinguishedName', 'msDS-AssignedAuthNPolicy')
+    if (-not [string]::IsNullOrEmpty($ExclusionAttribute)) {
+        $propsToFetch += $ExclusionAttribute
+    }
+
+    # Enumerate ALL user objects in Tier 2 Accounts OU
+    $users = @(Get-ADObject -LDAPFilter '(objectClass=user)' -SearchBase $sourceOuDn `
+                   -SearchScope Subtree -Properties $propsToFetch `
+                   -Server $script:PreferredDc -ErrorAction Stop)
+
+    Write-Log -Message "$switchName : Enumerated $($users.Count) user objects from '$sourceOuDn'"
+
+    # Build isOp HashSet (DNs of current Tier2Operators members)
+    $isOpSet = New-Object 'System.Collections.Generic.HashSet[string]' (
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    try {
+        $opMembers = @(Get-ADGroupMember -Identity $opGroupSam -Server $script:PreferredDc -ErrorAction Stop)
+        foreach ($m in $opMembers) {
+            [void]$isOpSet.Add($m.distinguishedName)
+        }
+    }
+    catch {
+        Write-Log -Message "$switchName : Could not read members of '$opGroupSam' (may be empty). $_" -Level Warning
+    }
+
+    # Build isLDO HashSet (DNs of current Tier2LocalDeviceOperators members)
+    $isLdoSet = New-Object 'System.Collections.Generic.HashSet[string]' (
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    try {
+        $ldoMembers = @(Get-ADGroupMember -Identity $ldoGroupSam -Server $script:PreferredDc -ErrorAction Stop)
+        foreach ($m in $ldoMembers) {
+            [void]$isLdoSet.Add($m.distinguishedName)
+        }
+    }
+    catch {
+        Write-Log -Message "$switchName : Could not read members of '$ldoGroupSam' (may be empty). $_" -Level Warning
+    }
+
+    Write-Log -Message "$switchName : Tier2Operators members=$($isOpSet.Count), Tier2LocalDeviceOperators members=$($isLdoSet.Count)"
+
+    # Counters
+    $counters = @{
+        Scanned        = $users.Count
+        PolicyAssigned = 0
+        PolicyCleared  = 0
+        GroupAdded     = 0
+        Excluded       = 0
+        SkippedEud     = 0
+        AlreadyCurrent = 0
+    }
+
+    foreach ($user in $users) {
+        $sam = $user.sAMAccountName
+        $dn  = $user.DistinguishedName
+        $madeChange = $false
+
+        # Classify: OPERATOR or EUD
+        $userIsOp  = $isOpSet.Contains($dn)
+        $userIsLdo = $isLdoSet.Contains($dn)
+
+        # EUD = pure LDO only (isLDO AND NOT isOp) -- handled by -Tier2Eud
+        if ($userIsLdo -and -not $userIsOp) {
+            $counters.SkippedEud++
+            continue
+        }
+
+        # This user is an OPERATOR (not in LDO, in both groups, or no group)
+        $isBuiltInExcl    = Test-IsBuiltInExcluded -SamAccountName $sam
+        $isCustomerExcl   = Test-IsCustomerExcluded -AdObject $user
+        $isPolicyExcluded = $isBuiltInExcl -or $isCustomerExcl
+
+        # ----------------------------------------------------------------
+        # POLICY ASSIGNMENT (fail-closed: policy first, then group)
+        # ----------------------------------------------------------------
+        $currentPol = $user.'msDS-AssignedAuthNPolicy'
+        $currentPolName = $null
+        if (-not [string]::IsNullOrEmpty($currentPol)) {
+            if ($currentPol -match '^CN=(.+?),') {
+                $currentPolName = $Matches[1]
+            }
+            else {
+                $currentPolName = $currentPol
+            }
+        }
+
+        if ($isPolicyExcluded) {
+            $counters.Excluded++
+
+            # Clear policy from excluded operators who currently have one
+            if (-not [string]::IsNullOrEmpty($currentPol)) {
+                if ($PSCmdlet.ShouldProcess($sam, "Clear policy '$currentPolName' (excluded)")) {
+                    Clear-TmObjectAuthPolicy -ObjectDn $dn
+                    Write-Log -Message "Cleared policy '$currentPolName' from excluded operator '$sam'"
+                    $counters.PolicyCleared++
+                    $madeChange = $true
+                }
+            }
+        }
+        else {
+            if ($currentPolName -ne $policyName) {
+                if ($PSCmdlet.ShouldProcess($sam, "Assign Authentication Policy '$policyName'")) {
+                    Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
+                    Write-Log -Message "Assigned policy '$policyName' to operator '$sam'"
+                    $counters.PolicyAssigned++
+                    $madeChange = $true
+                }
+            }
+        }
+
+        # ----------------------------------------------------------------
+        # GROUP MEMBERSHIP -- exclusion does NOT apply to operator group
+        # All tier users are operators (matching Tier 0/1 Operators behavior)
+        # ----------------------------------------------------------------
+        if (-not $isOpSet.Contains($dn)) {
+            if ($PSCmdlet.ShouldProcess($sam, "Add to group '$opGroupSam'")) {
+                Add-ADGroupMember -Identity $opGroupSam -Members $dn `
+                    -Server $script:PreferredDc -ErrorAction Stop
+                [void]$isOpSet.Add($dn)
+                Write-Log -Message "Added operator '$sam' to group '$opGroupSam'"
+                $counters.GroupAdded++
+                $madeChange = $true
+            }
+        }
+
+        if (-not $madeChange) {
+            $counters.AlreadyCurrent++
+        }
+    }
+
+    # Summary
+    $summary = "$switchName : Scanned=$($counters.Scanned) " +
+               "Operators=$($counters.Scanned - $counters.SkippedEud) " +
+               "SkippedEud=$($counters.SkippedEud) " +
+               "GroupAdded=$($counters.GroupAdded) " +
+               "PolicyAssigned=$($counters.PolicyAssigned) " +
+               "PolicyCleared=$($counters.PolicyCleared) " +
+               "Excluded=$($counters.Excluded) " +
+               "AlreadyCurrent=$($counters.AlreadyCurrent)"
+    Write-Log -Message $summary
+
+    return [PSCustomObject]$counters
 }
 
 function Invoke-Tier2Eud {
-    # STUB: Deferred to next milestone (Tier 2 Operators/EUD account pair)
-    param([hashtable]$Config)
-    Write-Log -Message 'Tier2Eud: NOT YET IMPLEMENTED (stub - next milestone)' -Level Warning
+    <#
+    .SYNOPSIS
+        Tier 2 EUD: assigns Tier 2 EUD Authentication Policy to pure
+        Tier2LocalDeviceOperators members in the Tier 2 Accounts OU.
+    .DESCRIPTION
+        Both -Tier2Operators and -Tier2Eud enumerate the SAME OU (Tier 2 Accounts).
+        A user is classified as EUD only if they are in Tier2LocalDeviceOperators
+        AND NOT in Tier2Operators (pure LDO).  All other users (including
+        both-groups and no-group) are skipped (handled by -Tier2Operators).
+
+        This function does NOT add users to any group.  LDO membership is
+        customer-managed; the script never writes to Tier2LocalDeviceOperators.
+
+        Exclusion applies to policy assignment (skip excluded; clear EUD policy
+        from an excluded LDO user that has it).
+
+        Single-valued msDS-AssignedAuthNPolicy interaction: a user who transitions
+        from pure-LDO to both-groups will have their EUD policy overwritten by
+        the Tier 2 operator policy on the next -Tier2Operators run (Set-ADObject
+        -Replace sets the single value).  This is correct: operator wins.
+
+        Must run AFTER -Tier2Operators when both are active (-AllTier2 / -All).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    $switchName = 'Tier2Eud'
+    Write-Log -Message "--- $switchName ---"
+
+    # Resolve config-driven names
+    $sourceOuDn  = Resolve-OuDn -OuName 'Tier 2 Accounts' -OuConfig $Config.OUs
+    $opGroupSam  = Resolve-GroupSam -GroupName 'Tier 2 Operators' -GroupConfig $Config.Groups
+    $ldoGroupSam = Resolve-GroupSam -GroupName 'Tier 2 Local Device Operators' -GroupConfig $Config.Groups
+    $policyName  = Resolve-PolicyName -PolicyName '*- Tier 2 EUD Authentication Policy' -AuthSiloConfig $Config.AuthSilos
+
+    # Validate source OU exists
+    try {
+        Get-ADOrganizationalUnit -Identity $sourceOuDn -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: Source OU '$sourceOuDn' does not exist in AD. $_"
+    }
+
+    # Validate both groups exist
+    try {
+        Get-ADGroup -Identity $opGroupSam -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: Operator group '$opGroupSam' does not exist in AD. $_"
+    }
+    try {
+        Get-ADGroup -Identity $ldoGroupSam -Server $script:PreferredDc -ErrorAction Stop | Out-Null
+    }
+    catch {
+        throw "$switchName FAILED: LDO group '$ldoGroupSam' does not exist in AD. $_"
+    }
+
+    # Resolve EUD policy DN
+    $policyDn = $null
+    try {
+        $configNC   = (Get-ADRootDSE -Server $script:PreferredDc).configurationNamingContext
+        $searchBase = "CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,$configNC"
+        $policyObjs = @(Get-ADObject -Filter "name -eq '$policyName'" `
+            -SearchBase $searchBase `
+            -Server $script:PreferredDc -ErrorAction Stop)
+        if ($policyObjs.Count -eq 0) {
+            throw "Authentication Policy '$policyName' not found."
+        }
+        $policyDn = $policyObjs[0].DistinguishedName
+    }
+    catch {
+        throw "$switchName FAILED: Authentication Policy '$policyName' does not exist in AD. $_"
+    }
+
+    # Build properties list
+    $propsToFetch = @('sAMAccountName', 'DistinguishedName', 'msDS-AssignedAuthNPolicy')
+    if (-not [string]::IsNullOrEmpty($ExclusionAttribute)) {
+        $propsToFetch += $ExclusionAttribute
+    }
+
+    # Enumerate ALL user objects in Tier 2 Accounts OU
+    $users = @(Get-ADObject -LDAPFilter '(objectClass=user)' -SearchBase $sourceOuDn `
+                   -SearchScope Subtree -Properties $propsToFetch `
+                   -Server $script:PreferredDc -ErrorAction Stop)
+
+    Write-Log -Message "$switchName : Enumerated $($users.Count) user objects from '$sourceOuDn'"
+
+    # Build isOp HashSet
+    $isOpSet = New-Object 'System.Collections.Generic.HashSet[string]' (
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    try {
+        $opMembers = @(Get-ADGroupMember -Identity $opGroupSam -Server $script:PreferredDc -ErrorAction Stop)
+        foreach ($m in $opMembers) {
+            [void]$isOpSet.Add($m.distinguishedName)
+        }
+    }
+    catch {
+        Write-Log -Message "$switchName : Could not read members of '$opGroupSam' (may be empty). $_" -Level Warning
+    }
+
+    # Build isLDO HashSet
+    $isLdoSet = New-Object 'System.Collections.Generic.HashSet[string]' (
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+    try {
+        $ldoMembers = @(Get-ADGroupMember -Identity $ldoGroupSam -Server $script:PreferredDc -ErrorAction Stop)
+        foreach ($m in $ldoMembers) {
+            [void]$isLdoSet.Add($m.distinguishedName)
+        }
+    }
+    catch {
+        Write-Log -Message "$switchName : Could not read members of '$ldoGroupSam' (may be empty). $_" -Level Warning
+    }
+
+    Write-Log -Message "$switchName : Tier2Operators members=$($isOpSet.Count), Tier2LocalDeviceOperators members=$($isLdoSet.Count)"
+
+    # Counters
+    $counters = @{
+        Scanned         = $users.Count
+        PolicyAssigned  = 0
+        PolicyCleared   = 0
+        Excluded        = 0
+        SkippedOperator = 0
+        AlreadyCurrent  = 0
+    }
+
+    foreach ($user in $users) {
+        $sam = $user.sAMAccountName
+        $dn  = $user.DistinguishedName
+
+        # Classify: OPERATOR or EUD
+        $userIsOp  = $isOpSet.Contains($dn)
+        $userIsLdo = $isLdoSet.Contains($dn)
+
+        # Not EUD => skip (handled by -Tier2Operators)
+        if (-not $userIsLdo -or $userIsOp) {
+            $counters.SkippedOperator++
+            continue
+        }
+
+        # This user is EUD (pure LDO: isLDO AND NOT isOp)
+        $madeChange       = $false
+        $isBuiltInExcl    = Test-IsBuiltInExcluded -SamAccountName $sam
+        $isCustomerExcl   = Test-IsCustomerExcluded -AdObject $user
+        $isPolicyExcluded = $isBuiltInExcl -or $isCustomerExcl
+
+        # ----------------------------------------------------------------
+        # POLICY ASSIGNMENT (EUD policy; no group add ever)
+        # ----------------------------------------------------------------
+        $currentPol = $user.'msDS-AssignedAuthNPolicy'
+        $currentPolName = $null
+        if (-not [string]::IsNullOrEmpty($currentPol)) {
+            if ($currentPol -match '^CN=(.+?),') {
+                $currentPolName = $Matches[1]
+            }
+            else {
+                $currentPolName = $currentPol
+            }
+        }
+
+        if ($isPolicyExcluded) {
+            $counters.Excluded++
+
+            if (-not [string]::IsNullOrEmpty($currentPol)) {
+                if ($PSCmdlet.ShouldProcess($sam, "Clear EUD policy '$currentPolName' (excluded)")) {
+                    Clear-TmObjectAuthPolicy -ObjectDn $dn
+                    Write-Log -Message "Cleared EUD policy '$currentPolName' from excluded LDO account '$sam'"
+                    $counters.PolicyCleared++
+                    $madeChange = $true
+                }
+            }
+        }
+        else {
+            if ($currentPolName -ne $policyName) {
+                if ($PSCmdlet.ShouldProcess($sam, "Assign EUD Authentication Policy '$policyName'")) {
+                    Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
+                    Write-Log -Message "Assigned EUD policy '$policyName' to LDO account '$sam'"
+                    $counters.PolicyAssigned++
+                    $madeChange = $true
+                }
+            }
+        }
+
+        # NO group add -- LDO membership is customer-managed
+
+        if (-not $madeChange) {
+            $counters.AlreadyCurrent++
+        }
+    }
+
+    # Summary
+    $summary = "$switchName : Scanned=$($counters.Scanned) " +
+               "EudCandidates=$($counters.Scanned - $counters.SkippedOperator) " +
+               "SkippedOperator=$($counters.SkippedOperator) " +
+               "PolicyAssigned=$($counters.PolicyAssigned) " +
+               "PolicyCleared=$($counters.PolicyCleared) " +
+               "Excluded=$($counters.Excluded) " +
+               "AlreadyCurrent=$($counters.AlreadyCurrent)"
+    Write-Log -Message $summary
+
+    return [PSCustomObject]$counters
 }
 
 function Invoke-Tier2ServiceActt {
