@@ -88,7 +88,14 @@
     per run, 7-day default retention.
 
 .PARAMETER EnableDebug
-    Reserved for future use. Deep per-decision troubleshooting dump.
+    Enables deep per-decision troubleshooting dump to %ProgramData%\TierModel\Debug.
+    Each run produces a timestamped debug file with a unique CorrelationId in the
+    filename (Update-TierModelMembership.debug.<timestamp>.<CorrelationId>.log).
+    The same CorrelationId appears in the -EnableLogging change log for correlation.
+    Bounded retention: files older than 7 days, more than 30 files, or exceeding
+    200 MB total are pruned at init. Free-space precheck requires 50 MB minimum.
+    FAIL-FAST: if the debug file cannot be created, the script aborts before any
+    AD modification.
 
 .PARAMETER LogEventID
     Reserved for future use. Windows Event Log heartbeat for monitoring integration.
@@ -115,7 +122,7 @@
     The TierModel deployment already requires PowerShell 7.
     ActiveDirectory module required. Run on a Domain Controller in SYSTEM context.
     Execution: Local scheduled task, SYSTEM context. NOT SYSVOL/NETLOGON.
-    Version: 1.5.0 (Milestones 1-6: Tier 0 + Tier 1 + Tier 2 complete)
+    Version: 1.6.0 (Milestones 1-7: all tiers + EnableDebug)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -168,6 +175,8 @@ $script:PreferredDc       = $null
 $script:DomainDN          = $null
 $script:BuiltInExclusions = $null  # HashSet of sAMAccountNames (case-insensitive)
 $script:LogFilePath       = $null
+$script:DebugFilePath     = $null
+$script:CorrelationId     = $null
 $script:ConfigRoot        = $null
 
 # ============================================================================
@@ -200,6 +209,33 @@ function Write-Log {
     }
 }
 
+function Write-DebugLog {
+    <#
+    .SYNOPSIS
+        Writes a structured line to the debug file (if -EnableDebug). No-op otherwise.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$Message,
+
+        [hashtable]$Data
+    )
+
+    if (-not $script:DebugFilePath) { return }
+
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff'
+    $line = "$ts [$($script:CorrelationId)] $Message"
+
+    if ($Data -and $Data.Count -gt 0) {
+        $pairs = foreach ($k in ($Data.Keys | Sort-Object)) {
+            "$k=$($Data[$k])"
+        }
+        $line += " | $($pairs -join '; ')"
+    }
+
+    Add-Content -Path $script:DebugFilePath -Value $line -Encoding UTF8
+}
+
 function Initialize-Logging {
     <#
     .SYNOPSIS
@@ -220,6 +256,92 @@ function Initialize-Logging {
     Get-ChildItem -Path $logDir -Filter '*.log' -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt $cutoff } |
         Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
+function Initialize-Debug {
+    <#
+    .SYNOPSIS
+        Sets up the debug directory, file, and bounded retention. Fail-fast
+        if the debug file cannot be created (no AD changes will be made).
+    #>
+    if (-not $EnableDebug) { return }
+
+    $debugDir = Join-Path $env:ProgramData 'TierModel\Debug'
+    if (-not (Test-Path $debugDir)) {
+        try {
+            New-Item -Path $debugDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        catch {
+            throw "DEBUG INIT FAILED: Cannot create debug directory '$debugDir'. $_"
+        }
+    }
+
+    # FREE-SPACE precheck (50 MB minimum on the target volume)
+    $volRoot = [System.IO.Path]::GetPathRoot($debugDir)
+    $driveInfo = [System.IO.DriveInfo]::new($volRoot)
+    if ($driveInfo.AvailableFreeSpace -lt (50 * 1MB)) {
+        $freeMB = [math]::Round($driveInfo.AvailableFreeSpace / 1MB, 1)
+        throw ("DEBUG INIT FAILED: Drive '$volRoot' has only $freeMB MB free " +
+               "(minimum: 50 MB). Refusing to start with -EnableDebug.")
+    }
+
+    # BOUNDED RETENTION: age (>7 days), count (max 30), total size (max 200 MB)
+    $debugFiles = @(Get-ChildItem -Path $debugDir -Filter '*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+
+    # Age-based pruning
+    $ageCutoff = (Get-Date).AddDays(-7)
+    foreach ($f in $debugFiles) {
+        if ($f.LastWriteTime -lt $ageCutoff) {
+            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Re-read after age pruning
+    $debugFiles = @(Get-ChildItem -Path $debugDir -Filter '*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+
+    # Count-based pruning (keep max 30 newest)
+    $maxFileCount = 30
+    if ($debugFiles.Count -gt $maxFileCount) {
+        foreach ($f in $debugFiles[$maxFileCount..($debugFiles.Count - 1)]) {
+            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue
+        }
+        $debugFiles = @($debugFiles[0..($maxFileCount - 1)])
+    }
+
+    # Size-based pruning (cap total at 200 MB, delete oldest beyond cap)
+    $maxTotalBytes = 200 * 1MB
+    $totalSize = 0
+    foreach ($df in $debugFiles) { $totalSize += [long]$df.Length }
+    if ($totalSize -gt $maxTotalBytes) {
+        for ($i = $debugFiles.Count - 1; $i -ge 0; $i--) {
+            if ($totalSize -le $maxTotalBytes) { break }
+            $totalSize -= $debugFiles[$i].Length
+            Remove-Item -Path $debugFiles[$i].FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # PRE-OPEN: create the debug file BEFORE any AD write
+    $dbgTs = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $fileName = "Update-TierModelMembership.debug.$dbgTs.$($script:CorrelationId).log"
+    $script:DebugFilePath = Join-Path $debugDir $fileName
+
+    try {
+        $header = "# Debug log CorrelationId=$($script:CorrelationId) Created=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+        Set-Content -Path $script:DebugFilePath -Value $header -Encoding UTF8 -ErrorAction Stop
+    }
+    catch {
+        throw ("DEBUG INIT FAILED: Cannot create debug file '$($script:DebugFilePath)'. " +
+               "-EnableDebug was requested but the file cannot be written. " +
+               "No AD changes will be made. $_")
+    }
+
+    Write-DebugLog -Message 'Debug logging initialized' -Data @{
+        DebugDir = $debugDir
+        DebugFile = $script:DebugFilePath
+        FreeMB = [math]::Round($driveInfo.AvailableFreeSpace / 1MB, 0)
+    }
 }
 
 # ============================================================================
@@ -434,6 +556,7 @@ function Resolve-OuDn {
         $dn = "OU=$OuName,$path,$($script:DomainDN)"
     }
 
+    Write-DebugLog -Message "Resolved OU" -Data @{ OuName = $OuName; DN = $dn }
     return $dn
 }
 
@@ -455,7 +578,9 @@ function Resolve-GroupSam {
         throw "CONFIG ERROR: Group '$GroupName' not found in tiermodel-groups.json."
     }
 
-    return $entry.samaccountname
+    $resolvedSam = $entry.samaccountname
+    Write-DebugLog -Message "Resolved group" -Data @{ GroupName = $GroupName; SAM = $resolvedSam }
+    return $resolvedSam
 }
 
 function Resolve-PolicyName {
@@ -476,6 +601,7 @@ function Resolve-PolicyName {
         throw "CONFIG ERROR: Authentication Policy '$PolicyName' not found in tiermodel-authsilos.json."
     }
 
+    Write-DebugLog -Message "Resolved policy" -Data @{ PolicyName = $PolicyName; ResolvedName = $entry.name }
     return $entry.name
 }
 
@@ -501,6 +627,10 @@ function Initialize-BuiltInExclusions {
     }
 
     Write-Log -Message "Built-in exclusions loaded: $($script:BuiltInExclusions.Count) accounts ($($script:BuiltInExclusions -join ', '))"
+
+    foreach ($excl in $script:BuiltInExclusions) {
+        Write-DebugLog -Message 'Built-in exclusion account' -Data @{ sAMAccountName = $excl }
+    }
 }
 
 function Test-IsBuiltInExcluded {
@@ -607,6 +737,8 @@ function Invoke-BuiltInExclusionEnforcement {
     #>
 
     Write-Log -Message '--- Phase 1: Built-in exclusion enforcement ---'
+    $phase1Timer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-DebugLog -Message 'Phase 1 start: built-in exclusion enforcement'
 
     foreach ($sam in $script:BuiltInExclusions) {
         $acct = $null
@@ -617,11 +749,18 @@ function Invoke-BuiltInExclusionEnforcement {
         catch {
             # The built-in account may not exist yet (pre-deploy). That is fine.
             Write-Log -Message "Built-in exclusion: '$sam' not found in AD (may not be deployed yet). Skipping." -Level Warning
+            Write-DebugLog -Message 'Built-in exclusion check' -Data @{
+                sAMAccountName = $sam; Result = 'not-found'; Decision = 'skip'
+            }
             continue
         }
 
         $currentPolicy = $acct.'msDS-AssignedAuthNPolicy'
         if (-not [string]::IsNullOrEmpty($currentPolicy)) {
+            Write-DebugLog -Message 'Built-in exclusion check' -Data @{
+                sAMAccountName = $sam; DN = $acct.DistinguishedName
+                Result = 'has-policy'; CurrentPolicy = "$currentPolicy"; Decision = 'clear'
+            }
             if ($PSCmdlet.ShouldProcess($sam, "Remove Authentication Policy '$currentPolicy'")) {
                 Clear-TmObjectAuthPolicy -ObjectDn $acct.DistinguishedName
                 Write-Log -Message "Removed policy '$currentPolicy' from built-in excluded account '$sam'"
@@ -629,8 +768,15 @@ function Invoke-BuiltInExclusionEnforcement {
         }
         else {
             Write-Log -Message "Built-in exclusion: '$sam' has no policy assigned (correct)."
+            Write-DebugLog -Message 'Built-in exclusion check' -Data @{
+                sAMAccountName = $sam; DN = $acct.DistinguishedName
+                Result = 'no-policy'; Decision = 'already-correct'
+            }
         }
     }
+
+    $phase1Timer.Stop()
+    Write-DebugLog -Message 'Phase 1 end' -Data @{ ElapsedMs = $phase1Timer.ElapsedMilliseconds }
 }
 
 # ============================================================================
@@ -698,6 +844,16 @@ function Invoke-TierReconciliation {
     )
 
     Write-Log -Message "--- $SwitchName ---"
+    $phaseTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-DebugLog -Message "$SwitchName phase start" -Data @{
+        SourceOuDn = $SourceOuDn
+        TargetGroupSam = $TargetGroupSam
+        PolicyName = $(if ($PolicyName) { $PolicyName } else { '(none)' })
+        ObjectFilter = $ObjectFilter
+        SearchScope = $SearchScope
+        ApplyExclusionToGroup = $ApplyExclusionToGroup.ToString()
+        ExcludeChildOuDn = $(if ($ExcludeChildOuDn) { $ExcludeChildOuDn } else { '(none)' })
+    }
 
     # Validate source OU exists in AD
     try {
@@ -788,6 +944,9 @@ function Invoke-TierReconciliation {
     foreach ($obj in $objects) {
         $sam = $obj.sAMAccountName
         $madeChange = $false
+        $debugPolicyAction = $null
+        $debugGroupAction = $null
+        $currentPolName = $null
 
         # Universal built-in exclusion filter (applies to ALL phases)
         $isBuiltInExcl   = Test-IsBuiltInExcluded -SamAccountName $sam
@@ -815,6 +974,7 @@ function Invoke-TierReconciliation {
 
                 # Clear policy from excluded users who currently have one
                 if (-not [string]::IsNullOrEmpty($currentPol)) {
+                    $debugPolicyAction = 'clear'
                     if ($PSCmdlet.ShouldProcess($sam, "Clear policy '$currentPolName' (excluded)")) {
                         Clear-TmObjectAuthPolicy -ObjectDn $obj.DistinguishedName
                         Write-Log -Message "Cleared policy '$currentPolName' from excluded account '$sam'"
@@ -822,9 +982,13 @@ function Invoke-TierReconciliation {
                         $madeChange = $true
                     }
                 }
+                else {
+                    $debugPolicyAction = 'excluded-no-policy'
+                }
             }
             else {
                 if ($currentPolName -ne $PolicyName) {
+                    $debugPolicyAction = 'assign'
                     if ($PSCmdlet.ShouldProcess($sam, "Assign Authentication Policy '$PolicyName'")) {
                         Set-TmObjectAuthPolicy -ObjectDn $obj.DistinguishedName -PolicyDn $policyDn
                         Write-Log -Message "Assigned policy '$PolicyName' to '$sam'"
@@ -832,7 +996,13 @@ function Invoke-TierReconciliation {
                         $madeChange = $true
                     }
                 }
+                else {
+                    $debugPolicyAction = 'already-current'
+                }
             }
+        }
+        else {
+            $debugPolicyAction = 'no-policy-configured'
         }
 
         # ----------------------------------------------------------------
@@ -841,10 +1011,12 @@ function Invoke-TierReconciliation {
         $skipGroup = $false
         if ($ApplyExclusionToGroup -and ($isBuiltInExcl -or $isCustomerExcl)) {
             $skipGroup = $true
+            $debugGroupAction = 'skip-excluded'
         }
 
         if (-not $skipGroup) {
             if (-not $currentMembers.Contains($obj.DistinguishedName)) {
+                $debugGroupAction = 'add'
                 if ($PSCmdlet.ShouldProcess($sam, "Add to group '$TargetGroupSam'")) {
                     Add-ADGroupMember -Identity $TargetGroupSam -Members $obj.DistinguishedName `
                         -Server $script:PreferredDc -ErrorAction Stop
@@ -854,6 +1026,21 @@ function Invoke-TierReconciliation {
                     $madeChange = $true
                 }
             }
+            else {
+                $debugGroupAction = 'already-member'
+            }
+        }
+
+        Write-DebugLog -Message "$SwitchName object" -Data @{
+            sAMAccountName = $sam
+            DN = $obj.DistinguishedName
+            BuiltInExcluded = $isBuiltInExcl.ToString()
+            CustomerExcluded = $isCustomerExcl.ToString()
+            ExclAttrValue = $(if ($ExclusionAttribute) { "$($obj.$ExclusionAttribute)" } else { 'N/A' })
+            CurrentPolicy = $(if ($null -ne $currentPolName) { $currentPolName } else { '(none)' })
+            DesiredPolicy = $(if ($PolicyName -and -not $isPolicyExcluded) { $PolicyName } elseif ($isPolicyExcluded) { '(excluded)' } else { 'N/A' })
+            PolicyAction = $debugPolicyAction
+            GroupAction = $debugGroupAction
         }
 
         if (-not $madeChange) {
@@ -869,6 +1056,17 @@ function Invoke-TierReconciliation {
                "Excluded=$($counters.Excluded) " +
                "AlreadyCurrent=$($counters.AlreadyCurrent)"
     Write-Log -Message $summary
+
+    $phaseTimer.Stop()
+    Write-DebugLog -Message "$SwitchName phase end" -Data @{
+        ElapsedMs = $phaseTimer.ElapsedMilliseconds
+        Scanned = $counters.Scanned
+        GroupAdded = $counters.GroupAdded
+        PolicyAssigned = $counters.PolicyAssigned
+        PolicyCleared = $counters.PolicyCleared
+        Excluded = $counters.Excluded
+        AlreadyCurrent = $counters.AlreadyCurrent
+    }
 
     return [PSCustomObject]$counters
 }
@@ -1175,6 +1373,7 @@ function Invoke-Tier2Operators {
 
     $switchName = 'Tier2Operators'
     Write-Log -Message "--- $switchName ---"
+    $phaseTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
     # Resolve config-driven names
     $sourceOuDn  = Resolve-OuDn -OuName 'Tier 2 Accounts' -OuConfig $Config.OUs
@@ -1266,6 +1465,12 @@ function Invoke-Tier2Operators {
 
     Write-Log -Message "$switchName : Tier2Operators members=$($isOpSet.Count), Tier2LocalDeviceOperators members=$($isLdoSet.Count)"
 
+    Write-DebugLog -Message "$switchName phase config" -Data @{
+        SourceOuDn = $sourceOuDn; OpGroupSam = $opGroupSam; LdoGroupSam = $ldoGroupSam
+        PolicyName = $policyName; PolicyDn = $policyDn
+        OpMembers = $isOpSet.Count; LdoMembers = $isLdoSet.Count; Objects = $users.Count
+    }
+
     # Counters
     $counters = @{
         Scanned        = $users.Count
@@ -1281,6 +1486,8 @@ function Invoke-Tier2Operators {
         $sam = $user.sAMAccountName
         $dn  = $user.DistinguishedName
         $madeChange = $false
+        $debugPolicyAction = $null
+        $debugGroupAction = $null
 
         # Classify: OPERATOR or EUD
         $userIsOp  = $isOpSet.Contains($dn)
@@ -1288,6 +1495,11 @@ function Invoke-Tier2Operators {
 
         # EUD = pure LDO only (isLDO AND NOT isOp) -- handled by -Tier2Eud
         if ($userIsLdo -and -not $userIsOp) {
+            Write-DebugLog -Message "$switchName skip-eud" -Data @{
+                sAMAccountName = $sam; DN = $dn
+                IsOp = $userIsOp.ToString(); IsLDO = $userIsLdo.ToString()
+                Role = 'EUD'; Decision = 'skip-handled-by-Tier2Eud'
+            }
             $counters.SkippedEud++
             continue
         }
@@ -1316,6 +1528,7 @@ function Invoke-Tier2Operators {
 
             # Clear policy from excluded operators who currently have one
             if (-not [string]::IsNullOrEmpty($currentPol)) {
+                $debugPolicyAction = 'clear'
                 if ($PSCmdlet.ShouldProcess($sam, "Clear policy '$currentPolName' (excluded)")) {
                     Clear-TmObjectAuthPolicy -ObjectDn $dn
                     Write-Log -Message "Cleared policy '$currentPolName' from excluded operator '$sam'"
@@ -1323,15 +1536,22 @@ function Invoke-Tier2Operators {
                     $madeChange = $true
                 }
             }
+            else {
+                $debugPolicyAction = 'excluded-no-policy'
+            }
         }
         else {
             if ($currentPolName -ne $policyName) {
+                $debugPolicyAction = 'assign'
                 if ($PSCmdlet.ShouldProcess($sam, "Assign Authentication Policy '$policyName'")) {
                     Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
                     Write-Log -Message "Assigned policy '$policyName' to operator '$sam'"
                     $counters.PolicyAssigned++
                     $madeChange = $true
                 }
+            }
+            else {
+                $debugPolicyAction = 'already-current'
             }
         }
 
@@ -1340,6 +1560,7 @@ function Invoke-Tier2Operators {
         # All tier users are operators (matching Tier 0/1 Operators behavior)
         # ----------------------------------------------------------------
         if (-not $isOpSet.Contains($dn)) {
+            $debugGroupAction = 'add'
             if ($PSCmdlet.ShouldProcess($sam, "Add to group '$opGroupSam'")) {
                 Add-ADGroupMember -Identity $opGroupSam -Members $dn `
                     -Server $script:PreferredDc -ErrorAction Stop
@@ -1348,6 +1569,21 @@ function Invoke-Tier2Operators {
                 $counters.GroupAdded++
                 $madeChange = $true
             }
+        }
+        else {
+            $debugGroupAction = 'already-member'
+        }
+
+        Write-DebugLog -Message "$switchName operator" -Data @{
+            sAMAccountName = $sam; DN = $dn
+            IsOp = $userIsOp.ToString(); IsLDO = $userIsLdo.ToString(); Role = 'OPERATOR'
+            BuiltInExcluded = $isBuiltInExcl.ToString()
+            CustomerExcluded = $isCustomerExcl.ToString()
+            ExclAttrValue = $(if ($ExclusionAttribute) { "$($user.$ExclusionAttribute)" } else { 'N/A' })
+            CurrentPolicy = $(if ($null -ne $currentPolName) { $currentPolName } else { '(none)' })
+            DesiredPolicy = $(if (-not $isPolicyExcluded) { $policyName } else { '(excluded)' })
+            PolicyAction = $debugPolicyAction
+            GroupAction = $debugGroupAction
         }
 
         if (-not $madeChange) {
@@ -1365,6 +1601,19 @@ function Invoke-Tier2Operators {
                "Excluded=$($counters.Excluded) " +
                "AlreadyCurrent=$($counters.AlreadyCurrent)"
     Write-Log -Message $summary
+
+    $phaseTimer.Stop()
+    Write-DebugLog -Message "$switchName phase end" -Data @{
+        ElapsedMs = $phaseTimer.ElapsedMilliseconds
+        Scanned = $counters.Scanned
+        Operators = ($counters.Scanned - $counters.SkippedEud)
+        SkippedEud = $counters.SkippedEud
+        GroupAdded = $counters.GroupAdded
+        PolicyAssigned = $counters.PolicyAssigned
+        PolicyCleared = $counters.PolicyCleared
+        Excluded = $counters.Excluded
+        AlreadyCurrent = $counters.AlreadyCurrent
+    }
 
     return [PSCustomObject]$counters
 }
@@ -1400,6 +1649,7 @@ function Invoke-Tier2Eud {
 
     $switchName = 'Tier2Eud'
     Write-Log -Message "--- $switchName ---"
+    $phaseTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
     # Resolve config-driven names
     $sourceOuDn  = Resolve-OuDn -OuName 'Tier 2 Accounts' -OuConfig $Config.OUs
@@ -1489,6 +1739,12 @@ function Invoke-Tier2Eud {
 
     Write-Log -Message "$switchName : Tier2Operators members=$($isOpSet.Count), Tier2LocalDeviceOperators members=$($isLdoSet.Count)"
 
+    Write-DebugLog -Message "$switchName phase config" -Data @{
+        SourceOuDn = $sourceOuDn; OpGroupSam = $opGroupSam; LdoGroupSam = $ldoGroupSam
+        PolicyName = $policyName; PolicyDn = $policyDn
+        OpMembers = $isOpSet.Count; LdoMembers = $isLdoSet.Count; Objects = $users.Count
+    }
+
     # Counters
     $counters = @{
         Scanned         = $users.Count
@@ -1502,6 +1758,7 @@ function Invoke-Tier2Eud {
     foreach ($user in $users) {
         $sam = $user.sAMAccountName
         $dn  = $user.DistinguishedName
+        $debugPolicyAction = $null
 
         # Classify: OPERATOR or EUD
         $userIsOp  = $isOpSet.Contains($dn)
@@ -1509,6 +1766,11 @@ function Invoke-Tier2Eud {
 
         # Not EUD => skip (handled by -Tier2Operators)
         if (-not $userIsLdo -or $userIsOp) {
+            Write-DebugLog -Message "$switchName skip-operator" -Data @{
+                sAMAccountName = $sam; DN = $dn
+                IsOp = $userIsOp.ToString(); IsLDO = $userIsLdo.ToString()
+                Role = 'OPERATOR'; Decision = 'skip-handled-by-Tier2Operators'
+            }
             $counters.SkippedOperator++
             continue
         }
@@ -1537,6 +1799,7 @@ function Invoke-Tier2Eud {
             $counters.Excluded++
 
             if (-not [string]::IsNullOrEmpty($currentPol)) {
+                $debugPolicyAction = 'clear'
                 if ($PSCmdlet.ShouldProcess($sam, "Clear EUD policy '$currentPolName' (excluded)")) {
                     Clear-TmObjectAuthPolicy -ObjectDn $dn
                     Write-Log -Message "Cleared EUD policy '$currentPolName' from excluded LDO account '$sam'"
@@ -1544,9 +1807,13 @@ function Invoke-Tier2Eud {
                     $madeChange = $true
                 }
             }
+            else {
+                $debugPolicyAction = 'excluded-no-policy'
+            }
         }
         else {
             if ($currentPolName -ne $policyName) {
+                $debugPolicyAction = 'assign'
                 if ($PSCmdlet.ShouldProcess($sam, "Assign EUD Authentication Policy '$policyName'")) {
                     Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
                     Write-Log -Message "Assigned EUD policy '$policyName' to LDO account '$sam'"
@@ -1554,9 +1821,24 @@ function Invoke-Tier2Eud {
                     $madeChange = $true
                 }
             }
+            else {
+                $debugPolicyAction = 'already-current'
+            }
         }
 
         # NO group add -- LDO membership is customer-managed
+
+        Write-DebugLog -Message "$switchName eud-user" -Data @{
+            sAMAccountName = $sam; DN = $dn
+            IsOp = $userIsOp.ToString(); IsLDO = $userIsLdo.ToString(); Role = 'EUD'
+            BuiltInExcluded = $isBuiltInExcl.ToString()
+            CustomerExcluded = $isCustomerExcl.ToString()
+            ExclAttrValue = $(if ($ExclusionAttribute) { "$($user.$ExclusionAttribute)" } else { 'N/A' })
+            CurrentPolicy = $(if ($null -ne $currentPolName) { $currentPolName } else { '(none)' })
+            DesiredPolicy = $(if (-not $isPolicyExcluded) { $policyName } else { '(excluded)' })
+            PolicyAction = $debugPolicyAction
+            GroupAction = 'N/A (LDO is customer-managed)'
+        }
 
         if (-not $madeChange) {
             $counters.AlreadyCurrent++
@@ -1572,6 +1854,18 @@ function Invoke-Tier2Eud {
                "Excluded=$($counters.Excluded) " +
                "AlreadyCurrent=$($counters.AlreadyCurrent)"
     Write-Log -Message $summary
+
+    $phaseTimer.Stop()
+    Write-DebugLog -Message "$switchName phase end" -Data @{
+        ElapsedMs = $phaseTimer.ElapsedMilliseconds
+        Scanned = $counters.Scanned
+        EudCandidates = ($counters.Scanned - $counters.SkippedOperator)
+        SkippedOperator = $counters.SkippedOperator
+        PolicyAssigned = $counters.PolicyAssigned
+        PolicyCleared = $counters.PolicyCleared
+        Excluded = $counters.Excluded
+        AlreadyCurrent = $counters.AlreadyCurrent
+    }
 
     return [PSCustomObject]$counters
 }
@@ -1666,23 +1960,41 @@ try {
         throw 'PARAMETER ERROR: -ExclusionValue is mandatory when -ExclusionAttribute is specified.'
     }
 
-    # Reserved parameter warnings
-    if ($EnableDebug) {
-        Write-Warning '-EnableDebug is reserved for future use and is not yet implemented.'
-    }
     if ($LogEventID -gt 0) {
         Write-Warning '-LogEventID is reserved for future use and is not yet implemented.'
     }
 
+    # Generate per-run CorrelationId (used by both debug and log files)
+    $script:CorrelationId = [guid]::NewGuid()
+
     # Initialize logging (creates dir/file if -EnableLogging)
     Initialize-Logging
 
+    $runTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
     Write-Log -Message '============================================================'
-    Write-Log -Message 'Update-TierModelMembership - Starting'
+    Write-Log -Message "Update-TierModelMembership - Starting (CorrelationId=$($script:CorrelationId))"
     Write-Log -Message '============================================================'
 
     # Preflight
     Assert-Preflight
+
+    # Initialize debug (fail-fast if file cannot be created -- before any AD write)
+    Initialize-Debug
+
+    Write-DebugLog -Message 'Run started' -Data @{
+        CorrelationId = $script:CorrelationId.ToString()
+        PSVersion = $PSVersionTable.PSVersion.ToString()
+        DcDnsHostName = $script:PreferredDc
+        IsGlobalCatalog = 'True'
+        IsReadOnly = 'False'
+        DomainDN = $script:DomainDN
+        EnableLogging = $EnableLogging.IsPresent.ToString()
+        EnableDebug = $EnableDebug.IsPresent.ToString()
+        WhatIf = $WhatIfPreference.ToString()
+        ExclusionAttribute = $(if ($ExclusionAttribute) { $ExclusionAttribute } else { '(none)' })
+        ExclusionValue = $(if ($ExclusionValue) { $ExclusionValue } else { '(none)' })
+    }
 
     # Load config
     $config = Import-TierModelConfig
@@ -1693,6 +2005,11 @@ try {
     # Resolve active switches
     $activeSwitches = Resolve-ActiveSwitches
     Write-Log -Message "Active switches: $($activeSwitches -join ', ')"
+
+    Write-DebugLog -Message 'Switches resolved' -Data @{
+        ActiveSwitches = ($activeSwitches -join ', ')
+        SwitchCount = @($activeSwitches).Count
+    }
 
     # Phase 1: Built-in exclusion enforcement (always runs)
     Invoke-BuiltInExclusionEnforcement
@@ -1726,15 +2043,27 @@ try {
         }
     }
 
+    $runTimer.Stop()
+
     Write-Log -Message '============================================================'
-    Write-Log -Message 'Update-TierModelMembership - Completed successfully'
+    Write-Log -Message "Update-TierModelMembership - Completed successfully (CorrelationId=$($script:CorrelationId))"
     Write-Log -Message '============================================================'
+
+    Write-DebugLog -Message 'Run completed' -Data @{
+        CorrelationId = $script:CorrelationId.ToString()
+        TotalElapsedMs = $runTimer.ElapsedMilliseconds
+        SwitchesExecuted = ($activeSwitches -join ', ')
+    }
 }
 catch {
     $errMsg = "FATAL ERROR: $($_.Exception.Message)"
     if ($script:LogFilePath) {
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
         Add-Content -Path $script:LogFilePath -Value "$timestamp [Error] $errMsg" -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+    Write-DebugLog -Message 'FATAL ERROR' -Data @{
+        Error = $_.Exception.Message
+        StackTrace = $_.ScriptStackTrace
     }
     Write-Host $errMsg -ForegroundColor Red
     Write-Host "Stack: $($_.ScriptStackTrace)" -ForegroundColor DarkRed
