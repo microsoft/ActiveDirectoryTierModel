@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-08-31
+
+### Fixed
+- **Domain Admin prerequisite false-fails under the PowerShell 7 Windows PowerShell compatibility shim (issue #47)**: when `Test-TierModelPrerequisites` ran under PowerShell 7 with an RSAT ActiveDirectory module that is not Core-native (for example on a Windows Server 2016 host, or any host whose AD module edition forces the fallback), PowerShell loaded the module through the Windows PowerShell compatibility shim (WinPSCompatSession) and returned **deserialized** objects — SIDs came back as strings, so the `Get-ADGroupMember | Where-Object { $_.SID -eq $currentUser.User }` membership check compared a deserialized SID against a live `SecurityIdentifier` and never matched. The prerequisite reported *"Domain Admin membership required for deployment operations"* even for a genuine Domain Admin. The ActiveDirectory module is now imported with `-SkipEditionCheck` so PowerShell 7 loads it in-process (native objects, no deserialization), and a fail-fast guard detects the compatibility-shim condition (domain SID returned as a string) and stops with clear remediation — preventing a silent broken deployment in which SID resolution would have written empty principals into URA and GPO restricted-groups policy. Lab-validated: full `-FullDeployment -IncludeMsa -IncludeGmsa -IncludeDmsa -IncludeWinLaps -EnableAuditing` deploy (707 actions, 0 errors, all SIDs resolving) followed by a full audit (418 checks, COMPLIANT, 0 drift).
+
 ## [1.3.2] - 2026-08-24
 
 ### Added

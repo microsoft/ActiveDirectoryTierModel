@@ -9,7 +9,9 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** 2026-08-24 (1,652 total tests: **1,652 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: 88.93%** | **Target: 95%** | **CI gate: 80%**
+**Last measured:** 2026-08-31 (1,653 total tests: **1,653 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: 88.93%** | **Target: 95%** | **CI gate: 80%**
+
+> ✅ **v1.3.3 measured (2026-08-31 — 100% pass rate):** Domain Admin prerequisite false-fail under the PowerShell 7 Windows PowerShell compatibility shim (issue #47) — `Test-TierModelPrerequisites.ps1` now imports the ActiveDirectory module with `-SkipEditionCheck` (native in-process load, no deserialized objects) and adds a shim-detection guard that fails fast when AD returns deserialized (string) SIDs, preventing a silent broken URA/GPO deployment. `Test-TierModelPrerequisites.ps1` **85.12% → 85.40%** (421/493; +12 analyzed commands for the guard, all covered). New compat-shim unit test in `Unit.Prerequisites.Tests.ps1` (+1 unit test; automated suite 1,652 → 1,653). Module version **1.3.2 → 1.3.3**. Overall aggregate unchanged at ~88.93% (12 new covered commands out of ~15k); all module-scope files remain above the 80% CI gate.
 
 > ✅ **v1.3.2 measured (2026-08-24 — 100% pass rate):** Human-readable deployment duration output (issue #34) — new `Format-TierModelDuration.ps1` **100%** (11/11 commands) provides the four-tier `<1ms` / `Xms` / `Xs` / `Xm Ys` console format now used at the nine `Deploy-TierModel.ps1` `Duration:` sites (`Write-TierModelLog` lines stay raw ms). New test file `Unit.FormatDuration.Tests.ps1` (**23** unit tests, incl. banker's-rounding regression guards at 90000 / 119999 / 120000 ms), wiring-proof assertions added to `Integration.Deploy.Tests.ps1` (mock `2254 → "Duration: 2s"`, all-converged `→ "<1ms"`, aggregate `140000 → "2m 20s"`), and a manifest verb-allowlist + export assertion in `Unit.ModuleManifest.Tests.ps1`. Module version **1.3.1 → 1.3.2**. Overall aggregate 88.98% → **88.93%** (full suite 1,627 → 1,652 tests; `Deploy-TierModel.ps1` 81.53% → 81.62% with the nine formatter call-sites); all module-scope files remain above the 80% CI gate.
 
@@ -29,7 +31,7 @@
 |------|-------|-------|
 | ✅ 100% | `Write-TierModelLog`, `Resolve-*` (4), `Test-TierModelOuExists`, `Test-TierModelGPO`, `Test-TierModelGroup`, `Test-TierModelGPOLink`, `Get-TierModelGroup`, `Test-TierModelAdmx`, `Get-TierModelGPOLink`, `Get-TierModelAuditRule`, `Format-TierModelDuration` | 14 |
 | 🟡 90-99% | MSA/gMSA/dMSA ops (12 files), `Resolve-TierModelPrincipalSid`, `Resolve-DomainSpecificGuid`, `Copy/Get-TierModelAdmx`, `Get-TierModelUser`, `Test-TierModelGPOAudit`, `Get-TierModelConfig`, `New-TierModelGpo`, `Get-TierModelGpoFd`, `Get-TierModelGpo`, `Test-TierModelGPOContent`, `Get-TierModelGpoLinkFd`, `Get-TierModelOuAcl`, `Get-TierModelGroupFd`, `Get-TierModelOuAclFd`, `New-TierModelOuAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsDecryptor`, `Test-TierModelCanonicalAcl`, `Test-TierModelAuditRule`, `Get-TierModelAuditRuleFd`, `Repair-TierModelCanonicalAcl` | 35 |
-| 🟠 80-89% | `Audit-TierModel` (77.16% — ByServer paths exempt), `Deploy-TierModel`, `New-Tier*` (incl. `New-TierModelOu` 84.86%), `New-TierModelAuditRule`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites` (85.12%), `Test-TierModelWinLapsAcl` | 20 |
+| 🟠 80-89% | `Audit-TierModel` (77.16% — ByServer paths exempt), `Deploy-TierModel`, `New-Tier*` (incl. `New-TierModelOu` 84.86%), `New-TierModelAuditRule`, `Get-TierModel*Fd` variants, `Import-TierModelGpo`, `Test-TierModelOuAcl`, `TierModel.psm1`, `Get-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`, `Test-TierModelPrerequisites` (85.40%), `Test-TierModelWinLapsAcl` | 20 |
 | 🔴 50-79% | `Test-TierModelOu.ps1` (79.4%) | 1 |
 | 🚨 0-25% | **No critical gaps!** 🎉 | 0 |
 
@@ -41,7 +43,7 @@
 | `modules/TierModel/public/Import-TierModelGpo.ps1` | 89 | 21 | 110 | 🟠 80.9% ✦ |
 | `Deploy-TierModel.ps1` | 1854 | 420 | 2274 | 🟠 81.53% ✦ |
 | `modules/TierModel/public/Get-TierModelWinLapsAcl.ps1` | — | — | 543 | 🟠 81.6% |
-| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 409 | 72 | 481 | 🟠 85.12% ✦ |
+| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | 421 | 72 | 493 | 🟠 85.40% ✦ |
 | `modules/TierModel/TierModel.psm1` | 581 | 122 | 703 | 🟠 82.65% ✦ |
 | `modules/TierModel/public/New-TierModelGptTmplContent.ps1` | 85 | 17 | 102 | 🟠 83.3% |
 | `modules/TierModel/public/Get-TierModelWinLapsAclFd.ps1` | 383 | 76 | 459 | 🟠 83.4% |

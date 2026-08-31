@@ -1,6 +1,6 @@
 @{
     RootModule = 'TierModel.psm1'
-    ModuleVersion = '1.3.2'
+    ModuleVersion = '1.3.3'
     GUID = 'b6a7c9f8-5e5d-4c7a-9b9e-2e2e9a4f6d10'
     Author = 'TierModel Team'
     CompanyName = 'Enterprise AD'
