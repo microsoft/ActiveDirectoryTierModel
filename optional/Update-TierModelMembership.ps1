@@ -97,8 +97,15 @@
     FAIL-FAST: if the debug file cannot be created, the script aborts before any
     AD modification.
 
-.PARAMETER LogEventID
-    Reserved for future use. Windows Event Log heartbeat for monitoring integration.
+.PARAMETER EnableEventLog
+    Emit Windows Event Log entries (Application log, Source 'TierModel') for
+    monitoring integration. Writes event 1000 (START), 1001 (COMPLETE), or
+    1009 (ERROR). Opt-in and best-effort: a write failure warns and continues.
+
+.PARAMETER JobId
+    Stable job identifier for multi-schedule correlation. Embedded in events,
+    the log file name, and the log file header. Grammar: [A-Za-z0-9._-]{1,64}.
+    Default: 'Adhoc'.
 
 .EXAMPLE
     .\Update-TierModelMembership.ps1
@@ -122,7 +129,7 @@
     The TierModel deployment already requires PowerShell 7.
     ActiveDirectory module required. Run on a Domain Controller in SYSTEM context.
     Execution: Local scheduled task, SYSTEM context. NOT SYSVOL/NETLOGON.
-    Version: 1.6.0 (Milestones 1-7: all tiers + EnableDebug)
+    Version: 1.7.0 (Milestones 1-8: all tiers + EnableDebug + EnableEventLog)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -160,9 +167,14 @@ param(
     # --- Logging ---
     [switch]$EnableLogging,
 
-    # --- Reserved (not yet implemented) ---
+    # --- Debug ---
     [switch]$EnableDebug,
-    [int]$LogEventID
+
+    # --- Event Log ---
+    [switch]$EnableEventLog,
+
+    [ValidatePattern('^[A-Za-z0-9._-]{1,64}$')]
+    [string]$JobId = 'Adhoc'
 )
 
 Set-StrictMode -Version 2.0
@@ -171,6 +183,7 @@ $ErrorActionPreference = 'Stop'
 # ============================================================================
 # SCRIPT-SCOPE STATE
 # ============================================================================
+$script:ScriptVersion     = '1.7.0'
 $script:PreferredDc       = $null
 $script:DomainDN          = $null
 $script:BuiltInExclusions = $null  # HashSet of sAMAccountNames (case-insensitive)
@@ -178,6 +191,8 @@ $script:LogFilePath       = $null
 $script:DebugFilePath     = $null
 $script:CorrelationId     = $null
 $script:ConfigRoot        = $null
+$script:EventLogReady     = $false
+$script:TierChanges       = $null  # Populated per-run in main block
 
 # ============================================================================
 # LOGGING
@@ -249,7 +264,7 @@ function Initialize-Logging {
     }
 
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $script:LogFilePath = Join-Path $logDir "Update-TierModelMembership.$timestamp.log"
+    $script:LogFilePath = Join-Path $logDir "Update-TierModelMembership.$JobId.$timestamp.log"
 
     # Prune logs older than 7 days
     $cutoff = (Get-Date).AddDays(-7)
@@ -341,6 +356,128 @@ function Initialize-Debug {
         DebugDir = $debugDir
         DebugFile = $script:DebugFilePath
         FreeMB = [math]::Round($driveInfo.AvailableFreeSpace / 1MB, 0)
+    }
+}
+
+# ============================================================================
+# EVENT LOG
+# ============================================================================
+function Initialize-TmEventLog {
+    <#
+    .SYNOPSIS
+        Idempotently ensures the 'TierModel' event source exists in the
+        Application log. Sets $script:EventLogReady. No-op if -EnableEventLog
+        is not set. Never throws.
+    #>
+    if (-not $EnableEventLog) { return }
+
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists('TierModel')) {
+            [System.Diagnostics.EventLog]::CreateEventSource('TierModel', 'Application')
+        }
+        $script:EventLogReady = $true
+    }
+    catch {
+        $script:EventLogReady = $false
+        Write-Warning "Event log source init failed (events will be skipped): $_"
+    }
+}
+
+function Write-TmEvent {
+    <#
+    .SYNOPSIS
+        Writes a pipe-delimited event to the Application log under the
+        'TierModel' source. No-throw: warns and continues on failure.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('START','COMPLETE','ERROR')]
+        [string]$Action,
+
+        [string[]]$ActiveSwitches,
+
+        [System.TimeSpan]$Duration
+    )
+
+    if (-not $EnableEventLog -or -not $script:EventLogReady) { return }
+
+    $ver      = $script:ScriptVersion
+    $runMode  = if ($WhatIfPreference) { 'WhatIf' } else { 'Apply' }
+    $corrId   = $script:CorrelationId
+    $hostName = $env:COMPUTERNAME
+
+    switch ($Action) {
+        'START' {
+            $tierSet = [System.Collections.Generic.HashSet[string]]::new(
+                [System.StringComparer]::Ordinal)
+            foreach ($sw in $ActiveSwitches) {
+                if     ($sw -like 'Tier0*') { [void]$tierSet.Add('Tier0') }
+                elseif ($sw -like 'Tier1*') { [void]$tierSet.Add('Tier1') }
+                elseif ($sw -like 'Tier2*') { [void]$tierSet.Add('Tier2') }
+            }
+            $scope = ($tierSet | Sort-Object) -join ';'
+
+            $msg = "Schema=1.0 | Script=Update-TierModelMembership" +
+                   " | ScriptVersion=$ver | Action=START | RunMode=$runMode" +
+                   " | JobId=$JobId | CorrelationId=$corrId" +
+                   " | Host=$hostName | Scope=$scope"
+
+            try {
+                [System.Diagnostics.EventLog]::WriteEntry(
+                    'TierModel', $msg,
+                    [System.Diagnostics.EventLogEntryType]::Information, 1000)
+            }
+            catch { Write-Warning "Event log write failed (START): $_" }
+        }
+        'COMPLETE' {
+            $tierSet = [System.Collections.Generic.HashSet[string]]::new(
+                [System.StringComparer]::Ordinal)
+            foreach ($sw in $ActiveSwitches) {
+                if     ($sw -like 'Tier0*') { [void]$tierSet.Add('Tier0') }
+                elseif ($sw -like 'Tier1*') { [void]$tierSet.Add('Tier1') }
+                elseif ($sw -like 'Tier2*') { [void]$tierSet.Add('Tier2') }
+            }
+            $scope = ($tierSet | Sort-Object) -join ';'
+
+            $changed = @()
+            foreach ($t in @('Tier0','Tier1','Tier2')) {
+                if ($script:TierChanges[$t] -gt 0) { $changed += $t }
+            }
+            $tiersChanged = if ($changed.Count -gt 0) { $changed -join ';' } else { 'None' }
+            $durationStr  = $Duration.ToString('hh\:mm\:ss')
+
+            $msg = "Schema=1.0 | Script=Update-TierModelMembership" +
+                   " | ScriptVersion=$ver | Action=COMPLETE | RunMode=$runMode" +
+                   " | JobId=$JobId | CorrelationId=$corrId" +
+                   " | Host=$hostName | Scope=$scope" +
+                   " | TiersChanged=$tiersChanged" +
+                   " | Tier0Changed=$($script:TierChanges.Tier0)" +
+                   " | Tier1Changed=$($script:TierChanges.Tier1)" +
+                   " | Tier2Changed=$($script:TierChanges.Tier2)" +
+                   " | Duration=$durationStr"
+
+            try {
+                [System.Diagnostics.EventLog]::WriteEntry(
+                    'TierModel', $msg,
+                    [System.Diagnostics.EventLogEntryType]::Information, 1001)
+            }
+            catch { Write-Warning "Event log write failed (COMPLETE): $_" }
+        }
+        'ERROR' {
+            $msg = "Schema=1.0 | Script=Update-TierModelMembership" +
+                   " | ScriptVersion=$ver | Action=ERROR | RunMode=$runMode" +
+                   " | JobId=$JobId | CorrelationId=$corrId" +
+                   " | Host=$hostName" +
+                   " | Message=The script encountered an error and stopped." +
+                   " Re-run with -EnableLogging or -EnableDebug to identify and resolve it."
+
+            try {
+                [System.Diagnostics.EventLog]::WriteEntry(
+                    'TierModel', $msg,
+                    [System.Diagnostics.EventLogEntryType]::Error, 1009)
+            }
+            catch { Write-Warning "Event log write failed (ERROR): $_" }
+        }
     }
 }
 
@@ -740,6 +877,13 @@ function Invoke-BuiltInExclusionEnforcement {
     $phase1Timer = [System.Diagnostics.Stopwatch]::StartNew()
     Write-DebugLog -Message 'Phase 1 start: built-in exclusion enforcement'
 
+    # Tier attribution for built-in exclusion policy clears (event log aggregation)
+    $builtInTierMap = @{
+        'svc-pawdomainjoin'    = 'Tier0'
+        'svc-t1srvdomainjoin'  = 'Tier1'
+        'svc-t2euddomainjoin'  = 'Tier2'
+    }
+
     foreach ($sam in $script:BuiltInExclusions) {
         $acct = $null
         try {
@@ -764,6 +908,11 @@ function Invoke-BuiltInExclusionEnforcement {
             if ($PSCmdlet.ShouldProcess($sam, "Remove Authentication Policy '$currentPolicy'")) {
                 Clear-TmObjectAuthPolicy -ObjectDn $acct.DistinguishedName
                 Write-Log -Message "Removed policy '$currentPolicy' from built-in excluded account '$sam'"
+                # Attribute this clear to the account's tier for event log aggregation
+                $acctTier = $builtInTierMap[$sam]
+                if ($acctTier -and $null -ne $script:TierChanges) {
+                    $script:TierChanges[$acctTier]++
+                }
             }
         }
         else {
@@ -1960,21 +2109,31 @@ try {
         throw 'PARAMETER ERROR: -ExclusionValue is mandatory when -ExclusionAttribute is specified.'
     }
 
-    if ($LogEventID -gt 0) {
-        Write-Warning '-LogEventID is reserved for future use and is not yet implemented.'
-    }
-
-    # Generate per-run CorrelationId (used by both debug and log files)
+    # Generate per-run CorrelationId (used by debug, log files, and events)
     $script:CorrelationId = [guid]::NewGuid()
+
+    # Initialize tier-change tracking for event log aggregation
+    $script:TierChanges = @{ Tier0 = 0; Tier1 = 0; Tier2 = 0 }
 
     # Initialize logging (creates dir/file if -EnableLogging)
     Initialize-Logging
 
     $runTimer = [System.Diagnostics.Stopwatch]::StartNew()
 
+    Write-Log -Message "JobId=$JobId CorrelationId=$($script:CorrelationId)"
     Write-Log -Message '============================================================'
     Write-Log -Message "Update-TierModelMembership - Starting (CorrelationId=$($script:CorrelationId))"
     Write-Log -Message '============================================================'
+
+    # Initialize event log source (opt-in/best-effort; before preflight)
+    Initialize-TmEventLog
+
+    # Resolve active switches early (AD-free) so Scope is known before preflight
+    $activeSwitches = Resolve-ActiveSwitches
+    Write-Log -Message "Active switches: $($activeSwitches -join ', ')"
+
+    # Emit START event before preflight (a preflight failure still yields START then ERROR)
+    Write-TmEvent -Action START -ActiveSwitches $activeSwitches
 
     # Preflight
     Assert-Preflight
@@ -1984,6 +2143,7 @@ try {
 
     Write-DebugLog -Message 'Run started' -Data @{
         CorrelationId = $script:CorrelationId.ToString()
+        ScriptVersion = $script:ScriptVersion
         PSVersion = $PSVersionTable.PSVersion.ToString()
         DcDnsHostName = $script:PreferredDc
         IsGlobalCatalog = 'True'
@@ -1991,6 +2151,8 @@ try {
         DomainDN = $script:DomainDN
         EnableLogging = $EnableLogging.IsPresent.ToString()
         EnableDebug = $EnableDebug.IsPresent.ToString()
+        EnableEventLog = $EnableEventLog.IsPresent.ToString()
+        JobId = $JobId
         WhatIf = $WhatIfPreference.ToString()
         ExclusionAttribute = $(if ($ExclusionAttribute) { $ExclusionAttribute } else { '(none)' })
         ExclusionValue = $(if ($ExclusionValue) { $ExclusionValue } else { '(none)' })
@@ -2001,10 +2163,6 @@ try {
 
     # Initialize built-in exclusions
     Initialize-BuiltInExclusions -UsersConfig $config.Users
-
-    # Resolve active switches
-    $activeSwitches = Resolve-ActiveSwitches
-    Write-Log -Message "Active switches: $($activeSwitches -join ', ')"
 
     Write-DebugLog -Message 'Switches resolved' -Data @{
         ActiveSwitches = ($activeSwitches -join ', ')
@@ -2036,7 +2194,18 @@ try {
     foreach ($switch in $activeSwitches) {
         $action = $switchDispatch[$switch]
         if ($action) {
-            & $action
+            $r = & $action
+            if ($r) {
+                $changeCount = $r.PolicyAssigned + $r.PolicyCleared
+                if ($r.PSObject.Properties.Name -contains 'GroupAdded') {
+                    $changeCount += $r.GroupAdded
+                }
+                $tier = if     ($switch -like 'Tier0*') { 'Tier0' }
+                        elseif ($switch -like 'Tier1*') { 'Tier1' }
+                        elseif ($switch -like 'Tier2*') { 'Tier2' }
+                        else   { $null }
+                if ($tier) { $script:TierChanges[$tier] += $changeCount }
+            }
         }
         else {
             Write-Log -Message "No dispatch found for switch '$switch'" -Level Warning
@@ -2044,6 +2213,9 @@ try {
     }
 
     $runTimer.Stop()
+
+    # Emit COMPLETE event (clean success only)
+    Write-TmEvent -Action COMPLETE -ActiveSwitches $activeSwitches -Duration $runTimer.Elapsed
 
     Write-Log -Message '============================================================'
     Write-Log -Message "Update-TierModelMembership - Completed successfully (CorrelationId=$($script:CorrelationId))"
@@ -2056,6 +2228,9 @@ try {
     }
 }
 catch {
+    # Emit ERROR event FIRST (best-effort; before any other catch handling)
+    Write-TmEvent -Action ERROR
+
     $errMsg = "FATAL ERROR: $($_.Exception.Message)"
     if ($script:LogFilePath) {
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
