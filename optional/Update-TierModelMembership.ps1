@@ -83,6 +83,13 @@
 .PARAMETER ExclusionValue
     Value that marks an object as excluded. Mandatory when ExclusionAttribute is set.
 
+.PARAMETER NoExclusions
+    Explicitly confirm the environment has NO excluded accounts. The script REFUSES
+    to run unless you supply either -ExclusionAttribute/-ExclusionValue OR -NoExclusions,
+    so a forgotten exclusion attribute cannot silently assign policies/group membership
+    to accounts that must be excluded (e.g. break-glass). Mutually exclusive with
+    -ExclusionAttribute.
+
 .PARAMETER EnableLogging
     Write a human-readable change log to %ProgramData%\TierModel\Logs. One file
     per run, 7-day default retention.
@@ -163,6 +170,7 @@ param(
     # --- Exclusion ---
     [string]$ExclusionAttribute,
     [string]$ExclusionValue,
+    [switch]$NoExclusions,
 
     # --- Logging ---
     [switch]$EnableLogging,
@@ -183,7 +191,7 @@ $ErrorActionPreference = 'Stop'
 # ============================================================================
 # SCRIPT-SCOPE STATE
 # ============================================================================
-$script:ScriptVersion     = '1.7.0'
+$script:ScriptVersion     = '1.7.1'
 $script:PreferredDc       = $null
 $script:DomainDN          = $null
 $script:BuiltInExclusions = $null  # HashSet of sAMAccountNames (case-insensitive)
@@ -2107,6 +2115,20 @@ try {
     # Validate exclusion parameter pairing
     if (-not [string]::IsNullOrEmpty($ExclusionAttribute) -and [string]::IsNullOrEmpty($ExclusionValue)) {
         throw 'PARAMETER ERROR: -ExclusionValue is mandatory when -ExclusionAttribute is specified.'
+    }
+
+    # Safety gate: force an explicit exclusion decision so a forgotten -ExclusionAttribute
+    # cannot silently assign policies/group membership to accounts that must be excluded.
+    $hasExclusionParams = -not [string]::IsNullOrEmpty($ExclusionAttribute)
+    if ($hasExclusionParams -and $NoExclusions) {
+        throw 'PARAMETER ERROR: Specify EITHER -ExclusionAttribute/-ExclusionValue OR -NoExclusions, not both.'
+    }
+    if (-not $hasExclusionParams -and -not $NoExclusions) {
+        throw ('PARAMETER ERROR: No exclusion configuration provided. This script assigns Authentication ' +
+               'Policies and group membership to every eligible account. If your environment has ANY excluded ' +
+               'accounts (break-glass, or accounts that must not be siloed), pass -ExclusionAttribute and ' +
+               '-ExclusionValue or they WILL be added to the tier groups and policies. If you have NO exclusions ' +
+               '(confirmed), re-run with -NoExclusions.')
     }
 
     # Generate per-run CorrelationId (used by debug, log files, and events)
