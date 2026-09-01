@@ -91,11 +91,13 @@
     -ExclusionAttribute.
 
 .PARAMETER EnableLogging
-    Write a human-readable change log to %ProgramData%\TierModel\Logs. One file
-    per run, 7-day default retention.
+    Write a human-readable change log to a Logs subfolder beside the script
+    (the script's folder must be writable by the run account). One file per run,
+    7-day default retention.
 
 .PARAMETER EnableDebug
-    Enables deep per-decision troubleshooting dump to %ProgramData%\TierModel\Debug.
+    Enables deep per-decision troubleshooting dump to a Debug subfolder beside the
+    script (the script's folder must be writable by the run account).
     Each run produces a timestamped debug file with a unique CorrelationId in the
     filename (Update-TierModelMembership.debug.<timestamp>.<CorrelationId>.log).
     The same CorrelationId appears in the -EnableLogging change log for correlation.
@@ -191,7 +193,7 @@ $ErrorActionPreference = 'Stop'
 # ============================================================================
 # SCRIPT-SCOPE STATE
 # ============================================================================
-$script:ScriptVersion     = '1.7.1'
+$script:ScriptVersion     = '1.7.2'
 $script:PreferredDc       = $null
 $script:DomainDN          = $null
 $script:BuiltInExclusions = $null  # HashSet of sAMAccountNames (case-insensitive)
@@ -222,7 +224,7 @@ function Write-Log {
     $logLine   = "$timestamp [$Level] $Message"
 
     if ($script:LogFilePath) {
-        Add-Content -Path $script:LogFilePath -Value $logLine -Encoding UTF8
+        Add-Content -Path $script:LogFilePath -Value $logLine -Encoding UTF8 -WhatIf:$false
     }
 
     switch ($Level) {
@@ -256,7 +258,7 @@ function Write-DebugLog {
         $line += " | $($pairs -join '; ')"
     }
 
-    Add-Content -Path $script:DebugFilePath -Value $line -Encoding UTF8
+    Add-Content -Path $script:DebugFilePath -Value $line -Encoding UTF8 -WhatIf:$false
 }
 
 function Initialize-Logging {
@@ -266,9 +268,9 @@ function Initialize-Logging {
     #>
     if (-not $EnableLogging) { return }
 
-    $logDir = Join-Path $env:ProgramData 'TierModel\Logs'
+    $logDir = Join-Path $PSScriptRoot 'Logs'
     if (-not (Test-Path $logDir)) {
-        New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+        New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null
     }
 
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -278,7 +280,7 @@ function Initialize-Logging {
     $cutoff = (Get-Date).AddDays(-7)
     Get-ChildItem -Path $logDir -Filter '*.log' -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt $cutoff } |
-        Remove-Item -Force -ErrorAction SilentlyContinue
+        Remove-Item -Force -ErrorAction SilentlyContinue -WhatIf:$false
 }
 
 function Initialize-Debug {
@@ -289,10 +291,10 @@ function Initialize-Debug {
     #>
     if (-not $EnableDebug) { return }
 
-    $debugDir = Join-Path $env:ProgramData 'TierModel\Debug'
+    $debugDir = Join-Path $PSScriptRoot 'Debug'
     if (-not (Test-Path $debugDir)) {
         try {
-            New-Item -Path $debugDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            New-Item -Path $debugDir -ItemType Directory -Force -ErrorAction Stop -WhatIf:$false | Out-Null
         }
         catch {
             throw "DEBUG INIT FAILED: Cannot create debug directory '$debugDir'. $_"
@@ -316,7 +318,7 @@ function Initialize-Debug {
     $ageCutoff = (Get-Date).AddDays(-7)
     foreach ($f in $debugFiles) {
         if ($f.LastWriteTime -lt $ageCutoff) {
-            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue -WhatIf:$false
         }
     }
 
@@ -328,7 +330,7 @@ function Initialize-Debug {
     $maxFileCount = 30
     if ($debugFiles.Count -gt $maxFileCount) {
         foreach ($f in $debugFiles[$maxFileCount..($debugFiles.Count - 1)]) {
-            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $f.FullName -Force -ErrorAction SilentlyContinue -WhatIf:$false
         }
         $debugFiles = @($debugFiles[0..($maxFileCount - 1)])
     }
@@ -341,7 +343,7 @@ function Initialize-Debug {
         for ($i = $debugFiles.Count - 1; $i -ge 0; $i--) {
             if ($totalSize -le $maxTotalBytes) { break }
             $totalSize -= $debugFiles[$i].Length
-            Remove-Item -Path $debugFiles[$i].FullName -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $debugFiles[$i].FullName -Force -ErrorAction SilentlyContinue -WhatIf:$false
         }
     }
 
@@ -352,7 +354,7 @@ function Initialize-Debug {
 
     try {
         $header = "# Debug log CorrelationId=$($script:CorrelationId) Created=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-        Set-Content -Path $script:DebugFilePath -Value $header -Encoding UTF8 -ErrorAction Stop
+        Set-Content -Path $script:DebugFilePath -Value $header -Encoding UTF8 -ErrorAction Stop -WhatIf:$false
     }
     catch {
         throw ("DEBUG INIT FAILED: Cannot create debug file '$($script:DebugFilePath)'. " +
@@ -913,6 +915,7 @@ function Invoke-BuiltInExclusionEnforcement {
                 sAMAccountName = $sam; DN = $acct.DistinguishedName
                 Result = 'has-policy'; CurrentPolicy = "$currentPolicy"; Decision = 'clear'
             }
+            if ($WhatIfPreference) { Write-Log -Message "WHATIF: would clear policy from built-in exclusion '$sam'" }
             if ($PSCmdlet.ShouldProcess($sam, "Remove Authentication Policy '$currentPolicy'")) {
                 Clear-TmObjectAuthPolicy -ObjectDn $acct.DistinguishedName
                 Write-Log -Message "Removed policy '$currentPolicy' from built-in excluded account '$sam'"
@@ -1132,6 +1135,7 @@ function Invoke-TierReconciliation {
                 # Clear policy from excluded users who currently have one
                 if (-not [string]::IsNullOrEmpty($currentPol)) {
                     $debugPolicyAction = 'clear'
+                    if ($WhatIfPreference) { Write-Log -Message "WHATIF: would clear policy from excluded '$sam'" }
                     if ($PSCmdlet.ShouldProcess($sam, "Clear policy '$currentPolName' (excluded)")) {
                         Clear-TmObjectAuthPolicy -ObjectDn $obj.DistinguishedName
                         Write-Log -Message "Cleared policy '$currentPolName' from excluded account '$sam'"
@@ -1146,6 +1150,7 @@ function Invoke-TierReconciliation {
             else {
                 if ($currentPolName -ne $PolicyName) {
                     $debugPolicyAction = 'assign'
+                    if ($WhatIfPreference) { Write-Log -Message "WHATIF: would assign policy '$PolicyName' to '$sam'" }
                     if ($PSCmdlet.ShouldProcess($sam, "Assign Authentication Policy '$PolicyName'")) {
                         Set-TmObjectAuthPolicy -ObjectDn $obj.DistinguishedName -PolicyDn $policyDn
                         Write-Log -Message "Assigned policy '$PolicyName' to '$sam'"
@@ -1174,6 +1179,7 @@ function Invoke-TierReconciliation {
         if (-not $skipGroup) {
             if (-not $currentMembers.Contains($obj.DistinguishedName)) {
                 $debugGroupAction = 'add'
+                if ($WhatIfPreference) { Write-Log -Message "WHATIF: would add '$sam' to group '$TargetGroupSam'" }
                 if ($PSCmdlet.ShouldProcess($sam, "Add to group '$TargetGroupSam'")) {
                     Add-ADGroupMember -Identity $TargetGroupSam -Members $obj.DistinguishedName `
                         -Server $script:PreferredDc -ErrorAction Stop
@@ -1686,6 +1692,7 @@ function Invoke-Tier2Operators {
             # Clear policy from excluded operators who currently have one
             if (-not [string]::IsNullOrEmpty($currentPol)) {
                 $debugPolicyAction = 'clear'
+                if ($WhatIfPreference) { Write-Log -Message "WHATIF: would clear policy from excluded '$sam'" }
                 if ($PSCmdlet.ShouldProcess($sam, "Clear policy '$currentPolName' (excluded)")) {
                     Clear-TmObjectAuthPolicy -ObjectDn $dn
                     Write-Log -Message "Cleared policy '$currentPolName' from excluded operator '$sam'"
@@ -1700,6 +1707,7 @@ function Invoke-Tier2Operators {
         else {
             if ($currentPolName -ne $policyName) {
                 $debugPolicyAction = 'assign'
+                if ($WhatIfPreference) { Write-Log -Message "WHATIF: would assign policy '$policyName' to '$sam'" }
                 if ($PSCmdlet.ShouldProcess($sam, "Assign Authentication Policy '$policyName'")) {
                     Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
                     Write-Log -Message "Assigned policy '$policyName' to operator '$sam'"
@@ -1718,6 +1726,7 @@ function Invoke-Tier2Operators {
         # ----------------------------------------------------------------
         if (-not $isOpSet.Contains($dn)) {
             $debugGroupAction = 'add'
+            if ($WhatIfPreference) { Write-Log -Message "WHATIF: would add '$sam' to group '$opGroupSam'" }
             if ($PSCmdlet.ShouldProcess($sam, "Add to group '$opGroupSam'")) {
                 Add-ADGroupMember -Identity $opGroupSam -Members $dn `
                     -Server $script:PreferredDc -ErrorAction Stop
@@ -1957,6 +1966,7 @@ function Invoke-Tier2Eud {
 
             if (-not [string]::IsNullOrEmpty($currentPol)) {
                 $debugPolicyAction = 'clear'
+                if ($WhatIfPreference) { Write-Log -Message "WHATIF: would clear policy from excluded '$sam'" }
                 if ($PSCmdlet.ShouldProcess($sam, "Clear EUD policy '$currentPolName' (excluded)")) {
                     Clear-TmObjectAuthPolicy -ObjectDn $dn
                     Write-Log -Message "Cleared EUD policy '$currentPolName' from excluded LDO account '$sam'"
@@ -1971,6 +1981,7 @@ function Invoke-Tier2Eud {
         else {
             if ($currentPolName -ne $policyName) {
                 $debugPolicyAction = 'assign'
+                if ($WhatIfPreference) { Write-Log -Message "WHATIF: would assign EUD policy '$policyName' to '$sam'" }
                 if ($PSCmdlet.ShouldProcess($sam, "Assign EUD Authentication Policy '$policyName'")) {
                     Set-TmObjectAuthPolicy -ObjectDn $dn -PolicyDn $policyDn
                     Write-Log -Message "Assigned EUD policy '$policyName' to LDO account '$sam'"
@@ -2256,7 +2267,7 @@ catch {
     $errMsg = "FATAL ERROR: $($_.Exception.Message)"
     if ($script:LogFilePath) {
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-        Add-Content -Path $script:LogFilePath -Value "$timestamp [Error] $errMsg" -Encoding UTF8 -ErrorAction SilentlyContinue
+        Add-Content -Path $script:LogFilePath -Value "$timestamp [Error] $errMsg" -Encoding UTF8 -ErrorAction SilentlyContinue -WhatIf:$false
     }
     Write-DebugLog -Message 'FATAL ERROR' -Data @{
         Error = $_.Exception.Message
