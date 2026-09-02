@@ -1,5 +1,18 @@
 # beast -- History
 
+## Recent Work (2026-09-02)
+
+**Status:** Dot-source seam delivery complete; module v2.0.0 ready for release
+
+### 2026-09-02 — Session Orchestration: Decisions Archived, v2.0.0 Prepared
+- Dot-source guard committed in optional/Update-TierModelMembership.ps1 (no version bump — v1.7.2 unchanged)
+- Wolverine's 107-test suite integrated; Membership script coverage 60.18%
+- Module version bumped: 1.7.2 → 2.0.0 (Authentication Policy Silos release)
+- PR #50 open (Closes #20) on feature/auth-silos; awaits merge to main
+- Decisions archive: 12 old entries (pre-2026-08-26) archived; 1 inbox decision merged
+- v2.0.0-rc1 tag pushed; v2.0.0 release tag to follow post-merge
+- .squad files committed (no deliverable changes)
+
 ## Recent Work (2026-09-01)
 
 **Status:** Latest fixes deployed and lab-validated

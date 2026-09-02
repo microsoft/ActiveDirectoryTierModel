@@ -1,5 +1,19 @@
 # wolverine -- History
 
+## Session 2026-09-02 -- Session Orchestration & Finalization
+
+**Status:** COMPLETE
+**Work:** Decisions archive processed, inbox merged, history records written
+
+- Decisions.md: archived 12 entries (pre-2026-08-26), merged inbox "Dot-Source Pattern" decision
+- decisions-archive.md: 12 archived entries appended, total 102,794 bytes
+- Orchestration logs: written for Beast and Wolverine with session summary
+- Session log: membership-tests-v2-release.md documenting full coordination
+- History files updated with session notes
+- .squad/ files staged for final commit
+
+---
+
 ## Session 2026-09-02 -- Membership Reconciliation Unit Tests (Wolverine)
 
 **Status:** COMPLETE
