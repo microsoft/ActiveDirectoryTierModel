@@ -28,6 +28,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[GPO Management Strategy](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-strategy/)** - Group Policy Object management
 - **[GPO Management Guidance](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-guidance/)** - Best practices, baseline selection, the SOE override model, firewall lockdown, and upgrade lifecycle
 - **[Best Practices & Hardening](https://microsoft.github.io/ActiveDirectoryTierModel/best-practices/)** - Governance rules (group manager tiering) and post-deployment AD hardening guidance
+- **[Authentication Policy Silos - Operations Guide](https://microsoft.github.io/ActiveDirectoryTierModel/auth-silos-operations-guide/)** - Deploy, audit, enforce, and maintain Authentication Policy Silos (`-IncludeAuthSilos`); includes the v1.x → v2.0.0 migration appendix
 - **[ADMX Management](https://microsoft.github.io/ActiveDirectoryTierModel/admx-management/)** - Administrative template handling
 - **[Conditional Principals](https://microsoft.github.io/ActiveDirectoryTierModel/conditional-principals/)** - Domain-specific principal resolution
 - **[CI/CD Integration](https://microsoft.github.io/ActiveDirectoryTierModel/ci-cd/)** - Pipeline integration and automation

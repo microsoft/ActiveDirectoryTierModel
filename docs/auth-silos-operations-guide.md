@@ -262,7 +262,7 @@ adds **everyone** in scope to the groups and policies.
 - `-EnableEventLog` — writes START / COMPLETE / ERROR events to the Windows Application log
   (Source `TierModel`, Event IDs 1000 / 1001 / 1009).
 
-See [tiermodel-logging.md](tiermodel-logging.md) for log structure and retention details.
+See [Tier Model logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/) for log structure and retention details.
 
 ---
 
@@ -450,7 +450,7 @@ Credentials Delegation > **"Remote host allows delegation of non-exportable cred
 
 ## Related reading
 
-- [Best practices](best-practices.md) — Tier Model design principles and hardening guidance.
-- [GPO management guidance](gpo-management-guidance.md) — managing GPOs linked to tier OUs.
-- [Tier Model logging](tiermodel-logging.md) — log locations, retention, and event sources.
-- [Sentinel monitoring](sentinel-monitoring.md) — SIEM integration and alert rules.
+- [Best practices](https://microsoft.github.io/ActiveDirectoryTierModel/best-practices/) — Tier Model design principles and hardening guidance.
+- [GPO management guidance](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-guidance/) — managing GPOs linked to tier OUs.
+- [Tier Model logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/) — log locations, retention, and event sources.
+- [Sentinel monitoring](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/) — SIEM integration and alert rules.
