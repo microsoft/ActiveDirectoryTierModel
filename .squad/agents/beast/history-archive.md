@@ -65,3 +65,27 @@ Scribe finalized post-audit session tasks: zero inbox files required merging (in
 - 2026-06-03T21:34:33.354+08:00 — Verified paths for this UX fix: orchestration changes live in `Deploy-TierModel.ps1`, regression coverage lives in `tests/Integration.Deploy.Tests.ps1`, and manual lab validation runs from `C:\TierLab\Deploy` inside `TierLab-DC01` under PowerShell 7.
 - 2026-07-13T11:34:25Z — Windows LAPS Wave-1 & Wave-2 consolidated by Scribe orchestration session. All technical findings merged into decisions.md (consolidated 8 inbox files). Orchestration log created: .squad/orchestration-log/2026-07-13T11-34-25-UTC-beast.md. Spec APPROVED by Professor X (9/9 constitution pass, 10/10 requirements pass, all 5 architecture sections verified). Handed off to Cyclops for implementation wave authoring. Key deliverables archived and marked ready for next phase.
 - 2025-07-18 — Phase 16 Pester unit tests (T028-T036) completed. 972 unit tests, 0 failures. Three new test files created: Unit.MsaAclOperations.Tests.ps1, Unit.GmsaAclOperations.Tests.ps1, Unit.DmsaAclOperations.Tests.ps1. Critical Pester 5.7.1 behaviors: (1) `-AtLeastTimes` is not a valid parameter for `Should -Invoke`; use `-Times N` without `-Exactly` for "at least N" semantics. (2) `Mock` calls inside `It` blocks in Pester 5.7.1 can bleed to subsequent tests in the same Context — avoid It-scoped mock overrides by using config objects that exercise the BeforeAll conditional mock, and by moving error-path tests that require a specific cmdlet mock (e.g. `Get-Acl { throw }`) into dedicated sub-Contexts with BeforeAll. (3) When cmdlet source returns `@{...}` hashtables for Summary/Validation properties, use `.Keys | Should -Contain` not `.PSObject.Properties.Name | Should -Contain`. (4) Config delegations stored as hashtables mean `$acl.PSObject.Properties['inheritedObjectType']` always returns null — audit cmdlets set `InheritedObjectType = [Guid]::Empty` in expected entries, so mock ACEs must also use `[Guid]::Empty` for InheritedObjectType on the GenericAll/Descendents rule.
+---
+
+## Session 2026-08-24: Format-TierModelDuration Implementation
+
+**Status:** COMPLETE — Function deployed, 4-tier public function with floor-based arithmetic
+
+**Key Changes:** Deploy-TierModel.ps1 updated with Format-TierModelDuration for user-friendly duration output (seconds/minutes/milliseconds → readable format). Lab validation complete (2026-08-24). Awaiting Joel acceptance.
+
+---
+
+## Session 2026-08-14: -EnableAuditing Implementation
+
+**Status:** COMPLETE — Audit-TierModel.ps1 wiring complete, PSScriptAnalyzer clean
+
+**Key Changes:** Four cmdlets added (audit infrastructure), schema integrated, deploy integration verified. Lab validation confirmed (2026-08-14).
+
+---
+
+## Session 2026-08-11: BUG-006 Canonical ACL Pre-flight Gate
+
+**Status:** COMPLETE — 18 ByBytes tests added, 1,457 total tests passing
+
+**Key Changes:** Test-TierModelCanonicalAcl coverage expanded. BUG-006 pre-flight gate validated in lab (2026-08-11).
+

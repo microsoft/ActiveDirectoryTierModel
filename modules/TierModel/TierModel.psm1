@@ -19,8 +19,8 @@ $script:CachedDomainController = $null
 $InternalPath = Join-Path $PSScriptRoot 'internal'
 Write-Verbose "Looking for internal files in: $InternalPath"
 if (Test-Path $InternalPath) {
-    $internalFiles = Get-ChildItem -Path $InternalPath -Filter '*.ps1' | Where-Object { $_.Name -notlike '*.old' }
-    $internalFileCount = if ($internalFiles) { $internalFiles.Count } else { 0 }
+    $internalFiles = @(Get-ChildItem -Path $InternalPath -Filter '*.ps1' | Where-Object { $_.Name -notlike '*.old' })
+    $internalFileCount = $internalFiles.Count
     Write-Verbose "Found $internalFileCount active internal files (excluding .old files)"
     $internalFiles | ForEach-Object {
         try {
@@ -39,7 +39,7 @@ if (Test-Path $InternalPath) {
 $PublicPath = Join-Path $PSScriptRoot 'public'
 Write-Verbose "Looking for public files in: $PublicPath"
 if (Test-Path $PublicPath) {
-    $publicFiles = Get-ChildItem -Path $PublicPath -Filter '*.ps1'
+    $publicFiles = @(Get-ChildItem -Path $PublicPath -Filter '*.ps1')
     Write-Verbose "Found $($publicFiles.Count) public files"
     $publicFiles | ForEach-Object {
         try {

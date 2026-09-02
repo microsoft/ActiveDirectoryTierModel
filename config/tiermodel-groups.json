@@ -183,6 +183,24 @@
       "comment": "Group has full control over computer objects in the Tier 2 End-User Devices OU."
     },
     {
+      "name": "Tier 2 EUD Devices",
+      "samaccountname": "Tier2EUDDevices",
+      "description": "Members of this group required to participate in Tier 2 AuthSilo Policies for Tier 2 End-User Devices.",
+      "groupscope": "Universal",
+      "groupcategory": "Security",
+      "path": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "comment": "Group used to establish AuthSilo policies for Tier 2 End-User Devices"
+    },
+    {
+      "name": "Tier 2 EUD Domain Join",
+      "samaccountname": "Tier2EUDDomainJoin",
+      "description": "Members of this group are delegated rights to join machines to the domain in the Tier Model Tier 2 End-User Devices OU.",
+      "groupscope": "Global",
+      "groupcategory": "Security",
+      "path": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "comment": "Group to allow Domain Join of Tier 2 End-User Devices to the Tier 2 End-User Devices OU"
+    },
+    {
       "name": "Tier 2 Group Operators",
       "samaccountname": "Tier2GroupOperators",
       "description": "Members of this group can create, modify and delete Tier 2 Groups in the Tier 2 End-User Groups OU.",
@@ -217,6 +235,15 @@
       "groupcategory": "Security",
       "path": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
       "comment": "Group provides non-elevated logon rights to Tier 2 PAWs"
+    },
+    {
+      "name": "Tier 2 PAW Devices",
+      "samaccountname": "Tier2PAWDevices",
+      "description": "Members of this group required to participate in Tier 2 AuthSilo Policies for Tier 2 PAW Devices.",
+      "groupscope": "Universal",
+      "groupcategory": "Security",
+      "path": "OU=Tier 2 Groups,OU=Tier 2,OU=Tier Model Administration,{{DOMAIN_DN}}",
+      "comment": "Group used to establish AuthSilo policies for Tier 2 PAW Devices"
     },
     {
       "name": "Tier 2 Service Accounts",

@@ -1,5 +1,12 @@
 # cyclops — History
 
+## Session 2026-09-02 — Auth Silos Public Docs + v2 Migration (Storm)
+
+Auth-silos ops guide rewritten to public-facing 422 lines (1580→422) with v2 migration appendix.
+May want an architecture/accuracy pass on Event 306/106, NTLM Event 101, and RODC/non-GC preflight claims.
+
+---
+
 ## FEATURE COMPLETE: Windows LAPS T001–T021 (2026-07-16)
 
 **Status:** ✅ SHIPPED — All tasks complete, committed, ready for Joel's UAT + release.

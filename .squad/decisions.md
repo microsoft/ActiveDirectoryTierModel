@@ -1,377 +1,657 @@
 # Squad Decisions
 
-## Active Decisions (2026-08-11)
+## Active Decisions (2026-09-02)
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
 
 ---
 
-# Decision: Move Pester Side-by-Side Advisory to EnvironmentSnapshot
+# Decision: Module Version Bump — v2.0.0 Authentication Policy Silos Release
 
-**Date:** 2026-08-11  
-**Author:** Beast (Dr. Hank McCoy)  
-**Requested by:** Joel Platek  
-**Status:** ✅ IMPLEMENTED — Canonical-ACL finalization batch (pending owner code review)
+**Date:** 2026-09-02
+**Author:** Coordinator (Squad)
+**Status:** Decided — implemented, PR #50 awaits merge
 
-## Problem
+## Context
 
-`Test-TierModelPrerequisites.ps1` had a non-blocking advisory (Pester 5.x + 6.x side-by-side) writing into `$result.Remediation`. Because `Write-TierModelFailFast` renders the entire `Remediation` list whenever any prerequisite blocks, this orphaned advisory appeared in fail-fast output for unrelated failures (e.g. the canonical-ACL gate), confusing operators.
+Feature branch `feature/auth-silos` ships the authentication-silos deploy subsystem, a major feature addition to TierModel. Module version must be bumped from 1.x to reflect the breaking changes and new public cmdlets introduced by this feature.
+
+## Decisions Made
+
+### 1. Version 2.0.0 marks the Authentication Policy Silos release
+
+- **Previous version:** 1.7.2
+- **New version:** 2.0.0 (released as v2.0.0-rc1 tag)
+- **Breaking change:** `-IncludeAuthSilos` parameter structure changed; create-once model (no update actions)
+- **New cmdlets:** `Get-TierModelAuthSiloMembershipFd`, `New-TierModelAuthSilo`, `Set-TierModelAuthSiloMembership`, `Test-TierModelAuthSilo`
+- **Schema change:** `memberAccountGroups`, `exemptAccounts` fields removed from silo objects
+
+### 2. Module manifest updated
+
+- `modules/TierModel/TierModel.psd1`: ModuleVersion = '2.0.0'
+- Release notes file updated with feature summary and breaking changes
+- Version-assertion tests: `Unit.ModuleManifest.Tests.ps1` and `Integration.Module.Tests.ps1` updated to expect v2.0.0
+
+### 3. Test counts and coverage updated
+
+- Integration tests: 314 → 318 (+4 new auth-silo integration tests)
+- Automated total: 1890 tests, all passing
+- Membership script coverage: 60.18% (CI-measured; accepted for optional scheduled script)
+- Aggregate project coverage: ≥80% (maintained)
+
+### 4. v2.0.0 tag and release procedure
+
+- v2.0.0-rc1 tag pushed to feature branch for early validation
+- After PR #50 merges to main: push v2.0.0 tag to main to trigger GitHub release workflow
+- Release notes auto-generated from CHANGELOG and commit messages
+
+## Files Changed
+
+- `modules/TierModel/TierModel.psd1` — ModuleVersion bumped
+- `Unit.ModuleManifest.Tests.ps1` — version assertion updated
+- `Integration.Module.Tests.ps1` — version assertion updated
+- `README.md` — test count totals updated
+- `docs/test-coverage.md` — coverage percentages and dates updated
+
+## Related Decisions
+
+- Wolverine: Dot-Source Pattern for Standalone Script Unit Tests (2026-09-02)
+- Coverage acceptance for optional/Update-TierModelMembership.ps1 (60.18%)
+
+---
+
+# Decision: Dot-Source Pattern for Standalone Script Unit Tests
+
+**Date:** 2026-09-02
+**Author:** Wolverine (Testing)
+**Status:** Proposed -- pending Cyclops review
+
+## Context
+
+`optional/Update-TierModelMembership.ps1` is a standalone scheduled-task script (~2270 lines,
+PowerShell 7). It is NOT a module cmdlet, so `InModuleScope` does NOT apply. Beast added a
+dot-source seam near the `# MAIN EXECUTION` banner:
+
+```powershell
+if ($MyInvocation.InvocationName -eq '.') { return }
+```
+
+This guard means dot-sourcing loads all helper functions without running the main block.
+
+## Decisions Made
+
+### 1. Dot-source test seam for standalone scripts
+
+When `$MyInvocation.InvocationName -eq '.'`, the script returns early. All functions defined
+above the guard are loaded in the caller's scope. This is the correct pattern for any standalone
+`.ps1` script that needs unit testing via Pester. NOT a module -- do not use InModuleScope.
+
+Dot-source in BeforeAll:
+```powershell
+. "$PSScriptRoot\..\optional\Update-TierModelMembership.ps1"
+```
+
+### 2. ADObject creation: New-Object + Add-Member NoteProperty
+
+On RSAT-enabled machines, `Microsoft.ActiveDirectory.Management.ADObject` is the REAL type
+from the AD module. It does NOT support `$obj[$key] = $value` indexer or `.Add()` from
+PowerShell. The correct pattern:
+
+```powershell
+$obj = New-Object 'Microsoft.ActiveDirectory.Management.ADObject'
+$obj | Add-Member -NotePropertyName 'sAMAccountName' -NotePropertyValue 'user1' -Force
+$obj | Add-Member -NotePropertyName 'msDS-AssignedAuthNPolicy' -NotePropertyValue $null -Force
+```
+
+NoteProperties are found by dot-notation (`$obj.sAMAccountName`) and satisfy the
+`[Microsoft.ActiveDirectory.Management.ADObject]` parameter type constraint.
+
+For CI without RSAT: define a minimal stub type using Add-Type before dot-sourcing:
+```powershell
+if (-not ('Microsoft.ActiveDirectory.Management.ADObject' -as [type])) {
+    Add-Type -TypeDefinition 'namespace Microsoft.ActiveDirectory.Management { public class ADObject {} }'
+}
+```
+
+### 3. Mock body parameters in Pester 5.9 are NOT auto-injected
+
+In Pester 5.9.0, mock body scriptblocks do NOT receive the mocked function's bound parameters
+as named variables, even with explicit `param()`. The ParameterFilter DOES see bound params,
+but the body does NOT receive them this way.
+
+**Workaround for mocks that must distinguish calls by parameter value:**
+Use a script-scope call counter when calls are made in a known fixed order:
+
+```powershell
+$script:GrpCall = 0
+BeforeEach { $script:GrpCall = 0 }
+Mock Get-ADGroupMember {
+    $script:GrpCall++
+    if ($script:GrpCall % 2 -eq 1) { @(...first-call-result...) }
+    else                            { @(...second-call-result...) }
+}
+```
+
+This is robust when the mocked function is always called in the same order within the SUT.
+
+### 4. Variables defined at Describe-body level run at DISCOVERY time
+
+In Pester 5.x, code at the Describe block level (outside BeforeAll/It/etc.) runs during the
+DISCOVERY phase. Variables set there (even with `$script:`) are NOT available during the RUN
+phase inside It blocks. Always initialize shared test data inside `BeforeAll`.
+
+Exception: `-TestCases @(...)` expressions are evaluated at discovery time. Arrays used in
+TestCases MUST be defined outside BeforeAll (directly in Describe/Context body) or hardcoded.
+
+### 5. Should -Throw syntax in Pester 5.x
+
+Correct:
+```powershell
+{ code } | Should -Throw '*CONFIG ERROR*'   # positional ExpectedMessage (glob)
+```
+
+WRONG (Pester 4 syntax -- NOT supported in Pester 5):
+```powershell
+{ code } | Should -Throw -ExceptionMessage '*CONFIG ERROR*'
+```
+
+### 6. Angle brackets in It names trigger variable lookup
+
+In Pester 5.x, `<placeholder>` in an It name is treated as a TestCase variable substitution
+even when no TestCases are provided. With `Set-StrictMode -Version 2`, this throws
+"variable '$placeholder' cannot be retrieved." Avoid `<...>` in It names unless TestCases
+are provided.
+
+### 7. .NET static methods are not mockable in Pester 5
+
+`[System.Diagnostics.EventLog]::WriteEntry` cannot be mocked with Pester 5.x.
+`Write-TmEvent` is tested for behavioral contract only:
+- Opt-in gate (`$EnableEventLog` and `$script:EventLogReady`)
+- No-throw guarantee (try/catch in function)
+- WhatIf detection (`$WhatIfPreference` affects `$runMode` field)
+
+The exact pipe-delimited message format is a lab-validated integration concern.
+
+### 8. Inline main-block parameter gates are not unit-testable
+
+The exclusion parameter-pairing check and `-NoExclusions` safety gate live inline in the
+`try {}` block after `if ($MyInvocation.InvocationName -eq '.') { return }`. Dot-sourcing
+returns before these lines, so they cannot be reached by unit tests.
+
+**Recommendation for Beast:** Extract into `Test-TmExclusionParams` private function so they
+can be unit-tested independently. Until then, these gates are integration-covered by Joel's
+lab UAT.
+
+## Files Changed
+
+- `tests/Unit.MembershipReconciliation.Tests.ps1` -- new (107 tests)
+- `.github/workflows/ci.yml` -- CodeCoverage.Path extended to include the script
+- `README.md` -- test counts and coverage updated
+- `docs/test-coverage.md` -- script added to per-file table, Last measured updated
+- `.squad/agents/wolverine/history.md` -- session entry prepended
+
+## Coverage
+
+Script added to CI coverage path. Estimated ~74% (exact figure pending CI run).
+Functions NOT covered by unit tests (integration-only):
+- `Assert-Preflight` (requires live DC)
+- `Import-TierModelConfig` (requires config JSON files)
+- `Initialize-TmEventLog` (requires event log registry write)
+- `Initialize-Debug` (deep filesystem setup)
+- `Invoke-BuiltInExclusionEnforcement` (uses Get-ADUser, separate from reconciliation)
+- `Invoke-Tier0/1/2*` dispatch wrappers (thin wrappers; covered transitively)
+- Inline exclusion parameter gate (requires main block execution)
+
+## Additional Technical Decision: ADEntityAdapter Workaround
+
+**CRITICAL for future AD-object tests in standalone scripts:**
+
+`New-Object 'Microsoft.ActiveDirectory.Management.ADObject' | Add-Member` FAILS after the real
+ActiveDirectory module is imported into the session. The module registers `ADEntityAdapter` for
+all ADObject instances. `Add-Member` calls `GetProperty` on the adapter which throws.
+
+**The fix:** Use `$o.PSObject.Properties.Add([PSNoteProperty]::new(key, val))`.
+PSObject.Properties.Add writes directly to the PSObject wrapper, bypassing the type adapter.
+Property access `$o.propertyName` finds the NoteProperty via ETS. Works before and after
+real AD module load.
+
+Timing: Mock setup for AD cmdlets can trigger PowerShell auto-loading of the real AD module.
+Objects created before mock setup (in BeforeAll) may work; objects created in later Context
+BeforeAlls may fail. PSObject.Properties.Add removes this timing sensitivity.
+
+"Attribute absent" tests are unrealistic: In production, Get-ADObject -Properties attr always
+returns the attribute (null if unset). StrictMode 2.0 throws on real ADObject for absent props.
+Replace with "attribute present but null" tests.
+
+**Measured coverage: 60.18%** (CI-measured, CodeCoverage.Path updated in ci.yml).
+
+---
+
+# Decision: Auth Silos Ops Guide — Public Rewrite Structure
+
+**Date:** 2026-09-02
+**Author:** Storm (DevRel & Documentation)
+**Status:** Proposed — pending Joel review
+
+## Context
+
+`docs/auth-silos-operations-guide.md` grew to ~1580 lines as a combined lab/UAT operations manual
+across three authoring sessions. Joel requested a short, public-facing rewrite targeting 180–280
+lines — same filename, bullet-heavy, no SDDL, no UAT detail, no lab/build appendices.
+
+## Decisions Made
+
+### 1. "8 objects" clarified immediately as 4 + 4
+
+The intro to "What gets deployed" leads with: **"8 objects: 4 Authentication Policies +
+4 Authentication Policy Silos."** This prevents the common reader mistake of calling each silo
+a separate policy or of expecting 8 silos.
+
+### 2. SDDL reduced to one sentence
+
+Per Joel's explicit instruction: no SDDL strings, no breakdown table. One sentence in "How
+the policies and devices are linked" says the deploy module builds the SDDL using OR / "Member
+of any" logic — the operator never authors SDDL by hand.
+
+### 3. Enforce flip condensed to 5-step checklist
+
+The 12-gate pre-enforcement gate table was replaced with a 5-step plain-English checklist.
+Joel's instruction: "keep this to a few bullets — no giant gate table."
+
+### 4. adminDescription for exclusions called out prominently
+
+Joel specifically flagged this: `adminDescription` is the recommended exclusion attribute because
+Exchange does not touch it (Exchange uses `description`). This is called out in a prominent block
+under "Exclusions — required decision."
+
+### 5. Appendix B (v1.x → v2.0.0 upgrade) removed from this doc
+
+Joel: "drop it — it's release-notes material." The content still exists in git history. If a
+migration guide is needed later it should live in CHANGELOG or a dedicated upgrade doc.
+
+### 6. Scheduling examples grounded in script's actual parameters
+
+Parameters used in examples (`-All`, `-AllTier0`, `-ExclusionAttribute`, `-ExclusionValue`,
+`-EnableLogging`, `-EnableEventLog`, `-JobId`, `-WhatIf`) verified against script source
+lines 1–220. `-NoProfile` added to all pwsh.exe invocations as best practice.
+
+## Files Changed
+
+- `docs/auth-silos-operations-guide.md` — full overwrite (238 lines)
+- `.squad/agents/storm/history.md` — session entry prepended
+
+## Items for Cyclops Verification
+
+- Event IDs 306/106 (TGS service-ticket target restrictions): carried forward from original doc.
+  If these were lab-validation-required in the original, Cyclops should remove the table row.
+- LDAP simple bind blind spot: original doc marked this [Lab validation required]. Kept as a
+  bullet with no validation claim.
+
+---
+
+---
+
+# Decision: Auth Silos Ops Guide — v2 Migration Appendix
+
+**Date:** 2026-09-02
+**Author:** Storm (DevRel & Documentation)
+**Status:** Proposed — pending Joel review
+
+## Context
+
+Auth silos ops guide revision round 2. Joel added new requirements including a v1.x → v2.0.0
+migration appendix, a URA/Restricted-Groups complementary-controls section, factual corrections,
+and an IMPORTANT callout at the top.
+
+## Decisions Made
+
+### 1. Migration appendix placed BEFORE Related Reading
+
+Joel specified "before Related Reading." The appendix is long (~130 lines) but self-contained.
+Keeping it inside the same file (rather than a separate migration doc) ensures inbound links
+from the IMPORTANT callout work and the upgrade procedure is discoverable at the doc that a
+v2 admin will be reading anyway.
+
+### 2. Two GPO options (not one)
+
+The appendix offers two paths for the GPO update step:
+- **Option 1 (recommended):** rename old GPOs → deploy new ones fresh → verify → delete old.
+  Safe because the deploy script is idempotent and the old GPOs continue to apply during cutover
+  (lowest link priority buys time to verify).
+- **Option 2 (manual):** hand-edit existing GPOs with exact settings. For admins who cannot or
+  will not redeploy GPOs.
+
+The governing rule "never overwrite a production GPO in place" is restated in both options.
+
+### 3. Ordered migration steps (Group → User → OuAcls → AuthSilos → Gpos)
+
+This order is required, not advisory:
+1. Groups must exist before AuthSilos (deploy fails if device groups are missing).
+2. Users (service account) can be created any time after groups, but placing it in Step 1 keeps
+   the new-object phase together.
+3. OuAcls is harmless at any point but logically belongs with the new-object phase.
+4. AuthSilos requires the new device groups from Step 1 — fails if missing.
+5. Gpos is last because it carries the most operational risk (live GPO changes).
+
+### 4. Anchor computed as single-hyphen `#appendix-upgrading-from-v1x-to-v200`
+
+Python-Markdown / MkDocs default slugify:
+- Lowercase
+- Remove non-alphanumeric chars except spaces and hyphens (strips `:` and `.`)
+- Spaces → hyphens
+- Result for "Appendix: Upgrading from v1.x to v2.0.0": `appendix-upgrading-from-v1x-to-v200`
+
+The task prompt showed a double-hyphen example `#appendix--upgrading-from-v1x-to-v200`; single
+hyphen is the correct Python-Markdown output and was used. If the MkDocs build produces a
+different anchor, update the IMPORTANT callout link.
+
+### 5. "Auth silos complement URA and Restricted Groups" section added near top
+
+Joel's requirement: silos restrict WHERE (origin device), URA restricts HOW (logon type). Both
+are required; they cover each other's gaps. Section placed immediately after the linkage section
+so readers who understand the linkage immediately understand why URA is still needed.
+
+### 6. Factual corrections from Joel applied (Part 5)
+
+All 11 corrections applied. Two items remain flagged for Cyclops verification:
+- "Script preflight rejects RODCs and non-GC DCs" — stated as Joel-verified; not confirmed
+  independently in the 220 script lines read.
+- Event 101 (NTLM under enforcement) — Joel's correction; not independently verified.
+
+## Files Changed
+
+- `docs/auth-silos-operations-guide.md` — revised (238 → 422 lines)
+- `.squad/agents/storm/history.md` — session entry prepended
+
+---
+
+---
+
+# Decision: Auth Silo Test Realignment — Create-Once Model
+
+**Date:** 2026-08-27  
+**Author:** Wolverine (Tester)  
+**Status:** Implemented
+
+---
+
+## Context
+
+Commit 244ab52 on `feature/auth-silos` shipped a major behavioral change to the `-IncludeAuthSilos` deploy pipeline:
+
+- **Create-once model**: existing policies/silos are never modified by deploy. No drift/update actions.
+- **Deferred SDDL**: plan actions carry `ResolvedSddl = $null`; SID resolution and SDDL construction happen at execution time in `New-TierModelAuthPolicy`.
+- **User membership removed**: `memberAccountGroups`, `exemptAccounts`, RID-500 exemption all gone. Silos govern computers only (`memberComputerGroups`).
+- **New cmdlet**: `Get-TierModelAuthSiloMembershipFd` — read-only planner with `-OnlyForSilos` filter.
+
+The existing `Unit.AuthSiloOperations.Tests.ps1` (88 tests) was written against the old model and had **18 failures** against the new code.
+
+---
+
+## Decision: Test-code alignment (not production-code change)
+
+Per Joel's standing directive: tests must match the already-validated, committed production code. Where tests disagreed with working code, the tests were wrong.
+
+**Key alignments:**
+
+1. **Planner `ResolvedSddl`**: changed assertion from `Should -Match 'Member_of_any'` to `Should -BeNullOrEmpty` — SDDL is deferred at plan time in the create-once model.
+2. **UpdateAuthPolicy / UpdateAuthSilo tests**: removed entirely — these actions do not exist in the create-once planner.
+3. **memberAccountGroups / exemptAccounts**: removed from test config object and all related assertions. Production schema no longer has these fields.
+4. **Test-TierModelAuthSilo "unexpected member"**: inverted — extra members beyond config are now ALLOWED (informational), not NonCompliant.
+5. **Test-TierModelAuthPolicy assertions**: fixed issue message patterns (TGT drift: `'TGT'` not `'UserTGTLifetimeMins'`; SDDL drift: `'AllowedToAuthenticate'` not `'SDDL'`).
+
+---
+
+## Coverage Decisions
+
+Three auth-silo files are below 80% with structural barriers:
+
+| File | Coverage | Barrier |
+|------|----------|---------|
+| `Set-TierModelAuthSiloMembership.ps1` | 61.5% | 221-command file; ShouldProcess-UserDeclined branch, race-condition "converged-between-precheck-and-write" path, outer catch require interactive confirmation or live-AD |
+| `Get-TierModelAuthSiloMembershipFd.ps1` | 64.7% | Inner loop reads `msDS-AssignedAuthNPolicySilo` via `Get-ADComputer`; `Get-ADUser` path never called (computer-only model by design) |
+| `New-TierModelAuthSilo.ps1` | 79.8% | Outer catastrophic catch block (requires making `Get-Date` or similar fail); structurally equivalent to `Import-TierModelGpo.ps1` which is also exempted |
+
+**Ruling**: Apply same precedent as `Audit-TierModel.ps1` (77.16%) and `Test-TierModelCanonicalAcl.ps1` (92.86% ByServer-exempt). These files are exempt from the per-file 80% gate for the bounded structural paths. All deployment-critical cmdlets are above 80%.
+
+---
+
+## Update: Coverage Gap-Fill (2026-08-27, second pass)
+
+After the initial rewrite, three files remained below 85%. A targeted second pass brought all auth-silo files to 85%+:
+
+| Script | Before | After |
+|--------|--------|-------|
+| `New-TierModelAuthSilo` | 79.8% | **99.1%** |
+| `Get-TierModelAuthSiloMembershipFd` | 64.7% | **87.8%** |
+| `Set-TierModelAuthSiloMembership` | 61.5% | **87.8%** |
+
+**Confirmed unreachable paths (per-silo outer catch):** PowerShell ScriptProperty `{ throw }` returns `""` rather than propagating, confirmed by direct test. The per-silo outer catch (`AuthSiloMembershipFdSiloFailed`, `AuthSiloMembershipSiloFailed`) requires code inside the silo-level try but outside all inner try-catch blocks to throw. All such code paths (HashSet<string> ops, bool expressions, string formatting) are highly robust and won't throw in practice. This catch exists as a defensive safety net only, not for ordinary error scenarios.
+
+**New-TierModelAuthSilo 99.1%:** Only 1 command permanently unreachable: the `'UserDeclined'` branch of `if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }` — requires interactive ShouldProcess decline.
+
+**Final suite: 1,783 tests, 0 failures, 90.9% overall coverage.**
+
+---
+
+---
+
+# Decision: Authentication Policy Silo Config Schema and 8-Object Model
+
+**Date:** 2026-08-27
+**Author:** Beast (Core Developer)
+**Branch:** `feature/auth-silos`
+**Status:** DRAFT — pending Joel review
+
+---
+
+## Context
+
+The `-IncludeAuthSilos` feature requires a config file defining the Authentication Policy and Authentication Policy Silo objects to be created in AD. This decision records the schema and the 8-object model chosen for `config/tiermodel-authsilos.json`.
+
+---
 
 ## Decision
 
-Record the side-by-side advisory in `$result.EnvironmentSnapshot.PesterAdvisory` instead of `$result.Remediation`. `Valid` remains unchanged (non-blocking). Blocking branches (Pester not installed; no 5.x present) are untouched.
+### File and schema
 
-## Changes
+- **File:** `config/tiermodel-authsilos.json`
+- **Header fields:** `schemaVersion: "1.0.0"` and `comment` (matching the convention in `tiermodel-winlaps.json`)
+- **Top-level arrays:** `authenticationPolicies` (4 objects) and `authenticationSilos` (4 objects)
+- **Top-level `exemptAccounts` block:** documents the three structurally exempt domain-join service accounts explicitly, making the invariant visible to the deploy module and reviewers without duplicating their base-config definitions
 
-| File | Change |
-|------|--------|
-| `modules/TierModel/public/Test-TierModelPrerequisites.ps1` | Third Pester `elseif` branch: replaced `$result.Remediation.Add(...)` with `$result.EnvironmentSnapshot.PesterAdvisory = ...`; updated branch comment. |
-| `tests/Unit.Prerequisites.Tests.ps1` | Updated "side-by-side" test assertions from `$result.Remediation` to `$result.EnvironmentSnapshot.PesterAdvisory`; added negative assertion that advisory is NOT in Remediation; renamed test to "(non-blocking advisory in EnvironmentSnapshot)". |
+### 8-object model: 4 policies + 4 silos, 1:1
 
-## Validation
+Each silo references exactly one Authentication Policy. The mapping is:
 
-- Parse errors: 0 (both files)  
-- Pester targeted run (`*side-by-side*`): **1 passed, 0 failed**  
-- `Import-Module .\modules\TierModel\TierModel.psd1 -Force`: clean, v1.2.2  
-- Safety grep across `tests/` for other consumers of the advisory in Remediation: none found.
+| Silo | Policy | TGT lifetime |
+|---|---|---|
+| Tier 0 Admins Authentication Silo | Tier 0 Admins Authentication Policy | 120 min |
+| Tier 1 Admins Authentication Silo | Tier 1 Admins Authentication Policy | 240 min |
+| Tier 2 Admins Authentication Silo | Tier 2 Admins Authentication Policy | 360 min |
+| Tier 2 EUD Authentication Silo | Tier 2 EUD Authentication Policy | null (domain default) |
 
----
+### SDDL resolved at runtime
 
-# Cyclops Review — Non-Canonical Root ACL Pre-Flight Gate
+The `allowedToAuthenticateFromDeviceGroups` field in each policy object is an array of group samaccountnames (or display names for built-in groups). The deploy module resolves each name to a SID at runtime and constructs the `AllowedToAuthenticateFrom` SDDL using `Member_of_any` (OR logic). SDDL is never authored in the config file.
 
-**Reviewer:** Cyclops (Scott Summers)  
-**Requested by:** Joel Platek  
-**Date:** 2026-08-11T21:15:57+08:00  
-**Branch:** `fix/bug-006-canonical-acl-check`  
-**Verdict: ✅ APPROVE WITH NITS** — Canonical-ACL finalization batch (both nits fixed)
+**Rationale:** Authoring raw SIDs in the config couples the file to a specific domain. Authoring SDDL strings directly increases the risk of introducing AND logic (`Member_of_each`), which is the documented lockout failure mode — it requires a device to simultaneously belong to all listed device groups. `Member_of_any` (OR) is the only semantically correct operator when multiple device groups represent alternate approved device sets.
 
----
+### Audit-mode default
 
-## Review Findings Summary (ABRIDGED)
+All eight objects are created with `enforce: false` and `protectedFromAccidentalDeletion: true`. Enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist (see spec 005). The config cannot trigger enforcement; that requires an explicit operator action.
 
-This change is architecturally sound, correctly designed, and safe to ship. Two nits identified:
+### Domain-join exemption invariant
 
-### Nit 1 — Exception catch path now emits Write-Warning (✅ FIXED)
-`Test-TierModelPrerequisites.ps1` catch block now includes `Write-Warning "Canonical ACL check skipped: $($_.Exception.Message)"` for operator visibility.
-
-### Nit 2 — Stale "pending sign-off" doc note removed (✅ FIXED)
-`docs/canonical-acl.md` Symptom section: removed Note callout claiming "exact wording pending final sign-off". Message is finalized and tested.
+The three domain-join service accounts (`svc-pawdomainjoin`, `svc-t1srvdomainjoin`, `svc-t2euddomainjoin`) are structurally exempt from all silo membership. They belong to `*DomainJoin` security groups, not `*ServiceAccounts` or `*Admins` groups, so group-scoped silo membership naturally excludes them. The `exemptAccounts` block makes this invariant explicit in the config file. Each account must be recorded in the exemption register with compensating controls.
 
 ---
 
-## Full Verdict
+## Rationale for config-only draft (no module code)
 
-**Security / Safety — PASS:** Detect-only confirmed (zero writes). Gate fails CLOSED. Partial-apply impossible (Valid=$false triggers exit before any AD mutation).
-
-**Correctness — PASS:** Detection API correct. Rank scan logic correct. Returns proper PSCustomObject structure.
-
-**Gate Placement — PASS:** Unconditional, after cheaper checks, guarded by AD module check. Both callers (Deploy/Audit) respect `.Valid=$false`.
-
-**Pester Advisory Change — PASS:** Blocking branches untouched; non-blocking advisory correctly isolated to EnvironmentSnapshot.
-
-**Tests — PASS:** 22 new tests (18 ByBytes offline + 4 gate integration). 1,457/1,457 suite all green. Zero regressions. ByServer live-LDAP limitation accepted.
-
-**Standards — PASS:** Module conventions, verb, export order, help docs all consistent.
-
-**Docs Accuracy — PASS:** Numbers internally consistent. BUG-006 label not leaked to public docs. Guidance technically sound.
-
-**APPROVE WITH NITS (now APPROVED: both nits fixed in finalization batch).**
+The config is authored first so Joel can review and confirm object names, TGT lifetimes, device group assignments, and account group scope before any PowerShell module code is written. Naming conventions and group membership decisions in the config directly determine the module's Grant/Assign logic and cannot be changed cheaply after the module is coded.
 
 ---
 
-# Test Report: Canonical ACL Gate — Unit Tests (Pester 5.x)
+## Open questions for Joel
 
-**Date:** 2026-08-11T20:46:31+08:00  
-**Author:** Wolverine (Logan)  
-**Requested by:** Joel Platek  
-**Branch:** fix/bug-006-canonical-acl-check  
-**Status:** ✅ DELIVERED — Canonical-ACL finalization batch
+1. **Object naming convention** — `"Tier N Admins Authentication Policy"` / `"Tier N Admins Authentication Silo"` — acceptable?
+2. **Tier 0 built-in group names** — `"Domain Controllers"` and `"Read-only Domain Controllers"` — correct built-in group display names for the target domain?
+3. **Tier 2 EUD `userTGTLifetimeMinutes: null`** — domain default TGT lifetime (typically 10 hours) acceptable for EUD local device operators?
+4. **`memberAccountGroups` scope per silo** — should Operators groups (Tier0Operators, Tier0ServerOperators, Tier1Operators, Tier1ServerOperators, Tier2Operators, Tier2DeviceOperators, etc.) also be silo account members, or is the Admins + ServiceAccounts scope correct?
 
----
-
-## Deliverables
-
-### New file: `tests/Unit.CanonicalAcl.Tests.ps1`
-18 tests covering `Test-TierModelCanonicalAcl` via the ByBytes path (fully offline).  
-Contexts: Fixture self-consistency (3), Canonical DACL (4), Non-canonical DACL (3), Multi-violation (2), Parameter-set (2), Return object structure (4).
-
-### Appended to: `tests/Unit.Prerequisites.Tests.ps1`
-4 gate tests in new `Context "Canonical ACL gate"` inside the Extended Coverage Describe:
-- Non-canonical + named principal → Valid=$false, correct errors + remediation, RootAclCanonical=$false
-- Non-canonical + null principal → fallback error message
-- Canonical → no error added, RootAclCanonical=$true
-- Exception → RootAclCheckError set, no hard-fail
-
-**Total new tests: 22** (18 + 4)
 
 ---
 
-## Full Suite Results — Pester 5.9.0
-
-| Metric | Value |
-|--------|-------|
-| TOTAL  | 1457  |
-| PASS   | 1457  |
-| FAIL   | 0     |
-| SKIP   | 0     |
-
-**Module-scope coverage:** 91.13%  
-**Per-file coverage:**
-- `Test-TierModelCanonicalAcl.ps1`: 58.93% (ByServer branch offline-untestable)
-- `Test-TierModelPrerequisites.ps1`: 85.03%
-
-**ZERO regressions. ZERO failures caused by our changes. ✅**
-
 ---
 
-# Decision: Repro snippet for BUG-006 lives only in the doc
+# Decision: Auth Silos Deploy Cmdlet Set and Integration
 
-**Date:** 2026-08-11  
-**Author:** Storm  
-**Status:** ✅ DECIDED — Canonical-ACL finalization batch
-
-## Context
-
-BUG-006 (non-canonical domain-root ACL) required a diagnostic PowerShell snippet. Snippet is reproduced in `docs/canonical-acl.md` as a fenced code block and NOT shipped as a standalone script file.
-
-## Rationale
-
-- Keeping it embedded in the doc lives next to its explanation, context, and caveats.
-- Does not imply it is a supported product cmdlet (it is a one-off diagnostic aid).
-- Research/lab original remains in `.research/` for Beast/Wolverine reference.
-
----
-
-# Cyclops Inbox: Architecture Note — Domain-Root Audit SACL Spec (2026-08-14)
-
-**By:** Cyclops (Scott Summers)  
-**Date:** 2026-08-14T16:54:43+08:00  
-**Branch:** `feature/domain-auditing`  
-**Source:** `.squad/decisions/inbox/cyclops-audit-spec.md`
-
-Spec authored and ready. No new design decisions — documents locked design from earlier decisions. Key implementation signals:
-
-- SACL only, not DACL; avoid "delegation" language
-- Enumerate `GetAuditRules()` with `foreach`, not `@()`
-- Read-modify-write on same `$acl` object
-- No `PurgeAuditRules` (removes default SACLs outside managed scope)
-- UNION target = existing managed rights ∪ canonical 9
-- Privilege check first; emit `AUDITACL_PRIVILEGE_MISSING` on missing `SeSecurityPrivilege`
-- Pester: all AC-* criteria + offline fixtures
-- Docs: remove Enable-TierModelAuditing.ps1 reference; state both SACL AND GPO required; note SACL replication delay
-- OI-001 decision: retire optional/Enable-TierModelAuditing.ps1
-
----
-
-# Beast Inbox: Build Discovery — -EnableAuditing Production Implementation (2026-08-14)
-
-**Author:** Beast (Core Dev)  
-**Branch:** `feature/domain-auditing`  
-**Status:** Draft for Joel review  
-**Source:** `.squad/decisions/inbox/beast-audit-build.md`
-
-## Discovery 1: `Add-IncludeAclPhaseToDeploymentPlan` PSObject fragility
-
-Existing function checks `$Plan.Summary.PSObject.Properties.Name -contains 'key'`, which fails for `@{...}` hashtable Summaries. Extended function to check `$Plan.Summary -is [hashtable] -and .ContainsKey('key')` as second-pass test, plus extended `ConfigureAuditRule` fallback action counting.
-
-**Recommendation:** Future cmdlets use `[PSCustomObject]` (not `@{}`) for Summary objects, or add their action type to fallback filter. **Owner decision:** standardize all Summaries to `[PSCustomObject]`? Beast recommends yes, but in a separate refactoring PR, not now.
-
-## Discovery 2: UNION always includes WriteProperty on clean domain root
-
-Clean `DC-Promoted-Clean` baseline has two default `Everyone/Success/All/WriteProperty` ACEs in managed scope. UNION target includes these, producing the canonical 9. Idempotent and correct. **No action.**
-
-## Discovery 3: Double-Y confirm flow not testable non-interactively
-
-The `-EnableAuditing -ConfirmApply` gate uses `Read-Host`, which hangs over PowerShell Direct. **Deferred to Joel's manual UAT.** Code is correct; just not automatable.
-
----
-
-# Coordinator Inbox: Audit UNION Converge Ruling (2026-08-14)
-
-**By:** Joel Platek (via Copilot coordinator)  
-**Feature:** `-EnableAuditing` (branch `feature/domain-auditing`)  
-**Source:** `.squad/decisions/inbox/coordinator-audit-union-ruling.md`
-
-Canonical Everyone/Success/All ACE rights = **UNION of (any existing managed-ACE rights) ∪ (canonical 9 rights)**. Preserve customer rights outside our 9 while GUARANTEEING our 9. Do NOT overwrite to "exactly 9".
-
-**Managed scope:** SID=S-1-1-0, AuditFlags=Success, InheritanceType=All, non-inherited. Everything else untouched (no-clobber, proven in lab spike).
-
-**Converge mechanics (lab-validated):**
-1. Read SACL via `Get-Acl -Audit`
-2. Enumerate `GetAuditRules()` with `foreach` (not `@()`)
-3. Compute union target
-4. If single managed ACE already equals union → no-op
-5. Else: `RemoveAuditRuleSpecific` each managed ACE (same `$acl` object), then `AddAuditRule` canonical union ACE
-6. `Set-Acl`
-
-Requires `SeSecurityPrivilege`. Bind read+write to one preferred DC (SACL replicates). Note: two default `Everyone/Success/All/WriteProperty` ACEs are absorbed into canonical ACE — no coverage loss.
-
----
-
-# Coordinator Inbox: Pre-PR Cleanup Rulings (2026-08-14)
-
-**By:** Joel Platek (via Copilot coordinator)  
-**Feature:** `-EnableAuditing` (branch `feature/domain-auditing`)  
-**Source:** `.squad/decisions/inbox/coordinator-pre-pr-cleanup.md`
-
-**OI-001 RESOLVED — RETIRE `optional/Enable-TierModelAuditing.ps1`**
-
-Delete entirely before final PR (not archive). Remove packaging/test references. Storm updates docs separately. File is fully superseded by `-EnableAuditing` / new AuditRule cmdlets.
-
-**Temp directory cleanup — completed this session**
-
-Repo-root `Temp\` held stale `TestGPO_Mock.inf` (gitignored). Removed.
-
-**ROOT CAUSE:** `modules/TierModel/public/Test-TierModelGPOContent.ps1` (~lines 76-86) writes `<GPOName>_Mock.inf` into `Temp\` and never cleans up. **Not fixed in this PR** (unrelated to auditing, no existing-cmdlet changes in this branch).
-
-**Follow-up for Wolverine's test phase:** Add teardown/cleanup of `Temp\` mock artifacts to invoke-all/Pester harness so runs leave clean tree.
-
----
-
-# Design Decision: SACL Audit — Read API, Merge Behaviour, Converge Recipe
-
-**Date:** 2026-08-14  
-**Author:** Beast (Core Dev)  
-**Status:** VALIDATED — ready for Joel's go/no-go on production implementation  
-**Spike script:** `.research/copilot-cli-hyperv-ad-lab/scripts/audit-spike/Invoke-AuditSpikeRepro.ps1`
+**Date:** 2026-08-27
+**Author:** Beast (Core Developer)
+**Branch:** feature/auth-silos
+**Status:** IMPLEMENTATION COMPLETE — awaiting lab validation
 
 ---
 
 ## Context
 
-Planning `-EnableAuditing` deployment parameter that writes a SACL audit ACE to the domain root to feed Microsoft Sentinel. The existing `optional/Enable-TierModelAuditing.ps1` was identified as having a re-run bug (stacks duplicate ACEs). Before writing production code, Joel required empirical proof of the merge/idempotency/no-clobber logic.
+This decision documents the cmdlet set and integration choices made when implementing the deploy side of `-IncludeAuthSilos` (audit-mode object creation). The Pester test phase follows lab validation per Joel's directive.
 
 ---
 
-## Decision 1: SACL Read/Write API
+## Cmdlet Set
 
-**Chosen:** `Get-Acl -Path "AD:<dn>" -Audit` / `Set-Acl -Path "AD:<dn>" -AclObject <obj>`
+### Public cmdlets (modules/TierModel/public/)
 
-**Rejected:** `DirectoryEntry.Options.SecurityMasks` — property not available on this OS/PS combination.
+| Cmdlet | Responsibility |
+|---|---|
+| `Get-TierModelAuthPolicy` | Load raw `authenticationPolicies` array from `config.authenticationPolicies` (populated from tiermodel-authsilos.json). Returns desired-state objects; no AD queries. |
+| `Get-TierModelAuthPolicyFd` | Fully-resolved planning: resolve device group names → SIDs via `Resolve-TierModelPrincipalSid`, build SDDL via `Build-TierModelAuthSddl`, query AD for existing policy state, emit `CreateAuthPolicy`/`UpdateAuthPolicy` actions. Returns plan object with `Actions/Summary/Errors`. |
+| `Get-TierModelAuthSilo` | Load raw `authenticationSilos` array from config. No AD queries. |
+| `Get-TierModelAuthSiloFd` | Fully-resolved planning: validate referenced policy exists in AD, check silo existence, detect drift on Description/policy links/Enforce/PFAD. Emit `CreateAuthSilo`/`UpdateAuthSilo` actions. |
+| `New-TierModelAuthPolicy` | Idempotent Create or Update. `New-ADAuthenticationPolicy` for create; `Set-ADAuthenticationPolicy` + `Set-ADObject` for update. Always: `Enforce = $false`, `ProtectedFromAccidentalDeletion = $true`. `UserTGTLifetimeMins` omitted when config value is null (domain default). |
+| `New-TierModelAuthSilo` | Idempotent Create or Update. Sets `UserAuthenticationPolicy`, `ComputerAuthenticationPolicy`, `ServiceAuthenticationPolicy` all to the same policy (1:1 design). `Enforce = $false`, `PFAD = $true`. |
+| `Set-TierModelAuthSiloMembership` | Expands `memberAccountGroups`+`memberComputerGroups` recursively; skips exempt accounts (3 configured + RID-500 resolved at runtime); two-step `Grant-ADAuthenticationPolicySiloAccess` then `Set-ADAccountAuthenticationPolicySilo` per account; idempotent via pre-check before each step. |
+| `Test-TierModelAuthSiloPrerequisite` | Dependency gate: collects all unique group names from `allowedToAuthenticateFromDeviceGroups`, `memberComputerGroups`, `memberAccountGroups`; calls `Get-ADGroup` for each; returns `Passed/Failures/Checked`. Does NOT check individual accounts or GPOs. |
 
-**Requirement:** `Import-Module ActiveDirectory` must precede the call to make the `AD:` PSDrive available.
+### Private helper (modules/TierModel/internal/)
 
-**Privilege:** `SeSecurityPrivilege` is required. Production code must surface a clear error if not present. In deployment context the caller runs as Domain Admin which holds this privilege.
-
-**Key gotcha:** `GetAuditRules()` returns `AuthorizationRuleCollection` — NOT a PowerShell array. Wrapping with `@()` produces a 1-element array containing the whole collection. Must enumerate via `foreach ($r in $collection)` or pipeline.
-
----
-
-## Decision 2: AddAuditRule merge vs duplicate
-
-**Empirical result: AddAuditRule MERGES rights** into an existing ACE when SID / AuditFlags / InheritanceType match. It does NOT create a duplicate ACE.
-
-**Caveat:** The clean domain root already has TWO identical `Everyone/Success/All/WriteProperty` ACEs (default Windows SACLs). When those two managed ACEs are present, AddAuditRule merges into one of them, leaving the second unchanged. Result: count stays the same but state remains multi-ACE. A naïve "did count increase?" merge check is therefore unreliable.
-
-**Implication for production code:** Cannot rely on AddAuditRule alone to converge to a single canonical ACE. Must use the recipe below.
-
----
-
-## Decision 3: Converge recipe (validated)
-
-```powershell
-# Read and modify via the SAME acl object (cross-object RemoveAuditRuleSpecific silently no-ops)
-$acl = Get-Acl -Path "AD:$domainDN" -Audit
-
-# Enumerate managed ACEs from this acl object
-$managedAces = [System.Collections.Generic.List[...]]::new()
-foreach ($r in $acl.GetAuditRules($true, $false, [System.Security.Principal.SecurityIdentifier])) {
-    if ($r.IdentityReference.Value -eq 'S-1-1-0' -and
-        $r.AuditFlags -eq [AuditFlags]::Success -and
-        $r.InheritanceType -eq [ActiveDirectorySecurityInheritance]::All -and
-        -not $r.IsInherited) { $managedAces.Add($r) }
-}
-
-# Check if already complete: exactly 1 ACE with all 9 rights
-$presentInt = [int]0
-foreach ($a in $managedAces) { $presentInt = $presentInt -bor [int]$a.ActiveDirectoryRights }
-$alreadyDone = ($managedAces.Count -eq 1) -and ((([int]$targetRights) -band (-bnot $presentInt)) -eq 0)
-if ($alreadyDone) { return }   # idempotent — no write
-
-# Converge: remove old managed ACEs, add canonical
-foreach ($a in $managedAces) { $acl.RemoveAuditRuleSpecific($a) }
-$acl.AddAuditRule(<canonical-9-right-rule>)
-Set-Acl -Path "AD:$domainDN" -AclObject $acl
-```
-
-**Why not PurgeAuditRules(SID)?** It removes ALL ACEs for Everyone, including the default `Everyone/Success/None/WriteProperty,WriteDacl,WriteOwner` ACE (Inherit=None) which is not ours to touch.
+| Function | Role |
+|---|---|
+| `Build-TierModelAuthSddl` | Builds `O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(s1), ...}))`. OR-logic ONLY; never AND. |
 
 ---
 
-## Decision 4: Scope of converge — managed ACE definition
+## Key Design Decisions
 
-Managed = `SID=S-1-1-0, AuditFlags=Success, InheritanceType=All, IsInherited=false`.
+### 1. Plan-based API (consistent with WinLaps/Audit pattern)
 
-Everything else is left untouched:
-- Other SIDs (e.g. S-1-5-32-544 Administrators)
-- Other AuditFlags (e.g. Failure)
-- Inherit=None ACEs (default domain-root SACLs)
-- IsInherited=true ACEs
+`Get-TierModelAuthPolicyFd` and `Get-TierModelAuthSiloFd` return plan objects with `Actions` arrays, consumed by `New-TierModelAuthPolicy` and `New-TierModelAuthSilo`. This mirrors `Get-TierModelWinLapsAclFd` / `New-TierModelWinLapsAcl`.
 
----
+`Set-TierModelAuthSiloMembership` takes Config directly (no separate plan) because group membership must be re-evaluated at execution time on every run for idempotency.
 
-## Decision 5: Baseline default SACLs on clean domain root
+### 2. SDDL — OR-logic invariant
 
-5 default rules observed on `DC=tierlab,DC=internal` (DC-Promoted-Clean checkpoint):
+`Build-TierModelAuthSddl` always emits `Member_of_any` (OR). AND-logic (`Member_of_each`) is the documented lockout failure mode: it requires a device to simultaneously be in every listed group, which is never true for a "set of approved device types" policy. This is non-negotiable and documented in the private helper's comment block.
 
-| SID | AuditFlags | Inheritance | Rights |
-|-----|-----------|-------------|--------|
-| S-1-1-0 | Success | None | WriteProperty, WriteDacl, WriteOwner |
-| S-1-5-32-544 | Success | None | ExtendedRight |
-| Domain-SID-513 | Success | None | ExtendedRight |
-| S-1-1-0 | Success | All | WriteProperty |
-| S-1-1-0 | Success | All | WriteProperty *(duplicate)* |
+### 3. 1:1 policy-to-silo, same policy for all three account classes
 
-**Note:** The two identical `Everyone/Success/All/WriteProperty` ACEs are a Windows default artefact. The converge recipe will replace both with the single canonical ACE (all 9 rights). This is a beneficial side effect — it cleans up the pre-existing duplication.
+Each silo sets `-UserAuthenticationPolicy`, `-ComputerAuthenticationPolicy`, and `-ServiceAuthenticationPolicy` to the same policy name. The tier model has a 1:1 silo-to-policy mapping and no separate per-class policies. Setting all three classes to the same policy ensures complete coverage without requiring a more complex multi-policy design.
 
-**Production question for Joel:** Is it acceptable to replace these two default `Everyone/Success/All/WriteProperty` ACEs with our canonical ACE? The canonical ACE is a superset (it includes WriteProperty plus 8 more rights), so Sentinel coverage is extended, not reduced. Joel should confirm before we ship.
+### 4. Audit mode — never enforce
 
----
+All `New-ADAuthenticationPolicy` and `New-ADAuthenticationPolicySilo` calls use `Enforce = $false` (via hashtable splatting). Enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist and is explicitly out of scope. Drift detection in the Fd planners checks `Enforce` and emits `UpdateAuthPolicy`/`UpdateAuthSilo` if it has been accidentally set to true (to re-audit-mode the object).
 
-## Decision 6: Idempotency and no-clobber — confirmed
+### 5. ProtectedFromAccidentalDeletion = $true on all objects
 
-- **Idempotency PASS:** When the canonical ACE already exists (1 ACE, all 9 rights), converge detects "already up to date" and performs zero writes.
-- **No-clobber PASS:** `Everyone/Failure/All/ReadProperty` ACE seeded alongside the canonical ACE; survived the converge untouched. Converge is scoped to `AuditFlags=Success` only.
+Policies and silos are created with `ProtectedFromAccidentalDeletion = $true`. If drift is detected on this property, `Set-ADObject -ProtectedFromAccidentalDeletion $true` is called separately (the `Set-ADAuthentication*` cmdlets do not expose this parameter).
 
----
+### 6. Grant-then-Set membership order
 
-## Decision 7: Planning output data shape — confirmed available
+Always in order: `Grant-ADAuthenticationPolicySiloAccess` first, then `Set-ADAccountAuthenticationPolicySilo`. Idempotency via:
+- Grant: check account DN against silo's `Members` list before calling
+- Set: check `msDS-AssignedAuthNPolicySilo` on the account before calling
 
-The planning layer can report:
-- `Status`: ABSENT / PARTIAL / COMPLETE / MULTI-ACE
-- `ExistingRights` (N/9 count) — which of the 9 target rights are present
-- `MissingRights` (N/9 count) — which are absent
-- `WillAdd` — what will be written on the next converge run
-- `TotalSaclRules` — total explicit non-inherited rules on domain root
+### 7. RID-500 exemption resolved at runtime
 
-This maps cleanly to the deployment "yellow = to-create, green = already exists, total counts" convention.
+The built-in Administrator account is commonly renamed. The function resolves `<DomainSID>-500` at runtime to get the current `SamAccountName`, then adds it to the exemption HashSet. Failure to resolve (DC unreachable) logs a warning but does not halt (the account won't appear in any managed group anyway).
+
+### 8. Deploy-TierModel.ps1 integration
+
+- Standalone mode: prerequisite gate (fail fast), then plan+display, then (if `-ConfirmApply`) execute policies → silos → membership
+- FullDeployment planning: Phase 12, manually increments `TotalActions/CreateCount/UpdateCount/AlreadyExistCount` (does not use `Add-IncludeAclPhaseToDeploymentPlan` because that helper is tuned for ACL/SACL action types)
+- FullDeployment execution: inside the optional features block after audit; all three results (`authPolicyExecResult`, `authSiloExecResult`, `authMembershipExecResult`) added to `$allResults` for consolidated reporting
+
+### 9. Get-TierModelConfig optional file
+
+`tiermodel-authsilos.json` added to `$optionalFiles` in `Get-TierModelConfig`. Absent file → `authenticationPolicies`, `authenticationSilos`, `authSilosExemptAccounts` are all `$null` on the config object. All auth silo cmdlets handle `$null` gracefully (return empty arrays / empty plans).
 
 ---
 
-## Multi-DC Note
+## Open Items for Lab Validation
 
-Lab is single-DC; this was not tested. In production:
-- Bind SACL reads and writes to one preferred DC by FQDN.
-- The SACL replicates to other DCs via normal AD replication (USN-based).
-- Do not write to multiple DCs in the same operation — risk of conflict/collision.
-
----
-
-### 2026-08-14: -EnableAuditing design rulings (from Joel / @VAsHachiRoku)
-
-**By:** Joel Platek (via Copilot coordinator)
-**Feature:** New `-EnableAuditing` deployment parameter (branch `feature/domain-auditing`)
-
-**Decisions:**
-1. **Cmdlet naming approved:** `Get-TierModelAuditRule`, `New-TierModelAuditRule`, `Test-TierModelAuditRule`, `Get-TierModelAuditRuleFd` (audit-specific verbs/counts; avoid `*Acl`/"delegation" language since this is a SACL, not a DACL).
-2. **Partial-rights drift = MERGE.** When an audit ACE already exists on the domain root, add only the MISSING rights and preserve existing rights. Do NOT nuke/replace unrelated customer audit ACEs. **Must be validated in the lab with a throwaway spike script BEFORE writing production code** (seed an existing partial Everyone/Success ACE, run merge logic, confirm output + idempotency).
-3. **Advanced Audit Policy dependency = doc only, no code check.** The DC advanced-audit GPO is already deployed and linked by default. `docs/sentinel-monitoring.md` must state that BOTH the auditing SACL (via `-EnableAuditing`) AND the GPO (configured + link enabled — link is on by default) are required for monitoring to function.
-4. **No rollback/disable cmdlet for now.** Rollback is environment-specific (can't reliably know which of the added rights/ACEs to remove). Coverage is the `-EnableAuditing` confirm-Y warning + showing which ACL rights we add at deploy time. Operators own their own rollback.
-5. **Audit script scope mirrors deployment.** `Audit-TierModel.ps1` checks auditing ONLY when `-EnableAuditing` is passed (same as `-IncludeGmsa` gating gMSA audit). What you deploy is what you audit.
-
-**Sequence:** lab spike to prove merge logic + output → Joel reviews/confirms spike results if needed → write production code → restore `WinLapsSchema` checkpoint → team tests code → Joel does manual lab deployment UAT → fix audit script → Pester tests LAST.
-
-**Version:** manifest bump 1.2.0 → 1.3.0 (additive minor feature).
+1. **Enforce parameter behavior**: Verify `Enforce = $false` in hashtable splatting has identical behavior to `-Enforce:$false` direct named param with `New-ADAuthenticationPolicy`.
+2. **SDDL round-trip**: Verify that `Get-ADAuthenticationPolicy -Properties *` returns `UserAllowedToAuthenticateFrom` in the same SDDL format as was written (whitespace normalization may be needed; current comparison normalizes whitespace).
+3. **TGT lifetime property name**: Verify whether `Get-ADAuthenticationPolicy` returns `UserTGTLifetimeMins` as a direct property or only `msDS-UserTGTLifetime` (100-ns intervals). Both fallbacks are implemented.
+4. **Silo policy property names**: Verify whether `Get-ADAuthenticationPolicySilo` returns `UserAuthenticationPolicy` / `ComputerAuthenticationPolicy` / `ServiceAuthenticationPolicy` as friendly names or DNs — drift detection normalizes DN→name but this needs lab confirmation.
+5. **Empty groups**: Confirm that `Get-ADGroupMember -Recursive` on an empty group returns an empty array (not an error) on Server 2022/2025.
+6. **Grant idempotency**: Verify `Grant-ADAuthenticationPolicySiloAccess` does not throw if the account is already in the silo's Members list (the pre-check guards against this but verify error behavior if the check races).
 
 ---
 
+### 2026-08-27T11:24:19+08:00: User directive — code-first, tests-after (no TDD)
+
+**By:** Joel Platek (via Copilot)
+
+**What:** For the auth-silos work and generally on this project: write the code and validate it **in the lab first**; only **after** it is working do we write the test cases (Pester) against the working code. Do NOT write test cases first. Sequence: Deploy code → lab-validate → Deploy tests → then Audit code → lab-validate → Audit tests.
+
+**Wolverine, note:** writing test cases first was a mistake last time. Author tests only against code that has already been lab-validated as working.
+
+**Why:** User request — captured for team memory; Wolverine must be informed before any test authoring.
+
+---
+
+### 2026-08-27T11:55:00+08:00: User directive — module placement + confirm drastic changes
+
+**By:** Joel Platek (via Copilot)
+
+**What:** All TierModel PowerShell module functions/helpers MUST live under `modules/TierModel/public/`. Do NOT place new functions under `modules/TierModel/internal/`. When a structural or placement choice is drastically different from existing convention, CONFIRM the placement with Joel BEFORE proceeding (do not silently deviate).
+
+**Applies to:** Beast and all agents authoring module code; and the coordinator (must flag drastic deviations for confirmation).
+
+**Context:** `Build-TierModelAuthSddl.ps1` was initially placed under `internal/`; it has been moved to `public/` and added to `FunctionsToExport`.
+
+**Why:** User request — captured for team memory.
+
+---
+
+# Decision: Storm v2.0.0 Appendix B — Auth Silos BREAKING CHANGE Documentation
+
+**Date:** 2026-08-26  
+**Author:** Storm (Documentation)  
+**Branch:** `feature/auth-silos`  
+**Status:** DRAFT — working tree only, no commit
+
+## Decision
+
+`docs/auth-silos-operations-guide.md` has been extended with `## Appendix B — Upgrading from v1.x.x to v2.0.0` documenting the complete v2.0.0 delta and the breaking change posture for existing deployments.
+
+## Key Rulings
+
+1. **Breaking change classification confirmed.** Version 2.0.0 modified several link-enabled production GPOs (new settings + new `SeDeny*` deny entries). This is a breaking change for v1.x.x deployments; an upgrade path must be explicitly planned.
+
+2. **Governing rule documented prominently:** "Never replace or overwrite a GPO that is already in production." This rule is stated in a blockquote callout at the top of Appendix B and must not be contradicted anywhere in the guide.
+
+3. **Sub-appendix structure (B.1–B.4) is reserved.** Each sub-section is currently a stub. Full remediation procedures are to be added per-topic in future sessions. The structure must not be renamed or reordered — other team members and future sessions will slot content into B.1–B.4 by name.
+
+4. **v2.0.0 delta inventory locked** (from task spec and `config/tiermodel-gpos.json`):
+   - New groups: `Tier2EUDDevices` (Universal), `Tier2PAWDevices` (Universal), `Tier2EUDDomainJoin` (Global)
+   - New service account: `svc-t2euddomainjoin` (disabled; member of `Tier2EUDDomainJoin`)
+   - New ACL: `Tier2EUDDomainJoin` → OU=Tier 2 End-User Devices (standard domain-join set; no staging OU)
+   - Modified GPO: `*- Tier 0 DCs Authentication Silo - Computer` (KDC claims, client armoring, Remote Credential Guard, event-log channel)
+   - Modified GPOs: all Tier 0/1 Account Restrictions (root + servers/PAWs + Override templates) — `Tier2EUDDomainJoin` added to `SeDeny*`
+
+5. **Member-server Remote Credential Guard GPO flagged "still being finalized."** This content is excluded from the current appendix and must be added before the appendix is considered complete.
+
+---

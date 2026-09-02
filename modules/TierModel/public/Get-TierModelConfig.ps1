@@ -96,7 +96,8 @@ function Get-TierModelConfig {
         'tiermodel-gmsa.json',
         'tiermodel-dmsa.json',
         'tiermodel-winlaps.json',
-        'tiermodel-audit.json'
+        'tiermodel-audit.json',
+        'tiermodel-authsilos.json'
     )
     $optionalSegments = @{}
     foreach ($fileName in $optionalFiles) {
@@ -149,6 +150,8 @@ function Get-TierModelConfig {
             dmsaAclDelegations = if ($optionalSegments['tiermodel-dmsa.json'] -and $optionalSegments['tiermodel-dmsa.json'].PSObject.Properties['aclDelegations']) { $optionalSegments['tiermodel-dmsa.json'].aclDelegations } else { $null }
             winLapsDelegations = if ($optionalSegments['tiermodel-winlaps.json'] -and $optionalSegments['tiermodel-winlaps.json'].PSObject.Properties['winLapsDelegations']) { $optionalSegments['tiermodel-winlaps.json'].winLapsDelegations } else { $null }
             domainAuditRule = if ($optionalSegments['tiermodel-audit.json'] -and $optionalSegments['tiermodel-audit.json'].PSObject.Properties['domainAuditRule']) { $optionalSegments['tiermodel-audit.json'].domainAuditRule } else { $null }
+            authenticationPolicies = if ($optionalSegments['tiermodel-authsilos.json'] -and $optionalSegments['tiermodel-authsilos.json'].PSObject.Properties['authenticationPolicies']) { $optionalSegments['tiermodel-authsilos.json'].authenticationPolicies } else { $null }
+            authenticationSilos = if ($optionalSegments['tiermodel-authsilos.json'] -and $optionalSegments['tiermodel-authsilos.json'].PSObject.Properties['authenticationSilos']) { $optionalSegments['tiermodel-authsilos.json'].authenticationSilos } else { $null }
         }
         
         # Compute composite hash for provenance (FR-005)

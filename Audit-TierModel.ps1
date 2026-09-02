@@ -49,6 +49,19 @@ registry policy on each non-DC LAPS GPO (via Test-TierModelWinLapsDecryptor).
 Requires Windows LAPS schema extended and LAPS PowerShell module installed.
 A plain -FullDeployment without -IncludeWinLaps does NOT audit LAPS.
 
+.PARAMETER IncludeAuthSilos
+Audit AD Authentication Policies and Authentication Policy Silos from the
+tiermodel-authsilos.json configuration segment. For each policy: verifies it exists,
+checks Description, UserTGTLifetimeMins (skipped when null = domain default), and
+UserAllowedToAuthenticateFrom SDDL (alias- and order-insensitive via Compare-TierModelAuthSddl).
+For each silo: verifies it exists, checks policy links (User/Computer/Service), and verifies
+that all expected member accounts and computers (expanded from config groups, minus the
+permanent domain-join exemptions and the built-in Administrator/RID-500) are present.
+NEVER checks the Enforce state (enforcement is a separate lifecycle step).
+Can be used standalone or combined with -FullDeployment.
+Cannot be combined with any -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly,
+or -AdmxOnly scope parameter.
+
 .PARAMETER EnableAuditing
 Audit the domain-root Active Directory object auditing SACL (Everyone / AuditFlags=Success /
 InheritanceType=All, 9 rights: CreateChild, DeleteChild, WriteProperty, Self, Delete,
@@ -127,6 +140,7 @@ param(
     [switch]$IncludeGmsa,
     [switch]$IncludeDmsa,
     [switch]$IncludeWinLaps,
+    [switch]$IncludeAuthSilos,
     [switch]$EnableAuditing,
     
     [Parameter()]
@@ -150,17 +164,17 @@ $ErrorActionPreference = 'Stop'
 # Validate that only one audit scope parameter is specified
 $scopeParameters = @($OuOnly, $GroupOnly, $UserOnly, $GposOnly, $OuAclsOnly, $AdmxOnly, $FullDeployment)
 $activeScopeCount = @($scopeParameters | Where-Object { $_ }).Count
-$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps, $EnableAuditing)
+$includeParameters = @($IncludeMsa, $IncludeGmsa, $IncludeDmsa, $IncludeWinLaps, $IncludeAuthSilos, $EnableAuditing)
 $activeIncludeCount = @($includeParameters | Where-Object { $_ }).Count
 
 if ($activeScopeCount -eq 0 -and $activeIncludeCount -eq 0) {
-    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, -EnableAuditing)." -ErrorAction Stop
+    Write-Error "You must specify exactly one audit scope parameter (-OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, -FullDeployment) or one or more -Include* switches (-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, -IncludeAuthSilos, -EnableAuditing)." -ErrorAction Stop
 }
 elseif ($activeScopeCount -gt 1) {
     Write-Error "You can only specify one audit scope parameter at a time. Cannot combine -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, -AdmxOnly, and -FullDeployment" -ErrorAction Stop
 }
 elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDeployment) {
-    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, and -EnableAuditing can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
+    Write-Error "-IncludeMsa, -IncludeGmsa, -IncludeDmsa, -IncludeWinLaps, -IncludeAuthSilos, and -EnableAuditing can only be used standalone or combined with -FullDeployment. They cannot be used with -OuOnly, -GroupOnly, -UserOnly, -GposOnly, -OuAclsOnly, or -AdmxOnly." -ErrorAction Stop
 }
 
 Write-Host "Audit TierModel orchestration starting." -ForegroundColor Cyan
@@ -916,6 +930,51 @@ if ($FullDeployment) {
                 Write-Host "  Warning: Domain Audit Rule audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
+
+        if ($IncludeAuthSilos) {
+            try {
+                $authPoliciesAudit = Test-TierModelAuthPolicy -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($authPoliciesAudit) {
+                    $auditResults += [PSCustomObject]@{
+                        EntityType = 'Auth Policies'
+                        Summary = @{
+                            TotalChecked = $authPoliciesAudit.TotalChecked
+                            Compliant    = $authPoliciesAudit.Compliant
+                            Missing      = $authPoliciesAudit.Missing
+                            Mismatched   = $authPoliciesAudit.NonCompliant
+                            Errors       = $authPoliciesAudit.Errors
+                            Drift        = $authPoliciesAudit.Drift
+                        }
+                        Findings      = $authPoliciesAudit.Findings
+                        DurationMs    = $authPoliciesAudit.DurationMs
+                        CorrelationId = $authPoliciesAudit.CorrelationId
+                    }
+                }
+            } catch {
+                Write-Host "  Warning: Auth Policy audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+            try {
+                $authSilosAudit = Test-TierModelAuthSilo -Config $config -DomainController $PreferredDc -SuppressSummary
+                if ($authSilosAudit) {
+                    $auditResults += [PSCustomObject]@{
+                        EntityType = 'Auth Silos'
+                        Summary = @{
+                            TotalChecked = $authSilosAudit.TotalChecked
+                            Compliant    = $authSilosAudit.Compliant
+                            Missing      = $authSilosAudit.Missing
+                            Mismatched   = $authSilosAudit.NonCompliant
+                            Errors       = $authSilosAudit.Errors
+                            Drift        = $authSilosAudit.Drift
+                        }
+                        Findings      = $authSilosAudit.Findings
+                        DurationMs    = $authSilosAudit.DurationMs
+                        CorrelationId = $authSilosAudit.CorrelationId
+                    }
+                }
+            } catch {
+                Write-Host "  Warning: Auth Silo audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
     }
     
     # Show consolidated audit report at the end
@@ -980,14 +1039,8 @@ if ($FullDeployment) {
                 { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule', 'OU Canonical ACL' } {
                     $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } else { $result.Summary.TotalAcls }
                 }
-                default { 
-                    # Unknown entity - try common properties
-                    $checked = if ($result.Summary -is [hashtable]) {
-                        $result.Summary['TotalChecked'] -or $result.Summary['TotalAcls'] -or 0
-                    } else {
-                        $result.Summary.TotalChecked -or $result.Summary.TotalAcls -or 0
-                    }
-                    $totalChecked += $checked
+                { $_ -in 'Auth Policies', 'Auth Silos' } {
+                    $totalChecked += if ($result.Summary -is [hashtable]) { $result.Summary['TotalChecked'] } else { $result.Summary.TotalChecked }
                 }
             }
         } else {
@@ -1077,6 +1130,8 @@ if ($FullDeployment) {
                 'WinLaps Decryptor' { 'WinLaps Decryptor' }
                 'Domain Audit Rule' { 'Domain Audit Rule' }
                 'OU Canonical ACL' { 'OU Canonical ACL' }
+                'Auth Policies'    { 'Auth Policies' }
+                'Auth Silos'       { 'Auth Silos' }
                 default { 'OU ACL' }
             }
         } elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0) { "OU" }
@@ -1116,6 +1171,10 @@ if ($FullDeployment) {
                 { $_ -in 'MSA ACL', 'gMSA ACL', 'dMSA ACL', 'WinLaps ACL', 'WinLaps Decryptor', 'Domain Audit Rule', 'OU Canonical ACL' } {
                     if ($result.Summary -is [hashtable]) { $result.Summary['TotalAcls'] } 
                     else { $result.Summary.TotalAcls }
+                }
+                { $_ -in 'Auth Policies', 'Auth Silos' } {
+                    if ($result.Summary -is [hashtable]) { $result.Summary['TotalChecked'] }
+                    else { $result.Summary.TotalChecked }
                 }
                 default { 
                     # Unknown entity type - try common property names
@@ -1355,7 +1414,8 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     if ($IncludeMsa)      { $aclLabel += 'MSA' }
     if ($IncludeGmsa)     { $aclLabel += 'gMSA' }
     if ($IncludeDmsa)     { $aclLabel += 'dMSA' }
-    if ($IncludeWinLaps)  { $aclLabel += 'WinLaps' }
+    if ($IncludeWinLaps)   { $aclLabel += 'WinLaps' }
+    if ($IncludeAuthSilos) { $aclLabel += 'Auth Silos' }
     $hasAclIncludes   = $aclLabel.Count -gt 0
 
     # Build top header: conditionalize "ACL & Decryptor" on whether ACL includes are selected
@@ -1470,6 +1530,30 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             }
         } catch {
             Write-Host "  ❌ Domain Audit Rule audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    if ($IncludeAuthSilos) {
+        Write-Host "`nPhase: Authentication Policy Silos" -ForegroundColor Cyan
+        try {
+            $authPoliciesStandaloneAudit = Test-TierModelAuthPolicy -Config $config -DomainController $PreferredDc
+            if ($authPoliciesStandaloneAudit) {
+                $standaloneTotalChecked += $authPoliciesStandaloneAudit.TotalChecked
+                $standaloneTotalDrift   += $authPoliciesStandaloneAudit.Drift
+                $standaloneTotalErrors  += $authPoliciesStandaloneAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ Auth Policy audit failed: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        try {
+            $authSilosStandaloneAudit = Test-TierModelAuthSilo -Config $config -DomainController $PreferredDc
+            if ($authSilosStandaloneAudit) {
+                $standaloneTotalChecked += $authSilosStandaloneAudit.TotalChecked
+                $standaloneTotalDrift   += $authSilosStandaloneAudit.Drift
+                $standaloneTotalErrors  += $authSilosStandaloneAudit.Errors
+            }
+        } catch {
+            Write-Host "  ❌ Auth Silo audit failed: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 
