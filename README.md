@@ -43,18 +43,18 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ 1,890 passing / 0 failures (100%)** *(Last run: 2026-09-02)*
+**Current Test Status: ✅ 1,891 passing / 0 failures (100%)** *(Last run: 2026-09-02)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 24 files | 1,572 tests | ✅ All pass | **~90.9%** |
+| **Unit Tests** | 24 files | 1,573 tests | ✅ All pass | **~90.9%** |
 | **Integration Tests** | 7 files | 318 tests | ✅ All pass | **90.9%** |
 | **Manual Integration Tests** | 1 file | 378 tests | ✅ 100% Pass | **N/A** |
-| **Total** | **32 files** | **2,268 tests** | ✅ **100% passing** | **~90.9%** |
+| **Total** | **32 files** | **2,269 tests** | ✅ **100% passing** | **~90.9%** |
 
 ### Test Coverage Highlights
 - ✅ **72/72** production files have comprehensive test coverage
-- ✅ **1,890 / 1,890** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-02)
+- ✅ **1,891 / 1,891** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-02)
 - ✅ **~90.9%** overall Pester-measured command coverage (all files above 80% CI gate)
 - ✅ **New canonical-ACL resilience (#41):** OU deploy uses a phased verify-and-remediate loop — after each disable-inheritance write, `New-TierModelOu` reads back the DACL and auto-sorts if non-canonical (via `Repair-TierModelCanonicalAcl`); lab-validated at 7/7 OUs corrected per deploy under an inherited-Deny condition. New public cmdlet `Repair-TierModelCanonicalAcl` (**95.40%** coverage) available for standalone use. `Audit-TierModel.ps1` now reports Case 1 (non-canonical domain root, deployment blocker) and Case 2 (non-canonical Tier OU, pre-fix artifact) as structured drift findings.
 - ✅ **New in v1.3.0:** `-EnableAuditing` domain audit rule (SACL) support — 4 new cmdlets (`Get-TierModelAuditRule` **100%**, `Get-TierModelAuditRuleFd` **97.73%**, `Test-TierModelAuditRule` **98.41%**, `New-TierModelAuditRule` **84.14%**) covered by `Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration tests in Audit and Deploy orchestrators; `Audit-TierModel.ps1` **77.16%**, `Deploy-TierModel.ps1` **81.53%**
