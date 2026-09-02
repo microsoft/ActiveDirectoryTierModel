@@ -28,10 +28,10 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
     function Get-ADDomain { param($Server, $Identity) }
     function Get-ADForest { param($Server, $Identity) }
     function Get-ADGroup { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-    function Get-ADGroupMember { param($Identity, $Server, $Recursive) }
+    function Get-ADGroupMember { param($Identity, $Server, $Recursive, $ErrorAction) }
     function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-    function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $ErrorAction) }
+    function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $SearchScope, $ErrorAction) }
     function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADRootDSE { param($Server) }
     function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
@@ -46,10 +46,10 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
         function Get-ADDomain { param($Server, $Identity) }
         function Get-ADForest { param($Server, $Identity) }
         function Get-ADGroup { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-        function Get-ADGroupMember { param($Identity, $Server, $Recursive) }
+        function Get-ADGroupMember { param($Identity, $Server, $Recursive, $ErrorAction) }
         function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-        function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $ErrorAction) }
+        function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $SearchScope, $ErrorAction) }
         function Get-ADComputer { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADRootDSE { param($Server) }
         function New-ADGroup { param($Name, $GroupScope, $GroupCategory, $Path, $Server, $Description, $DisplayName, $SamAccountName, $ErrorAction) }
@@ -99,7 +99,7 @@ if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
 
 if (-not (Get-Command Find-LapsADExtendedRights -ErrorAction SilentlyContinue)) {
 
-    # Windows LAPS module stubs — required for WinLaps deployment/audit cmdlets
+    # Windows LAPS module stubs -- required for WinLaps deployment/audit cmdlets
     function Find-LapsADExtendedRights { param($Identity, $DomainController, $Credential, $ErrorAction) }
     function Set-LapsADComputerSelfPermission { param($Identity, $DomainController, $Credential, $ErrorAction) }
     function Set-LapsADReadPasswordPermission { param($Identity, $AllowedPrincipals, $DomainController, $Credential, $ErrorAction) }

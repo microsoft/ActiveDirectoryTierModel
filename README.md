@@ -43,22 +43,23 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ 1,783 passing / 0 failures (100%)** *(Last run: 2026-08-27)*
+**Current Test Status: ✅ 1,890 passing / 0 failures (100%)** *(Last run: 2026-09-02)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 22 files | 1,469 tests | ✅ All pass | **90.9%** |
-| **Integration Tests** | 7 files | 314 tests | ✅ All pass | **90.9%** |
+| **Unit Tests** | 24 files | 1,572 tests | ✅ All pass | **~90.9%** |
+| **Integration Tests** | 7 files | 318 tests | ✅ All pass | **90.9%** |
 | **Manual Integration Tests** | 1 file | 378 tests | ✅ 100% Pass | **N/A** |
-| **Total** | **30 files** | **2,161 tests** | ✅ **100% passing** | **90.9%** |
+| **Total** | **32 files** | **2,268 tests** | ✅ **100% passing** | **~90.9%** |
 
 ### Test Coverage Highlights
-- ✅ **71/71** production files have comprehensive test coverage
-- ✅ **1,783 / 1,783** automated test cases passing — 0 failures (Pester 5.9.0, 2026-08-27)
-- ✅ **90.9%** overall Pester-measured command coverage (all files above 80% CI gate)
+- ✅ **72/72** production files have comprehensive test coverage
+- ✅ **1,890 / 1,890** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-02)
+- ✅ **~90.9%** overall Pester-measured command coverage (all files above 80% CI gate)
 - ✅ **New canonical-ACL resilience (#41):** OU deploy uses a phased verify-and-remediate loop — after each disable-inheritance write, `New-TierModelOu` reads back the DACL and auto-sorts if non-canonical (via `Repair-TierModelCanonicalAcl`); lab-validated at 7/7 OUs corrected per deploy under an inherited-Deny condition. New public cmdlet `Repair-TierModelCanonicalAcl` (**95.40%** coverage) available for standalone use. `Audit-TierModel.ps1` now reports Case 1 (non-canonical domain root, deployment blocker) and Case 2 (non-canonical Tier OU, pre-fix artifact) as structured drift findings.
 - ✅ **New in v1.3.0:** `-EnableAuditing` domain audit rule (SACL) support — 4 new cmdlets (`Get-TierModelAuditRule` **100%**, `Get-TierModelAuditRuleFd` **97.73%**, `Test-TierModelAuditRule` **98.41%**, `New-TierModelAuditRule` **84.14%**) covered by `Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration tests in Audit and Deploy orchestrators; `Audit-TierModel.ps1` **77.16%**, `Deploy-TierModel.ps1` **81.53%**
 - ✅ **Authentication Policy Silos (`-IncludeAuthSilos`):** create-once deploy + audit pipeline — 13 cmdlets covered by `Unit.AuthSiloOperations.Tests.ps1` (131 unit tests, all mock-based): `Build-TierModelAuthSddl` **100%**, `Compare-TierModelAuthSddl` **96.2%**, `Test-TierModelAuthSiloPrerequisite` **98.5%**, `New-TierModelAuthSilo` **99.1%**, `Get-TierModelAuthPolicy`/`Get-TierModelAuthSilo` **95.5%**, `Get-TierModelAuthSiloMembershipFd` **87.8%**, `Set-TierModelAuthSiloMembership` **87.8%**, `Test-TierModelAuthPolicy` **81.3%**, `Test-TierModelAuthSilo` **83.4%**, `Get-TierModelAuthSiloFd` **85.6%**, `Get-TierModelAuthPolicyFd` **83.7%**, `New-TierModelAuthPolicy` **82.9%**; deferred-SDDL, `RequireSubset` audit, create-once, and outer-catch paths fully covered.
+- ✅ **Tier Model Membership Reconciliation (`optional/Update-TierModelMembership.ps1` v1.7.2):** 107-test suite `Unit.MembershipReconciliation.Tests.ps1` (dot-source seam, all mock-based, no live AD): `Resolve-ActiveSwitches` all-15 + order, `Test-IsBuiltInExcluded`/`Test-IsCustomerExcluded`, `Write-TmEvent` (opt-in/no-throw), `Initialize-Logging`/`Write-Log`/`Write-DebugLog` (WhatIf immunity), `Invoke-TierReconciliation` (counters/exclusion/WhatIf/ExcludeChildOuDn), `Invoke-Tier2Operators`/`Invoke-Tier2Eud` (operator-wins disambiguation). Script added to CI code-coverage measurement.
 - ✅ Mock-based testing (no Active Directory connectivity required)
 
 ### Running Tests

@@ -2122,6 +2122,11 @@ function Invoke-Tier2EudDevices {
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
+# Skip main execution when the script is dot-sourced (e.g., by Pester tests) so the
+# functions defined above can be loaded and unit-tested in isolation. Normal invocation
+# (pwsh.exe -File ... , or .\Update-TierModelMembership.ps1) is unaffected.
+if ($MyInvocation.InvocationName -eq '.') { return }
+
 try {
     # Validate exclusion parameter pairing
     if (-not [string]::IsNullOrEmpty($ExclusionAttribute) -and [string]::IsNullOrEmpty($ExclusionValue)) {
