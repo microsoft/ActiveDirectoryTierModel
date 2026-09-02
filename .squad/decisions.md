@@ -1,8 +1,144 @@
 # Squad Decisions
 
-## Active Decisions (2026-08-25)
+## Active Decisions (2026-09-02)
 
 *Active decisions from the current retention window. Older entries are archived in decisions-archive.md.*
+
+---
+
+# Decision: Auth Silos Ops Guide — Public Rewrite Structure
+
+**Date:** 2026-09-02
+**Author:** Storm (DevRel & Documentation)
+**Status:** Proposed — pending Joel review
+
+## Context
+
+`docs/auth-silos-operations-guide.md` grew to ~1580 lines as a combined lab/UAT operations manual
+across three authoring sessions. Joel requested a short, public-facing rewrite targeting 180–280
+lines — same filename, bullet-heavy, no SDDL, no UAT detail, no lab/build appendices.
+
+## Decisions Made
+
+### 1. "8 objects" clarified immediately as 4 + 4
+
+The intro to "What gets deployed" leads with: **"8 objects: 4 Authentication Policies +
+4 Authentication Policy Silos."** This prevents the common reader mistake of calling each silo
+a separate policy or of expecting 8 silos.
+
+### 2. SDDL reduced to one sentence
+
+Per Joel's explicit instruction: no SDDL strings, no breakdown table. One sentence in "How
+the policies and devices are linked" says the deploy module builds the SDDL using OR / "Member
+of any" logic — the operator never authors SDDL by hand.
+
+### 3. Enforce flip condensed to 5-step checklist
+
+The 12-gate pre-enforcement gate table was replaced with a 5-step plain-English checklist.
+Joel's instruction: "keep this to a few bullets — no giant gate table."
+
+### 4. adminDescription for exclusions called out prominently
+
+Joel specifically flagged this: `adminDescription` is the recommended exclusion attribute because
+Exchange does not touch it (Exchange uses `description`). This is called out in a prominent block
+under "Exclusions — required decision."
+
+### 5. Appendix B (v1.x → v2.0.0 upgrade) removed from this doc
+
+Joel: "drop it — it's release-notes material." The content still exists in git history. If a
+migration guide is needed later it should live in CHANGELOG or a dedicated upgrade doc.
+
+### 6. Scheduling examples grounded in script's actual parameters
+
+Parameters used in examples (`-All`, `-AllTier0`, `-ExclusionAttribute`, `-ExclusionValue`,
+`-EnableLogging`, `-EnableEventLog`, `-JobId`, `-WhatIf`) verified against script source
+lines 1–220. `-NoProfile` added to all pwsh.exe invocations as best practice.
+
+## Files Changed
+
+- `docs/auth-silos-operations-guide.md` — full overwrite (238 lines)
+- `.squad/agents/storm/history.md` — session entry prepended
+
+## Items for Cyclops Verification
+
+- Event IDs 306/106 (TGS service-ticket target restrictions): carried forward from original doc.
+  If these were lab-validation-required in the original, Cyclops should remove the table row.
+- LDAP simple bind blind spot: original doc marked this [Lab validation required]. Kept as a
+  bullet with no validation claim.
+
+---
+
+# Decision: Auth Silos Ops Guide — v2 Migration Appendix
+
+**Date:** 2026-09-02
+**Author:** Storm (DevRel & Documentation)
+**Status:** Proposed — pending Joel review
+
+## Context
+
+Auth silos ops guide revision round 2. Joel added new requirements including a v1.x → v2.0.0
+migration appendix, a URA/Restricted-Groups complementary-controls section, factual corrections,
+and an IMPORTANT callout at the top.
+
+## Decisions Made
+
+### 1. Migration appendix placed BEFORE Related Reading
+
+Joel specified "before Related Reading." The appendix is long (~130 lines) but self-contained.
+Keeping it inside the same file (rather than a separate migration doc) ensures inbound links
+from the IMPORTANT callout work and the upgrade procedure is discoverable at the doc that a
+v2 admin will be reading anyway.
+
+### 2. Two GPO options (not one)
+
+The appendix offers two paths for the GPO update step:
+- **Option 1 (recommended):** rename old GPOs → deploy new ones fresh → verify → delete old.
+  Safe because the deploy script is idempotent and the old GPOs continue to apply during cutover
+  (lowest link priority buys time to verify).
+- **Option 2 (manual):** hand-edit existing GPOs with exact settings. For admins who cannot or
+  will not redeploy GPOs.
+
+The governing rule "never overwrite a production GPO in place" is restated in both options.
+
+### 3. Ordered migration steps (Group → User → OuAcls → AuthSilos → Gpos)
+
+This order is required, not advisory:
+1. Groups must exist before AuthSilos (deploy fails if device groups are missing).
+2. Users (service account) can be created any time after groups, but placing it in Step 1 keeps
+   the new-object phase together.
+3. OuAcls is harmless at any point but logically belongs with the new-object phase.
+4. AuthSilos requires the new device groups from Step 1 — fails if missing.
+5. Gpos is last because it carries the most operational risk (live GPO changes).
+
+### 4. Anchor computed as single-hyphen `#appendix-upgrading-from-v1x-to-v200`
+
+Python-Markdown / MkDocs default slugify:
+- Lowercase
+- Remove non-alphanumeric chars except spaces and hyphens (strips `:` and `.`)
+- Spaces → hyphens
+- Result for "Appendix: Upgrading from v1.x to v2.0.0": `appendix-upgrading-from-v1x-to-v200`
+
+The task prompt showed a double-hyphen example `#appendix--upgrading-from-v1x-to-v200`; single
+hyphen is the correct Python-Markdown output and was used. If the MkDocs build produces a
+different anchor, update the IMPORTANT callout link.
+
+### 5. "Auth silos complement URA and Restricted Groups" section added near top
+
+Joel's requirement: silos restrict WHERE (origin device), URA restricts HOW (logon type). Both
+are required; they cover each other's gaps. Section placed immediately after the linkage section
+so readers who understand the linkage immediately understand why URA is still needed.
+
+### 6. Factual corrections from Joel applied (Part 5)
+
+All 11 corrections applied. Two items remain flagged for Cyclops verification:
+- "Script preflight rejects RODCs and non-GC DCs" — stated as Joel-verified; not confirmed
+  independently in the 220 script lines read.
+- Event 101 (NTLM under enforcement) — Joel's correction; not independently verified.
+
+## Files Changed
+
+- `docs/auth-silos-operations-guide.md` — revised (238 → 422 lines)
+- `.squad/agents/storm/history.md` — session entry prepended
 
 ---
 

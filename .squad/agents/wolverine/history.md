@@ -1,5 +1,11 @@
 # wolverine — History
 
+## Session 2026-09-02 — Auth Silos Public Docs + v2 Migration (Storm)
+
+Public-facing auth-silos operations guide revised with v2 migration appendix. No test impact (docs only).
+
+---
+
 ## PENDING: Pester Tests for optional/Update-TierModelMembership.ps1
 
 **Status:** BLOCKED (awaiting Joel UAT completion)
