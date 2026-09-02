@@ -288,7 +288,7 @@ function Test-TierModelPrerequisites {
                 # If module was found but not loaded, try to import it to verify it works
                 if (-not $loadedModule -and $installedModule) {
                     try {
-                        Import-Module $moduleName -ErrorAction Stop -Verbose:$false | Out-Null
+                        Import-Module $moduleName -ErrorAction Stop -Verbose:$false -SkipEditionCheck | Out-Null
                         try {
                             Write-TierModelLog -Level Debug -Message "Successfully imported $moduleName module for validation" | Out-Null
                         } catch { 
@@ -310,8 +310,27 @@ function Test-TierModelPrerequisites {
         
         # Check domain admin membership regardless of elevation for testing scenarios
             try {
-                Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false | Out-Null
+                Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false -SkipEditionCheck | Out-Null
+                $adShimDetected = $false
                 if (Get-Module ActiveDirectory) {
+                    # Guard: under PowerShell 7, an RSAT ActiveDirectory module that is not Core-native
+                    # loads through the Windows PowerShell compatibility shim (WinPSCompatSession) and
+                    # returns DESERIALIZED objects - SIDs come back as strings, so .SID.Value / .objectSid.Value
+                    # resolve empty. That silently breaks SID resolution deployment-wide (URA and GPO
+                    # restricted-groups principals resolve to nothing). Detect it by probing whether the
+                    # domain SID comes back as a plain string (deserialized) instead of a SecurityIdentifier,
+                    # and fail fast rather than deploy broken policy.
+                    try {
+                        $adDomainProbe = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
+                        if ($adDomainProbe.DomainSID -is [string]) { $adShimDetected = $true }
+                    } catch { }
+                }
+                if ($adShimDetected) {
+                    $result.Valid = $false
+                    $null = $result.Errors.Add("ActiveDirectory module is loaded through the Windows PowerShell compatibility shim (deserialized objects); SID resolution would break URA and GPO deployment.")
+                    $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later), or run under Windows PowerShell 5.1.")
+                }
+                elseif (Get-Module ActiveDirectory) {
                     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
                     $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
                     
