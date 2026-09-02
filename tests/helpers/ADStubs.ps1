@@ -28,7 +28,7 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
     function Get-ADDomain { param($Server, $Identity) }
     function Get-ADForest { param($Server, $Identity) }
     function Get-ADGroup { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-    function Get-ADGroupMember { param($Identity, $Server, $Recursive, $ErrorAction) }
+    function Get-ADGroupMember { param($Identity, $Server, [switch]$Recursive, $ErrorAction) }
     function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
     function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $SearchScope, $ErrorAction) }
@@ -43,19 +43,19 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
     # Authentication Policy cmdlets (used by auth-silo module functions)
     function Get-ADAuthenticationPolicy { param($Identity, $Properties, $Server, $ErrorAction) }
     function Get-ADAuthenticationPolicySilo { param($Identity, $Properties, $Server, $ErrorAction) }
-    function New-ADAuthenticationPolicy { param($Name, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $PassThru, $ErrorAction) }
-    function New-ADAuthenticationPolicySilo { param($Name, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $PassThru, $ErrorAction) }
+    function New-ADAuthenticationPolicy { param($Name, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, [switch]$Confirm, [switch]$PassThru, $ErrorAction) }
+    function New-ADAuthenticationPolicySilo { param($Name, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, [switch]$Confirm, [switch]$PassThru, $ErrorAction) }
     function Set-ADAuthenticationPolicy { param($Identity, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $ErrorAction) }
     function Set-ADAuthenticationPolicySilo { param($Identity, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $ErrorAction) }
-    function Set-ADAccountAuthenticationPolicySilo { param($Identity, $AuthenticationPolicySilo, $Server, $Confirm, $ErrorAction) }
-    function Grant-ADAuthenticationPolicySiloAccess { param($Identity, $Account, $Server, $Confirm, $ErrorAction) }
+    function Set-ADAccountAuthenticationPolicySilo { param($Identity, $AuthenticationPolicySilo, $Server, [switch]$Confirm, $ErrorAction) }
+    function Grant-ADAuthenticationPolicySiloAccess { param($Identity, $Account, $Server, [switch]$Confirm, $ErrorAction) }
 
     # Register as in-memory module so Get-Module ActiveDirectory returns a result
     New-Module -Name ActiveDirectory -ScriptBlock {
         function Get-ADDomain { param($Server, $Identity) }
         function Get-ADForest { param($Server, $Identity) }
         function Get-ADGroup { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
-        function Get-ADGroupMember { param($Identity, $Server, $Recursive, $ErrorAction) }
+        function Get-ADGroupMember { param($Identity, $Server, [switch]$Recursive, $ErrorAction) }
         function Get-ADUser { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADOrganizationalUnit { param($Identity, $Server, $Filter, $SearchBase, $Properties, $ErrorAction) }
         function Get-ADObject { param($Identity, $Server, $Filter, $SearchBase, $Properties, $LDAPFilter, $SearchScope, $ErrorAction) }
@@ -70,12 +70,12 @@ if (-not (Get-Command Get-ADDomain -ErrorAction SilentlyContinue)) {
         # Authentication Policy cmdlets
         function Get-ADAuthenticationPolicy { param($Identity, $Properties, $Server, $ErrorAction) }
         function Get-ADAuthenticationPolicySilo { param($Identity, $Properties, $Server, $ErrorAction) }
-        function New-ADAuthenticationPolicy { param($Name, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $PassThru, $ErrorAction) }
-        function New-ADAuthenticationPolicySilo { param($Name, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $PassThru, $ErrorAction) }
+        function New-ADAuthenticationPolicy { param($Name, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, [switch]$Confirm, [switch]$PassThru, $ErrorAction) }
+        function New-ADAuthenticationPolicySilo { param($Name, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, [switch]$Confirm, [switch]$PassThru, $ErrorAction) }
         function Set-ADAuthenticationPolicy { param($Identity, $Description, $UserAllowedToAuthenticateFrom, $UserTGTLifetimeMins, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $ErrorAction) }
         function Set-ADAuthenticationPolicySilo { param($Identity, $Description, $UserAuthenticationPolicy, $ComputerAuthenticationPolicy, $ServiceAuthenticationPolicy, $Enforce, $ProtectedFromAccidentalDeletion, $Server, $Confirm, $ErrorAction) }
-        function Set-ADAccountAuthenticationPolicySilo { param($Identity, $AuthenticationPolicySilo, $Server, $Confirm, $ErrorAction) }
-        function Grant-ADAuthenticationPolicySiloAccess { param($Identity, $Account, $Server, $Confirm, $ErrorAction) }
+        function Set-ADAccountAuthenticationPolicySilo { param($Identity, $AuthenticationPolicySilo, $Server, [switch]$Confirm, $ErrorAction) }
+        function Grant-ADAuthenticationPolicySiloAccess { param($Identity, $Account, $Server, [switch]$Confirm, $ErrorAction) }
         Export-ModuleMember -Function *
     } | Import-Module -Global -Force
 }
