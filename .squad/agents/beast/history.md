@@ -31,3 +31,24 @@ Work from 2026-08-24 and earlier has been archived to history-archive.md to main
 ## Current Focus
 
 Update-TierModelMembership.ps1 feature work ongoing. Lab validation in progress (Coordinator). Ready for Joel UAT upon Coordinator sign-off.
+
+## Learnings
+
+### 2026-09-02 — Dot-Source Test Seam for Pester (v1.7.2, no version bump)
+
+**Pattern:** To make a monolithic PowerShell script unit-testable with Pester without altering runtime behaviour, insert a single guard immediately after the `# MAIN EXECUTION` banner and before the `try {` block:
+
+```powershell
+if ($MyInvocation.InvocationName -eq '.') { return }
+```
+
+**Why it works:**
+- When Pester (or any caller) dot-sources the script (`. .\script.ps1`), PowerShell sets `$MyInvocation.InvocationName` to `'.'`, so the guard fires and `return` exits the script scope — functions defined above are loaded into the caller's scope but the main block never runs.
+- When the script is invoked normally (`pwsh -File script.ps1` or `.\script.ps1`), `$MyInvocation.InvocationName` is the script path/name (never `'.'`), so the guard is a no-op and main runs as usual.
+- `ScriptVersion` was intentionally left at `1.7.2` — this is a non-functional test seam with zero runtime impact.
+
+**Verified (2026-09-02):**
+- `ParseFile` → 0 syntax errors
+- Byte scan → 0 non-ASCII bytes
+- Dot-source in fresh `pwsh` session → `Resolve-ActiveSwitches`, `Test-IsCustomerExcluded`, `Write-TmEvent` all resolved; no PARAMETER ERROR / no main-execution output
+- `-File` path unaffected (guard never fires)
