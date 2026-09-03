@@ -51,6 +51,10 @@ function Test-TierModelGpo {
         $testResult = [PSCustomObject]@{
             GPOName = $GPOName
             ActualGPOName = $GPOName  # Will be updated if found via wildcard
+            Exists = $false           # $true only when a single GPO object was resolved in AD
+            ExistenceState = 'Unknown' # Found | NotFound | Ambiguous | Unknown
+            GpoStatus = $null         # Reported GpoStatus (AllSettingsEnabled / ... / AllSettingsDisabled)
+            SettingsDisabled = $false # $true when the GPO delivers no settings at all
             Checks = @()
             Status = 'Unknown'
             Issues = @()
@@ -64,6 +68,8 @@ function Test-TierModelGpo {
             # Try exact name match first
             $gpoObject = Get-GPO -Name $GPOName -Server $DomainController -ErrorAction Stop
             $gpoExists = $true
+            $testResult.Exists = $true
+            $testResult.ExistenceState = 'Found'
             
             $testResult.Checks += [PSCustomObject]@{
                 Check = 'GPO Existence'
@@ -85,6 +91,8 @@ function Test-TierModelGpo {
                         $actualGpoName = $gpoObject.DisplayName
                         $testResult.ActualGPOName = $actualGpoName  # Update the actual name found
                         $gpoExists = $true
+                        $testResult.Exists = $true
+                        $testResult.ExistenceState = 'Found'
                         
                         $testResult.Checks += [PSCustomObject]@{
                             Check = 'GPO Existence'
@@ -101,6 +109,7 @@ function Test-TierModelGpo {
                             Actual = "Multiple GPOs found: $($matchingGPOs.DisplayName -join ', ')"
                             Message = "Multiple GPOs match wildcard pattern '$renamePattern'"
                         }
+                        $testResult.ExistenceState = 'Ambiguous'
                         $testResult.Issues += "Multiple GPOs found matching rename pattern '$renamePattern': $($matchingGPOs.DisplayName -join ', ')"
                         $testResult.Recommendations += "Ensure only one GPO matches the rename pattern or use exact naming"
                     } else {
@@ -111,6 +120,7 @@ function Test-TierModelGpo {
                             Actual = 'GPO not found (exact or wildcard)'
                             Message = $_.Exception.Message
                         }
+                        $testResult.ExistenceState = 'NotFound'
                         $testResult.Issues += "GPO '$GPOName' does not exist (also tried rename wildcard '$renamePattern')"
                         $testResult.Recommendations += "Create GPO using New-TierModelGpo or check if GPO was renamed"
                     }
@@ -122,6 +132,8 @@ function Test-TierModelGpo {
                         Actual = 'GPO not found'
                         Message = $_.Exception.Message
                     }
+                    # Wildcard enumeration itself failed - existence cannot be proven either way
+                    $testResult.ExistenceState = 'Unknown'
                     $testResult.Issues += "GPO '$GPOName' does not exist"
                     $testResult.Recommendations += "Create GPO using New-TierModelGpo"
                 }
@@ -133,11 +145,14 @@ function Test-TierModelGpo {
                     Actual = 'GPO not found'
                     Message = $_.Exception.Message
                 }
+                $testResult.ExistenceState = 'NotFound'
                 $testResult.Issues += "GPO '$GPOName' does not exist"
                 $testResult.Recommendations += "Create GPO using New-TierModelGpo"
             }
         }
                         
+        $observedGpoFlags = $null
+
         if ($gpoExists -and $GPOConfig) {
             # Check 2: GPO Status Configuration (if provided)
             if ($GPOConfig.PSObject.Properties.Name -contains 'gpoStatus') {
@@ -146,16 +161,42 @@ function Test-TierModelGpo {
                     $domainDN = $domain.DistinguishedName
                     $gpoADObject = Get-ADObject -Identity "CN={$($gpoObject.Id)},CN=Policies,CN=System,$domainDN" -Properties flags -Server $DomainController
                     $currentFlags = $gpoADObject.flags
+                    $observedGpoFlags = $currentFlags
                     
-                    $expectedFlags = switch ($GPOConfig.gpoStatus) {
-                        'AllEnabled'               { 0 }
-                        'UserSettingsDisabled'    { 1 }
-                        'ComputerSettingsDisabled' { 2 }
-                        'BothSettingsDisabled'     { 3 }
-                        default { 0 }
+                    # Valid gpoStatus values and their AD 'flags' equivalents. Must stay in exact
+                    # agreement with the deploy switch in New-TierModelGpo.ps1.
+                    $validGpoStatus = [ordered]@{
+                        'AllEnabled'               = 0
+                        'AllSettingsEnabled'       = 0
+                        'UserSettingsDisabled'     = 1
+                        'ComputerSettingsDisabled' = 2
+                        'BothSettingsDisabled'     = 3
+                        'AllSettingsDisabled'      = 3
                     }
-                    
-                    if ($currentFlags -eq $expectedFlags) {
+
+                    # No silent default: an unrecognised value used to mean "expect AllSettingsEnabled",
+                    # so a config typo could be reported as Pass. $null marks it as unrecognised and the
+                    # check below fails loudly for this GPO only — deliberately NOT a throw, because
+                    # this is the audit path and one bad config value must not abort the whole run.
+                    $expectedFlags = if ($validGpoStatus.Contains([string]$GPOConfig.gpoStatus)) {
+                        $validGpoStatus[[string]$GPOConfig.gpoStatus]
+                    } else {
+                        $null
+                    }
+
+                    if ($null -eq $expectedFlags) {
+                        $validList = ($validGpoStatus.Keys -join ', ')
+                        $testResult.Checks += [PSCustomObject]@{
+                            Check = 'GPO Status'
+                            Status = 'Fail'
+                            Expected = "one of: $validList"
+                            Actual = "configured value '$($GPOConfig.gpoStatus)' (observed flags: $currentFlags)"
+                            Message = "Unrecognized gpoStatus value '$($GPOConfig.gpoStatus)' - cannot determine expected flags. Valid values: $validList"
+                        }
+
+                        $testResult.Issues += "Unrecognized gpoStatus value '$($GPOConfig.gpoStatus)' in configuration for GPO '$GPOName'. Valid values: $validList"
+                        $testResult.Recommendations += "Correct the 'gpoStatus' value for GPO '$GPOName' in configuration to one of: $validList"
+                    } elseif ($currentFlags -eq $expectedFlags) {
                         $testResult.Checks += [PSCustomObject]@{
                             Check = 'GPO Status'
                             Status = 'Pass'
@@ -183,6 +224,64 @@ function Test-TierModelGpo {
                         Actual = 'Unable to check'
                         Message = $_.Exception.Message
                     }
+                }
+            }
+        }
+        
+        # Check 3: Effective settings-delivery state - INFORMATIONAL ONLY.
+        #
+        # Runs for every existing GPO, independent of whether 'gpoStatus' is configured.
+        # A GPO whose settings are all disabled delivers no configuration, which is worth
+        # surfacing because it explains "my setting isn't applying".
+        #
+        # It is deliberately NEVER a failure. Disabling a GPO's settings is a supported
+        # customer choice: e.g. choosing the SHF baseline instead of the Microsoft SCT
+        # baseline and disabling the SCT GPO. Failing that configuration would be a false
+        # positive and would push operators to re-enable something they turned off on
+        # purpose. This check therefore records an 'Info' status only - it does not write to
+        # $testResult.Issues and does not influence the Pass/Fail verdict below, which
+        # counts only 'Fail' and 'Error' checks.
+        if ($gpoExists) {
+            $reportedStatus = $null
+            if ($gpoObject -and ($gpoObject.PSObject.Properties.Name -contains 'GpoStatus') -and $null -ne $gpoObject.GpoStatus) {
+                $reportedStatus = [string]$gpoObject.GpoStatus
+            } elseif ($null -ne $observedGpoFlags) {
+                $reportedStatus = switch ([int]$observedGpoFlags) {
+                    0 { 'AllSettingsEnabled' }
+                    1 { 'UserSettingsDisabled' }
+                    2 { 'ComputerSettingsDisabled' }
+                    3 { 'AllSettingsDisabled' }
+                    default { $null }
+                }
+            }
+            
+            $testResult.GpoStatus = $reportedStatus
+            
+            if ([string]::IsNullOrWhiteSpace($reportedStatus)) {
+                $testResult.Checks += [PSCustomObject]@{
+                    Check = 'GPO Enabled State'
+                    Status = 'Skipped'
+                    Expected = 'GPO delivers settings'
+                    Actual = 'Enabled state not reported'
+                    Message = 'Unable to determine GPO enabled state - GpoStatus was not returned by the directory'
+                }
+            } elseif ($reportedStatus -in @('AllSettingsDisabled', 'BothSettingsDisabled')) {
+                # Advisory only - see the note above. Never a Fail, never an Issue.
+                $testResult.SettingsDisabled = $true
+                $testResult.Checks += [PSCustomObject]@{
+                    Check = 'GPO Enabled State'
+                    Status = 'Info'
+                    Expected = 'Not asserted - disabling settings is a supported choice'
+                    Actual = $reportedStatus
+                    Message = "GPO '$actualGpoName' has all settings disabled, so it delivers no configuration. This is informational only - it is a supported configuration (for example when a baseline GPO is intentionally not used) and is not treated as a finding."
+                }
+            } else {
+                $testResult.Checks += [PSCustomObject]@{
+                    Check = 'GPO Enabled State'
+                    Status = 'Info'
+                    Expected = 'Not asserted - disabling settings is a supported choice'
+                    Actual = $reportedStatus
+                    Message = 'GPO is enabled and able to deliver settings'
                 }
             }
         }
@@ -219,6 +318,11 @@ function Test-TierModelGpo {
         
         return [PSCustomObject]@{
             GPOName = $GPOName
+            ActualGPOName = $GPOName
+            Exists = $null
+            ExistenceState = 'Unknown'
+            GpoStatus = $null
+            SettingsDisabled = $false
             Checks = @(@{
                 Check = 'GPO Test'
                 Status = 'Error'

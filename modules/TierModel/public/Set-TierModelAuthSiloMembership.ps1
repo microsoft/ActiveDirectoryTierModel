@@ -194,8 +194,14 @@ function Set-TierModelAuthSiloMembership {
 
                             # Step 1: Grant — use pre-check result to skip redundant Members read
                             if (-not $alreadyGranted) {
-                                Grant-ADAuthenticationPolicySiloAccess -Identity $siloName -Account $sam `
-                                    -Server $DomainController -Confirm:$false -ErrorAction Stop
+                                # -PassThru is required: without it the cmdlet emits nothing, so a silent
+                                # no-op is indistinguishable from a successful write. The result is
+                                # assigned (never left in the output stream) and verified.
+                                $grantResult = Grant-ADAuthenticationPolicySiloAccess -Identity $siloName -Account $sam `
+                                    -Server $DomainController -Confirm:$false -PassThru -ErrorAction Stop
+                                if ($null -eq $grantResult) {
+                                    throw (Get-TierModelWriteFailureDetail -Operation 'Grant-ADAuthenticationPolicySiloAccess' -Target "$sam -> $siloName").Summary
+                                }
                                 $grantedDns.Add($dn) | Out-Null
                                 $changed = $true
                                 Write-TierModelLog -Level Debug -Message "AuthSiloAccessGranted" -Data @{
@@ -205,9 +211,14 @@ function Set-TierModelAuthSiloMembership {
 
                             # Step 2: Set — use pre-check result to skip redundant account read
                             if ($preCheckSiloName -ne $siloName) {
-                                Set-ADAccountAuthenticationPolicySilo -Identity $sam `
+                                # -PassThru is required for the same reason as the Grant above; the
+                                # returned account object is assigned and verified, not emitted.
+                                $assignResult = Set-ADAccountAuthenticationPolicySilo -Identity $sam `
                                     -AuthenticationPolicySilo $siloName `
-                                    -Server $DomainController -Confirm:$false -ErrorAction Stop
+                                    -Server $DomainController -Confirm:$false -PassThru -ErrorAction Stop
+                                if ($null -eq $assignResult) {
+                                    throw (Get-TierModelWriteFailureDetail -Operation 'Set-ADAccountAuthenticationPolicySilo' -Target "$sam -> $siloName").Summary
+                                }
                                 $changed = $true
                                 Write-TierModelLog -Level Debug -Message "AuthSiloAccountAssigned" -Data @{
                                     SiloName = $siloName; SamAccountName = $sam; CorrelationId = $CorrelationId

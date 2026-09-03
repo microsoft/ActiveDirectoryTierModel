@@ -55,7 +55,11 @@ function Get-TierModelGpoLinkFd {
                 $targetOUPath = $action.Path
                 
                 # Extract settings with defaults (matching original working code)
-                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { $gpoData.enforced } else { 'No' }
+                # Aligned with Get-TierModelGPOLink.ps1 / New-TierModelGPOLink.ps1: $null means
+                # "config did not declare enforcement". This planner never compares enforcement, but
+                # RequiredState.Enforced is reported to callers and must not disagree with the other
+                # two. Do NOT use [bool]: [bool]'No' is $true.
+                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { ($gpoData.enforced -eq 'Yes' -or $gpoData.enforced -eq $true) } else { $null }
 
                 # Check if GPO exists first - show green check if it does (with rename key support)
                 $gpo = $null

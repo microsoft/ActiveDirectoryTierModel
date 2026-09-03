@@ -103,7 +103,14 @@
                         $newParams['UserTGTLifetimeMins'] = [int]$action.TGTLifetimeMinutes
                     }
 
-                    $newPolicy = New-ADAuthenticationPolicy @newParams -PassThru
+                    $newPolicy = New-ADAuthenticationPolicy @newParams -PassThru -ErrorAction Stop
+
+                    # Verify the write before claiming success. Under the PS7 WinPSCompat shim the
+                    # ActiveDirectory proxy can report failure without terminating.
+                    if ($null -eq $newPolicy) {
+                        throw (Get-TierModelWriteFailureDetail -Operation 'New-ADAuthenticationPolicy' -Target $policyName).Summary
+                    }
+
                     Write-Host "  `u{2705} Created Authentication Policy: $policyName" -ForegroundColor Green
                     Write-TierModelLog -Level Info -Message "AuthPolicyCreated" -Data @{
                         PolicyName = $policyName; Dn = $newPolicy.DistinguishedName; CorrelationId = $CorrelationId
@@ -124,7 +131,9 @@
                     Write-Host "  `u{274C} Failed to create Authentication Policy: $policyName - $($_.Exception.Message)" -ForegroundColor Red
                     $errors += @{ Timestamp = Get-Date; Category = 'Execution'; Code = 'AuthPolicyCreateFailed'
                                   Message = "Failed to create policy '$policyName': $($_.Exception.Message)"
-                                  Context = @{ PolicyName = $policyName; CorrelationId = $CorrelationId } }
+                                  Context = @{ PolicyName = $policyName; CorrelationId = $CorrelationId
+                                               FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                                               CategoryInfo = $_.CategoryInfo.ToString() } }
                     $converged = $false
                 }
             }

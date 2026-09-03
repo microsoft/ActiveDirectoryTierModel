@@ -168,7 +168,21 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
         Mock Set-LapsADComputerSelfPermission  -ModuleName TierModel { }
         Mock Set-LapsADReadPasswordPermission  -ModuleName TierModel { }
         Mock Set-LapsADResetPasswordPermission -ModuleName TierModel { }
-        Mock Set-GPRegistryValue               -ModuleName TierModel { }
+        # Set-GPRegistryValue emits the Microsoft.GroupPolicy.Gpo object it modified on success.
+        # The mock must return a non-null, structurally faithful GPO object so production code can
+        # distinguish a real write from a silent no-op.
+        Mock Set-GPRegistryValue               -ModuleName TierModel {
+            $gpo = $PesterBoundParameters['Name']
+            return [PSCustomObject]@{
+                DisplayName      = "$gpo"
+                Id               = [System.Guid]::NewGuid()
+                DomainName       = 'test.local'
+                Owner            = 'TEST\Domain Admins'
+                GpoStatus        = 'AllSettingsEnabled'
+                CreationTime     = [datetime]'2026-09-03T00:00:00Z'
+                ModificationTime = [datetime]'2026-09-03T00:00:00Z'
+            }
+        }
     }
 
     # ════════════════════════════════════════════════════════════════════════════

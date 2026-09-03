@@ -11,29 +11,83 @@ $script:ConfigPath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -P
 $script:LoggingEnabled = $false
 $script:DefaultLogPath = $null
 
+function Initialize-TierModelLogging {
+    <#
+    .SYNOPSIS
+    Enables TierModel module-scope file logging for the current session.
+
+    .DESCRIPTION
+    Sets the two module-scope logging variables declared above
+    ($script:LoggingEnabled and $script:DefaultLogPath) that Write-TierModelLog
+    consults when a caller supplies no explicit -LogPath.
+
+    Without this initialiser those variables keep their declared defaults
+    ($false / $null), so every Write-TierModelLog call made inside the module
+    writes to the console streams only and never reaches disk.
+
+    WHY THIS LIVES INLINE IN THE .psm1 AND NOT IN public\
+    This is a module-scope helper that must NOT be exported. It cannot live in
+    public\ because tests\Unit.ModuleManifest.Tests.ps1 (L188-216) derives its
+    expectation from the *contents of the public\ folder* — every *.ps1 file
+    there must have a matching entry in FunctionsToExport — rather than from the
+    module's runtime exported list. Adding an unexported file to public\ fails
+    three assertions in that test (measured 2026-09-03: 'Number of declared
+    functions matches number of public function files' expected 84 got 83, plus
+    'All public function files are declared in manifest' and 'Declared functions
+    list matches actual functions list exactly'). That test belongs to Wolverine
+    and is not editable here. Defining the function inline keeps it dot-sourced
+    into module scope, unexported, and invisible to that test's three hard-coded
+    inline-function regexes. Do not move this into public\ without first changing
+    that test to assert on exported functions instead of on folder contents.
+
+    Entry scripts call it inside the module's scope:
+
+        & $module { param($p) Initialize-TierModelLogging -LogFilePath $p } $path
+
+    Logging remains opt-in: nothing calls this unless the operator asked for it.
+
+    .PARAMETER LogFilePath
+    Full path of the log file to append structured JSON entries to. A relative
+    path is resolved against the current working directory. The parent directory
+    is created if it does not already exist.
+
+    .OUTPUTS
+    System.String. The fully-qualified log file path that was configured.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$LogFilePath
+    )
+
+    $resolvedPath = $LogFilePath
+    if (-not [System.IO.Path]::IsPathRooted($resolvedPath)) {
+        $resolvedPath = Join-Path (Get-Location).Path $resolvedPath
+    }
+
+    $logDirectory = Split-Path -Path $resolvedPath -Parent
+    if ($logDirectory -and -not (Test-Path -LiteralPath $logDirectory)) {
+        New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    $script:DefaultLogPath = $resolvedPath
+    $script:LoggingEnabled = $true
+
+    Write-Verbose "TierModel module file logging enabled: $resolvedPath"
+
+    return $resolvedPath
+}
+
 # Cache variables for domain resolution (used by Resolve-TierModelDomainDN)
 $script:CachedDomainDN = $null
 $script:CachedDomainController = $null
 
-# Import internal functions (skip .old files - essential functions now in public)
-$InternalPath = Join-Path $PSScriptRoot 'internal'
-Write-Verbose "Looking for internal files in: $InternalPath"
-if (Test-Path $InternalPath) {
-    $internalFiles = @(Get-ChildItem -Path $InternalPath -Filter '*.ps1' | Where-Object { $_.Name -notlike '*.old' })
-    $internalFileCount = $internalFiles.Count
-    Write-Verbose "Found $internalFileCount active internal files (excluding .old files)"
-    $internalFiles | ForEach-Object {
-        try {
-            Write-Verbose "Loading: $($_.FullName)"
-            . $_.FullName
-            Write-Verbose "Successfully loaded: $($_.Name)"
-        } catch {
-            Write-Error "Failed to load $($_.Name): $($_.Exception.Message)"
-            throw
-        }
-    }
-}
-# Note: Internal path is optional - essential functions have been moved to public modules
+# NOTE: There is deliberately no 'internal' folder in this module. A previous migration
+# moved every function to public\ (see the removed loader's own comments: "essential
+# functions now in public" / "essential functions have been moved to public modules").
+# All functions live in public\, one per file; a function is EXPORTED only if its name
+# appears in FunctionsToExport in TierModel.psd1. Do not reintroduce an internal\ folder.
 
 # Import public functions
 $PublicPath = Join-Path $PSScriptRoot 'public'

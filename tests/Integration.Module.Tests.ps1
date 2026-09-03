@@ -32,7 +32,7 @@ Describe 'TierModel Module Integration Tests' -Tag 'Integration', 'Module' {
         }
         
         It 'Module version is correct' {
-            $script:LoadedModule.Version.ToString() | Should -Be '2.0.0'
+            $script:LoadedModule.Version.ToString() | Should -Be '2.1.0'
         }
         
         It 'Module loads all public function files' {

@@ -73,7 +73,7 @@ function Import-TierModelGpo {
                         if (Test-Path $importPath) {
                             # Import source: $importPath (removed verbose message)
                             # Capture Import-GPO output to prevent it from interfering with our return object
-                            $null = Import-GPO -BackupId (Split-Path $importPath -Leaf) -TargetName $gpoName -Path (Split-Path $importPath -Parent) -Server $DomainController
+                            $null = Import-GPO -BackupId (Split-Path $importPath -Leaf) -TargetName $gpoName -Path (Split-Path $importPath -Parent) -Server $DomainController -ErrorAction Stop
                             
                             Write-TierModelLog -Level Info -Message "GPO settings imported successfully" -Data @{
                                 GPOName = $gpoName
@@ -111,6 +111,8 @@ function Import-TierModelGpo {
                 Write-TierModelLog -Level Error -Message "Failed to import GPO" -Data @{
                     GPOName = $action.Data.name
                     Exception = $_.Exception.Message
+                    FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                    CategoryInfo = $_.CategoryInfo.ToString()
                     CorrelationId = $CorrelationId
                 } | Out-Null
                 

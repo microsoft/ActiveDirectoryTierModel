@@ -119,7 +119,12 @@ Describe "Integration: Windows LAPS Deployment Pipeline" -Tag "Integration", "Wi
         Mock Set-LapsADComputerSelfPermission  -ModuleName TierModel { }
         Mock Set-LapsADReadPasswordPermission  -ModuleName TierModel { }
         Mock Set-LapsADResetPasswordPermission -ModuleName TierModel { }
-        Mock Set-GPRegistryValue               -ModuleName TierModel { }
+        # Real Set-GPRegistryValue (GroupPolicy proxy under WinPSCompat) has no -PassThru
+        # and emits the modified GPO object by default. Verified on a live DC. The mock must
+        # return non-null or the caller's write-verification check sees a false failure.
+        Mock Set-GPRegistryValue               -ModuleName TierModel {
+            return [PSCustomObject]@{ DisplayName = $Name; Id = [guid]::NewGuid() }
+        }
     }
 
     # ════════════════════════════════════════════════════════════════════════════

@@ -307,8 +307,49 @@ function Test-TierModelPrerequisites {
         # Test Domain Admin membership (if modules available)
         # Always initialize IsDomainAdmin to false first
         $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
-        
-        # Check domain admin membership regardless of elevation for testing scenarios
+
+        # --- Domain Admin membership: token-groups check -------------------------------
+        # Authoritative membership verdict is taken from the caller's own logon token:
+        # derive the Domain Admins SID from the account domain SID (RID 512) and test the
+        # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
+        # immune to the WinPSCompat deserialization defect (BUG-011) that made the previous
+        # object comparison ($_.SID -eq $currentUser.User) return False for a real Domain
+        # Admin. It also reflects effective nested membership without a -Recursive AD query.
+        # The AD-module block below still runs, but only to classify the ENVIRONMENT and to
+        # select the correct remediation text - it no longer decides membership.
+        $isDomainAdmin = $false
+        $domainAdminCheckFailed = $false
+        try {
+            $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $accountDomainSid = $currentUser.User.AccountDomainSid
+
+            if ($null -eq $accountDomainSid) {
+                # Local / well-known principal (e.g. SYSTEM): there is no account domain SID
+                # to build RID 512 from. Do not throw - record it and fail closed.
+                $domainAdminCheckFailed = $true
+                $result.EnvironmentSnapshot.DomainAdminCheckError = "Current logon '$($currentUser.Name)' has no account domain SID (local or well-known security principal); Domain Admins membership cannot be evaluated from the logon token."
+                $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+                $result.Valid = $false
+                $null = $result.Errors.Add("Unable to verify Domain Admin membership: the current logon is not a domain account.")
+                $null = $result.Remediation.Add("Run the deployment from a domain-joined host, signed in as a domain administrator")
+            }
+            else {
+                $domainAdminSid = "$($accountDomainSid.Value)-512"
+                $result.EnvironmentSnapshot.DomainAdminsSid = $domainAdminSid
+                $isDomainAdmin = [bool]($currentUser.Groups.Value -contains $domainAdminSid)
+                $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$isDomainAdmin
+            }
+        }
+        catch {
+            $domainAdminCheckFailed = $true
+            $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
+            $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+            $result.Valid = $false
+            $null = $result.Errors.Add("Unable to verify Domain Admin membership: $($_.Exception.Message)")
+            $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+        }
+
+        # Classify the AD environment (compat shim / module availability / group presence)
             try {
                 Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false -SkipEditionCheck | Out-Null
                 $adShimDetected = $false
@@ -331,23 +372,16 @@ function Test-TierModelPrerequisites {
                     $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later), or run under Windows PowerShell 5.1.")
                 }
                 elseif (Get-Module ActiveDirectory) {
-                    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
                     $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
-                    
+
                     if ($domainAdmins) {
-                        $isDomainAdmin = Get-ADGroupMember -Identity $domainAdmins -Server $PreferredDc -Recursive -ErrorAction SilentlyContinue | 
-                            Where-Object { $_.SID -eq $currentUser.User }
-                        
-                        $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$isDomainAdmin
-                        
-                        if (-not $isDomainAdmin) {
+                        if (-not $isDomainAdmin -and -not $domainAdminCheckFailed) {
                             $result.Valid = $false
                             $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
                             $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
                         }
                     } else {
-                        # Domain Admins group not found - keep IsDomainAdmin as false
-
+                        # Domain Admins group not found - membership cannot be corroborated
                         $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
                         $result.Valid = $false
                         $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
@@ -362,15 +396,14 @@ function Test-TierModelPrerequisites {
                 }
             }
             catch {
-
+                # Surface the ACTUAL fault. Previously any exception here was relabelled as
+                # "Domain Admin membership required", so an operator saw a membership problem
+                # when the real cause was network, permissions or module load (BUG-011).
                 $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
                 $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
-                # Don't fail the entire prerequisite check for domain admin verification issues
-                # This allows for testing scenarios and non-domain environments
-                # Add domain admin error for testing scenarios
                 $result.Valid = $false
-                $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
-                $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+                $null = $result.Errors.Add("Unable to verify Domain Admin membership: $($_.Exception.Message)")
+                $null = $result.Remediation.Add("Resolve the reported error, then re-run the prerequisite check")
             }
         
         # Test PreferredDc reachability

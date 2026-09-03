@@ -287,6 +287,103 @@ function Write-TierModelFailFast {
     Write-Host "Deploy script completed." -ForegroundColor Green
 }
 
+function Get-TierModelAdmxFatalError {
+    <#
+    .SYNOPSIS
+    Returns only the ADMX analysis errors that genuinely block the whole phase.
+    .DESCRIPTION
+    Copy-TierModelAdmx is per-file resilient: a missing or hash-mismatched SOURCE file is
+    skipped and every other file still deploys. Only errors outside that shape (unreadable
+    config, unreachable domain controller or central store) abort the phase. The planning
+    view must use the same split, otherwise it reports a blocking condition that
+    -ConfirmApply would in fact deploy straight through.
+    #>
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Errors = @()
+    )
+    $perFilePattern = '^Source (ADMX|ADML) file (not found|hash mismatch)'
+    return @(@($Errors) | Where-Object { $_ -and $_ -notmatch $perFilePattern })
+}
+
+# Tracks whether the run ended without applying changes because of blocking errors.
+# Consumed by the closing summary so the LOG FILE never reports success for a blocked run.
+$script:DeploymentBlocked = $false
+$script:BlockedPhases = @()
+
+function Write-TierModelBlockedOutcome {
+    <#
+    .SYNOPSIS
+    Marks the current run as blocked and records the blocking errors in the log file.
+    .DESCRIPTION
+    The dependency-error display path only used Write-Host, so a blocked deployment produced
+    a log file that contained no errors and ended with "completed successfully". This helper
+    flags the run as blocked and writes every (deduplicated) blocking error, plus any GPOs
+    that were dropped from the plan, to the structured log at Error level.
+    Console output is unchanged - this only adds log-file fidelity.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Phase,
+        [AllowEmptyCollection()][object[]]$Errors = @(),
+        [AllowEmptyCollection()][object[]]$SkippedItems = @()
+    )
+
+    $script:DeploymentBlocked = $true
+    if ($script:BlockedPhases -notcontains $Phase) { $script:BlockedPhases += $Phase }
+
+    if (-not $Logging -or -not $script:LogFilePath) { return }
+
+    $messages = @(
+        @($Errors) | ForEach-Object {
+            if ($_ -is [hashtable]) { $_['Message'] }
+            elseif ($_ -and $_.PSObject.Properties.Name -contains 'Message') { $_.Message }
+            else { "$_" }
+        } | Where-Object { $_ } | Select-Object -Unique | Sort-Object
+    )
+
+    foreach ($message in $messages) {
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "$Phase dependency error: $message"
+    }
+
+    foreach ($skipped in @($SkippedItems)) {
+        $skippedName = if ($skipped.PSObject.Properties.Name -contains 'GPOName') { $skipped.GPOName } else { "$skipped" }
+        $skippedReason = if ($skipped.PSObject.Properties.Name -contains 'Reason') { $skipped.Reason } else { 'Unmet dependency' }
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "$Phase not deployed: '$skippedName' - $skippedReason"
+    }
+
+    Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "$Phase deployment BLOCKED by dependency errors - no changes were applied" -Data @{
+        Phase = $Phase
+        DependencyErrorCount = @($messages).Count
+        NotDeployedCount = @($SkippedItems).Count
+    }
+}
+
+function Write-TierModelSkippedGpoReport {
+    <#
+    .SYNOPSIS
+    Tells the operator exactly WHICH GPOs were excluded from the plan, and why.
+    .DESCRIPTION
+    Dependency errors are deduplicated per group/OU, so previously the operator saw
+    "Required group 'X' does not exist" with no indication of which GPOs depended on it.
+    This renders the skipped-GPO collection produced by Get-TierModelGpo, grouped by reason.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowNull()][object]$Plan
+    )
+
+    if (-not $Plan -or -not ($Plan.PSObject.Properties.Name -contains 'SkippedGpos')) { return }
+    $skipped = @($Plan.SkippedGpos)
+    if ($skipped.Count -eq 0) { return }
+
+    Write-Host ""
+    Write-Host "GPOs NOT deployed because of the dependency errors above: $($skipped.Count)" -ForegroundColor Red
+    foreach ($group in ($skipped | Group-Object -Property Reason | Sort-Object Name)) {
+        Write-Host "  ⛔ $($group.Name)" -ForegroundColor Red
+        foreach ($item in $group.Group) {
+            Write-Host "     - $($item.GPOName)" -ForegroundColor DarkYellow
+        }
+    }
+}
+
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-TierModelFailFast -Message @(
         "Deploying and Auditing of the Tier Model requires PowerShell 7.x or later.",
@@ -298,9 +395,20 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 # Import TierModel module with all public functions
-Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false
+$script:TierModelModule = Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false -PassThru
 
 Write-Host "TierModel module loaded successfully." -ForegroundColor Green
+
+# Enable module-scope file logging so Write-TierModelLog calls made *inside* the module
+# also reach disk. Without this only the ~23 call sites in this script that pass -LogPath
+# explicitly are ever written; every module-level entry (including -Level Error) is lost.
+# Opt-in only: this runs solely when the operator supplied -Logging.
+if ($Logging -and $script:LogFilePath) {
+    & $script:TierModelModule {
+        param($TargetLogFilePath)
+        Initialize-TierModelLogging -LogFilePath $TargetLogFilePath | Out-Null
+    } $script:LogFilePath
+}
 
 # ── Critical pre-flight gate: dMSA Domain Functional Level ───────────────────────
 # dMSA delegation (-IncludeDmsa) has a hard dependency on a Domain Functional Level of
@@ -901,9 +1009,22 @@ function Invoke-OuAclDeployment {
         }
         
         Write-Host "OU ACL Plan Summary:" -ForegroundColor White
-        Write-Host "  Total in Config: $($plan.Summary.TotalActions)" -ForegroundColor Gray
+        # Get-TierModelOuAcl emits ONLY 'CreateAcl' actions, so TotalActions always equals
+        # CreateActions and the old "TotalActions - CreateActions" expression was always 0.
+        # Report the configured delegation total and the real already-present count instead.
+        $ouAclTotalInConfig = if ($plan.Summary.PSObject.Properties.Name -contains 'TotalInConfig' -or ($plan.Summary -is [hashtable] -and $plan.Summary.ContainsKey('TotalInConfig'))) {
+            $plan.Summary.TotalInConfig
+        } else {
+            $plan.Summary.TotalActions
+        }
+        $ouAclExisting = if ($plan.Summary.PSObject.Properties.Name -contains 'ExistingCount' -or ($plan.Summary -is [hashtable] -and $plan.Summary.ContainsKey('ExistingCount'))) {
+            $plan.Summary.ExistingCount
+        } else {
+            0
+        }
+        Write-Host "  Total in Config: $ouAclTotalInConfig" -ForegroundColor Gray
         Write-Host "  To Create: $($plan.Summary.CreateActions)" -ForegroundColor Yellow
-        Write-Host "  Already Exist: $(($plan.Summary.TotalActions) - ($plan.Summary.CreateActions))" -ForegroundColor Green
+        Write-Host "  Already Exist: $ouAclExisting" -ForegroundColor Green
         
         # Handle optional Errors property and show dependency errors
         if ($plan.PSObject.Properties.Name -contains 'Errors' -and $plan.Errors -and $plan.Errors.Count -gt 0) {
@@ -2351,6 +2472,7 @@ else {
             
             if ($hasErrors) {
                 Write-Host "Resolve all dependency errors before proceeding with Group deployment" -ForegroundColor Red
+                Write-TierModelBlockedOutcome -Phase 'Group' -Errors @($groupResult.Errors)
             } else {
                 # Only show detailed counts when there are no dependency errors
                 $actionCount = 0
@@ -2405,6 +2527,7 @@ else {
             
             if ($hasErrors) {
                 Write-Host "Resolve all dependency errors before proceeding with User deployment" -ForegroundColor Red
+                Write-TierModelBlockedOutcome -Phase 'User' -Errors @($userResult.Errors)
             } else {
                 # Only show detailed counts when there are no dependency errors
                 $createCount = 0
@@ -2468,6 +2591,7 @@ else {
             
             if ($hasErrors) {
                 Write-Host "Resolve all dependency errors before proceeding with OU ACL deployment" -ForegroundColor Red
+                Write-TierModelBlockedOutcome -Phase 'OU ACL' -Errors @($ouAclResult.Errors)
             } else {
                 # Only show detailed counts when there are no dependency errors
                 $actionCount = 0
@@ -2523,6 +2647,9 @@ else {
             
             if ($hasErrors) {
                 Write-Host "Resolve all dependency errors before proceeding with GPO deployment" -ForegroundColor Red
+                Write-TierModelSkippedGpoReport -Plan $gpoResult
+                $gpoSkipped = if ($gpoResult.PSObject.Properties.Name -contains 'SkippedGpos') { @($gpoResult.SkippedGpos) } else { @() }
+                Write-TierModelBlockedOutcome -Phase 'GPO' -Errors @($gpoResult.Errors) -SkippedItems $gpoSkipped
             } else {
                 # Access the plan data from the result object
                 $plan = $null
@@ -2628,15 +2755,35 @@ else {
                 }
             }
             
+            # Split analysis errors the same way Copy-TierModelAdmx does, so the plan matches
+            # what -ConfirmApply will actually do. A per-file source problem no longer aborts
+            # the phase, so it must not be reported here as a blocking dependency error.
+            $admxPerFilePattern = '^Source (ADMX|ADML) file (not found|hash mismatch)'
+            $admxAllErrors = @($admxPlan.Analysis.Errors)
+            $admxSkipErrors = @($admxAllErrors | Where-Object { $_ -and $_ -match $admxPerFilePattern })
+            # @() is mandatory: PowerShell unrolls a returned array, so an empty result comes
+            # back as $null and .Count then throws under Set-StrictMode.
+            $admxFatalErrors = @(Get-TierModelAdmxFatalError -Errors $admxAllErrors)
+
             Write-Host "ADMX Plan Summary:" -ForegroundColor White
             Write-Host "  Total in Config: $($admxPlan.Summary.TotalFiles)" -ForegroundColor Gray
             Write-Host "  To Create: $createCount" -ForegroundColor Yellow
             Write-Host "  To Update: $updateCount" -ForegroundColor Yellow
             Write-Host "  Already Exist: $($admxPlan.Summary.FilesUpToDate)" -ForegroundColor Green
-            
-            if ($admxPlan.Analysis.Errors -and $admxPlan.Analysis.Errors.Count -gt 0) {
+            if ($admxSkipErrors.Count -gt 0) {
+                # Files failing source validation are counted in TotalFiles but are in neither
+                # ToUpdate nor UpToDate - report them so the numbers reconcile.
+                Write-Host "  Will Be Skipped: $($admxSkipErrors.Count)" -ForegroundColor Yellow
+            }
+
+            if ($admxSkipErrors.Count -gt 0) {
+                Write-Host "Source file validation warnings - these files will be SKIPPED:" -ForegroundColor Yellow
+                $admxSkipErrors | ForEach-Object { Write-Host "  ⚠️  $_" -ForegroundColor Yellow }
+                Write-Host "  All remaining files will still be deployed." -ForegroundColor Yellow
+            }
+            if ($admxFatalErrors.Count -gt 0) {
                 Write-Host "Dependency Errors:" -ForegroundColor Red
-                $admxPlan.Analysis.Errors | ForEach-Object { Write-Host "  ❌ $_" -ForegroundColor Red }
+                $admxFatalErrors | ForEach-Object { Write-Host "  ❌ $_" -ForegroundColor Red }
             }
             
             # Show planned actions
@@ -2676,10 +2823,14 @@ else {
             Write-Host "`n=== Deployment Plan ===" -ForegroundColor Blue
             
             # Check if there are dependency errors
-            $hasErrors = $admxPlan.Analysis.Errors -and $admxPlan.Analysis.Errors.Count -gt 0
+            # Only genuinely fatal analysis errors block the ADMX phase - per-file source
+            # problems are skipped by Copy-TierModelAdmx and the rest still deploys.
+            $admxBlockingErrors = @(Get-TierModelAdmxFatalError -Errors @($admxPlan.Analysis.Errors))
+            $hasErrors = $admxBlockingErrors.Count -gt 0
             
             if ($hasErrors) {
                 Write-Host "Resolve all dependency errors before proceeding with ADMX deployment" -ForegroundColor Red
+                Write-TierModelBlockedOutcome -Phase 'ADMX' -Errors $admxBlockingErrors
             } else {
                 # Calculate total actions (creates + updates)
                 $actionCount = $createCount + $updateCount
@@ -2994,7 +3145,7 @@ if (-not $FullDeployment -and -not $ConfirmApply) {
     if ($UserOnly -and $userResult -and $userResult.PSObject.Properties.Name -contains 'Errors' -and $userResult.Errors -and $userResult.Errors.Count -gt 0) { $hasErrors = $true }
     if ($OuAclsOnly -and $ouAclResult -and $ouAclResult.PSObject.Properties.Name -contains 'Errors' -and @($ouAclResult.Errors).Count -gt 0) { $hasErrors = $true }
     if ($GposOnly -and $gpoResult -and $gpoResult.PSObject.Properties.Name -contains 'Errors' -and $gpoResult.Errors -and @($gpoResult.Errors).Count -gt 0) { $hasErrors = $true }
-    if ($AdmxOnly -and $admxPlan -and $admxPlan.PSObject.Properties.Name -contains 'Analysis' -and $admxPlan.Analysis.Errors -and $admxPlan.Analysis.Errors.Count -gt 0) { $hasErrors = $true }
+    if ($AdmxOnly -and $admxPlan -and $admxPlan.PSObject.Properties.Name -contains 'Analysis' -and @(Get-TierModelAdmxFatalError -Errors @($admxPlan.Analysis.Errors)).Count -gt 0) { $hasErrors = $true }
     
     # Only show ConfirmApply if there are actions and no errors
     if ($hasActions -and -not $hasErrors) {
@@ -3005,8 +3156,19 @@ if (-not $FullDeployment -and -not $ConfirmApply) {
 }
 
 Write-Host ""
-Write-Host "Deploy script completed." -ForegroundColor Green
+if ($script:DeploymentBlocked) {
+    Write-Host "Deploy script completed - DEPLOYMENT BLOCKED, no changes were applied." -ForegroundColor Red
+} else {
+    Write-Host "Deploy script completed." -ForegroundColor Green
+}
 if ($Logging) {
-    Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "Deploy script completed successfully"
+    if ($script:DeploymentBlocked) {
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Deploy script completed with BLOCKED deployment - dependency errors prevented changes from being applied" -Data @{
+            BlockedPhases = ($script:BlockedPhases -join ', ')
+            Outcome = 'Blocked'
+        }
+    } else {
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "Deploy script completed successfully"
+    }
     Write-Host "Log file saved: $script:LogFilePath" -ForegroundColor Gray
 }

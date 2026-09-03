@@ -21,6 +21,46 @@
 
 ## Learnings
 
+### 2026-09-03 — An unfaithful mock actively conceals production bugs
+
+This is the headline lesson from unblocking four test-locked production bugs.
+
+- **A mock that returns nothing where the real cmdlet returns an object is not "simple" — it is wrong,
+  and it hides real defects.** `Grant-ADAuthenticationPolicySiloAccess`, `Set-ADAccountAuthenticationPolicySilo`
+  and `Set-GPRegistryValue` were all mocked as `{ }`. Because the mock could never return anything, no
+  production null/result check could ever be added, so a silent no-op AD/GPO write kept printing a green
+  success tick. The tests were not merely failing to catch the bug — they were the reason the bug could
+  not be fixed. Beast implemented three correct fixes, hit 4 failures, and had to revert.
+- **Faithful means faithful to the real cmdlet's contract, not "returns something".** Both AD silo cmdlets
+  emit *nothing* unless `-PassThru` is supplied; `Set-GPRegistryValue` emits the `Gpo` object by default.
+  Blindly returning an object from the AD mocks polluted the function's output stream (production calls
+  them without `| Out-Null`), turning `$result` into an array and breaking an unrelated test. The correct
+  mock models *both* arms: no output without `-PassThru`, a realistic object with it.
+- **A test whose comment contradicts its own mock is a latent blocker.** `Unit.GpoLinking.Tests.ps1`
+  asserted an "enforcement mismatch" with config `enforced = 'No'` against a mock link whose `Enforced`
+  was `$false` — the comment claimed the current state was "Yes/True". It only passed because of the very
+  truthiness bug under repair (`'No' -ne $false` is True). Corrected to string `'Yes'`, which still asserts
+  a genuine mismatch and additionally exercises the string-form config normalization path.
+
+### 2026-09-03 — Pester 5.9 mock scoping facts (hard-won, verified empirically)
+
+- `$PesterBoundParameters` **is** available inside a mock body (not just in `-ParameterFilter`). This is the
+  reliable way to branch a mock on a switch such as `-PassThru`, since Pester 5.9 still does not inject
+  named parameters into mock bodies.
+- **But only for mocks registered with `Mock <cmd> -ModuleName <Mod>`.** A mock declared *inside*
+  `InModuleScope <Mod> { Mock <cmd> {...} }` does **not** get `$PesterBoundParameters`, and under the
+  module's StrictMode the reference throws *"The variable '$PesterBoundParameters' cannot be retrieved
+  because it has not been set."* That exception is swallowed by the production try/catch and surfaces as a
+  confusing downstream assertion failure (e.g. "Expected 'Set' to be found in collection Grant") rather
+  than as an obvious mock error.
+- The two registration styles also differ in `$script:` scope. A `$script:` variable written by a mock
+  declared with `-ModuleName` is **not** the same variable read inside an `InModuleScope` block. Keep the
+  initialisation, the mock and the assertions all in the same style or the counter silently reads `$null`.
+- Diagnosing this class of failure: dump `$result.Errors` from the function under test. The real cause is
+  almost always an exception thrown *inside the mock* and caught by production code.
+- `Should -Contain` against an **empty** `List[string]` reports "collection $null" (an empty list pipes to
+  nothing), which reads like an uninitialised variable but is not. Don't chase the wrong bug.
+
 ## Session 2026-09-02 -- Session Orchestration & Finalization
 
 **Status:** COMPLETE
@@ -120,3 +160,46 @@ Public-facing auth-silos operations guide revised with v2 migration appendix. No
 ## Archived Sessions  
 
 Detailed coverage reports from 2026-08-15 and earlier archived to history-archive.md. Current focus: Update-TierModelMembership.ps1 Pester tests awaiting Beast UAT completion.
+
+---
+
+## Learnings — 2026-09-03 (session 2: gpoStatus + GPO link planner)
+
+**A test whose own comment documents a bug is a bug report, not a specification.**
+Three tests in `Unit.GpoLinking.Tests.ps1` and one in `Unit.GpoOperations.Tests.ps1`
+contained comments explicitly narrating the defect they were pinning ("the function has
+a StrictMode bug...", "Passes when actual flags also happen to be 0"). Each one had been
+written to match observed output rather than intended behaviour. When a comment explains
+*why the wrong answer is expected*, that is the signal to escalate, not to assert.
+
+**The silent-default anti-pattern.** `default { 0 }` in the gpoStatus switch turned a
+config typo into a green audit whenever the live GPO happened to be flags=0. There is no
+runtime JSON-schema validation anywhere in this repo (`Test-TierModelConfig` is referenced
+only from `tests\`, the hand-rolled validator never reads `enum`, and `Test-Json` appears
+zero times), so nothing upstream catches the typo. Unknown enum values must fail loudly and
+name both the offending value and the valid set — but must not `throw` in a way that aborts
+the whole audit run.
+
+**Empty-collection collapse hides the happy path.** `@() | Sort-Object {...}` returns `$null`,
+and `$null.Count` throws under StrictMode. In the GPO link planner this meant the
+*fully converged* case — the success outcome — surfaced as `GPOLinkPlanningFailed`, and a
+genuine per-action failure was relabelled from `GPOLinkAnalysisFailed` to the outer
+planning error, hiding which action actually broke. Always wrap pipeline results destined
+for `.Count` in `@()`.
+
+**Verify the mock that is actually in scope before "fixing" a test.** I changed
+`enforced = 'No'` to `'Yes'` in "Should plan to update link when enforcement doesn't match"
+after reading a `Get-GPInheritance` override that was declared *inside a different `It`*
+(Pester 5 scopes it to that `It` alone). The Describe-level mock returns `Enforced = $true`,
+so the original `'No'` was correct and my edit silently removed the mismatch. Reverted.
+When several mocks share a cmdlet name in one file, confirm which one the failing test
+actually resolves to.
+
+**Test-isolation defect, not a production defect (EnvironmentSnapshot).**
+`Unit.Prerequisites.Tests.ps1` writes fixtures to `[System.IO.Path]::GetTempPath()` under
+FIXED names and deletes them in `AfterAll`. Two concurrent runs on the same machine delete
+each other's fixtures mid-flight; `Test-TierModelPrerequisites.ps1` then early-returns with
+`EnvironmentSnapshot = @{}` and every snapshot assertion reads `$null`. Reproduced
+deterministically: concurrent run A 91/0, run B 85/6. Fix is unique fixture names per run
+(PID or GUID), not a change to the production function. Left unfixed to avoid colliding
+with Beast's concurrent BUG-011 work.

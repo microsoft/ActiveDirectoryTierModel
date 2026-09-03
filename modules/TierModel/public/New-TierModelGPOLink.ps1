@@ -74,7 +74,9 @@ function New-TierModelGPOLink {
                     # Extract link settings with defaults (matching original working code)
                     $requiredOrder = if ($gpoData.PSObject.Properties.Name -contains 'linkOrder') { $gpoData.linkOrder } else { -1 }
                     $linkEnabled = if ($gpoData.PSObject.Properties.Name -contains 'linkEnabled') { $gpoData.linkEnabled } else { $true }
-                    $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { $gpoData.enforced } else { 'No' }
+                    # $null means "config did not declare enforcement" -> never touch an existing link's
+                    # enforcement (Rule 4). Do NOT use [bool] here: [bool]'No' / [bool]'False' are $true.
+                    $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { ($gpoData.enforced -eq 'Yes' -or $gpoData.enforced -eq $true) } else { $null }
                     
                     Write-TierModelLog -Level Info -Message "Linking GPO" -Data @{
                         Name = $gpoName
@@ -120,8 +122,14 @@ function New-TierModelGPOLink {
                         $linkEnabledParam = if ($linkEnabled) { 'Yes' } else { 'No' }
                         $enforcedParam = if ($requiredEnforced -eq 'Yes' -or $requiredEnforced -eq $true) { 'Yes' } else { 'No' }
                         
-                        New-GPLink -Name $gpoName -Target $targetOUPath -LinkEnabled $linkEnabledParam -Order $requiredOrder -Enforced $enforcedParam -Server $DomainController | Out-Null
-                        
+                        $newLink = New-GPLink -Name $gpoName -Target $targetOUPath -LinkEnabled $linkEnabledParam -Order $requiredOrder -Enforced $enforcedParam -Server $DomainController -ErrorAction Stop
+
+                        # Verify the write before claiming success. Under the PS7 WinPSCompat shim
+                        # the GroupPolicy proxy can report failure without terminating.
+                        if ($null -eq $newLink) {
+                            throw (Get-TierModelWriteFailureDetail -Operation 'New-GPLink' -Target "$gpoName -> $targetOUPath").Summary
+                        }
+
                         Write-Host "  ✅ Created GPO link: $gpoName" -ForegroundColor Green
                         
                     } else {
@@ -146,13 +154,19 @@ function New-TierModelGPOLink {
                             
                             # Update order if needed
                             if ($requiredOrder -and $requiredOrder -ne $currentOrder) {
-                                Set-GPLink -Name $gpoName -Target $targetOUPath -Order $requiredOrder -Server $DomainController | Out-Null
+                                $orderResult = Set-GPLink -Name $gpoName -Target $targetOUPath -Order $requiredOrder -Server $DomainController -ErrorAction Stop
+                                if ($null -eq $orderResult) {
+                                    throw (Get-TierModelWriteFailureDetail -Operation 'Set-GPLink (Order)' -Target "$gpoName -> $targetOUPath").Summary
+                                }
                             }
-                            
+
                             # Update enforcement if needed  
                             if ($null -ne $requiredEnforced -and $requiredEnforced -ne $currentEnforced) {
                                 $enforcedAction = if ($requiredEnforced) { 'Yes' } else { 'No' }
-                                Set-GPLink -Name $gpoName -Target $targetOUPath -Enforced $enforcedAction -Server $DomainController | Out-Null
+                                $enforcedResult = Set-GPLink -Name $gpoName -Target $targetOUPath -Enforced $enforcedAction -Server $DomainController -ErrorAction Stop
+                                if ($null -eq $enforcedResult) {
+                                    throw (Get-TierModelWriteFailureDetail -Operation 'Set-GPLink (Enforced)' -Target "$gpoName -> $targetOUPath").Summary
+                                }
                             }
                             
                             Write-Host "  Updated GPO link: $gpoName" -ForegroundColor Green
@@ -182,6 +196,8 @@ function New-TierModelGPOLink {
                     GPOName = $action.Data.name
                     TargetOU = $action.Path
                     Exception = $_.Exception.Message
+                    FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                    CategoryInfo = $_.CategoryInfo.ToString()
                     CorrelationId = $CorrelationId
                 } | Out-Null
                 

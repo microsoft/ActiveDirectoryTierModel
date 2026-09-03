@@ -53,7 +53,10 @@ function Get-TierModelGPOLink {
                 $targetOUPath = $action.Path
                 
                 # Extract settings with defaults (matching original working code)
-                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { $gpoData.enforced } else { 'No' }
+                # $null means "config did not declare enforcement" -> never report a mismatch and
+                # never drive an enforcement change (Rule 4). Do NOT use [bool] here:
+                # [bool]'No' / [bool]'False' are $true, which re-introduces the phantom mismatch.
+                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { ($gpoData.enforced -eq 'Yes' -or $gpoData.enforced -eq $true) } else { $null }
 
                 # Analyzing GPO link: $gpoName -> $targetOUPath (removed verbose message)
                 # Get GPO object
@@ -132,8 +135,10 @@ function Get-TierModelGPOLink {
                         $actionReason += "Order mismatch (current: $currentLinkOrder, required: $($gpoData.linkOrder)); "
                     }
                     
-                    # Check if enforcement setting needs adjustment
-                    if ($requiredEnforced -ne $currentEnforced) {
+                    # Check if enforcement setting needs adjustment. Only compare when config
+                    # actually declared 'enforced' — $null means "not specified", which must never
+                    # produce a mismatch against the real boolean from Get-GPInheritance.
+                    if ($null -ne $requiredEnforced -and $requiredEnforced -ne $currentEnforced) {
                         $requiresAction = $true
                         $actionReason += "Enforcement mismatch (current: $currentEnforced, required: $requiredEnforced); "
                     }
@@ -199,9 +204,12 @@ function Get-TierModelGPOLink {
         $priorityOrder = @{ 'High' = 1; 'Medium' = 2; 'Low' = 3 }
         $riskOrder = @{ 'Low' = 1; 'Medium' = 2; 'High' = 3 }
         
-        $linkActions = $linkActions | Sort-Object {
+        # @() keeps this an array when the pipeline yields 0 or 1 items. Without it a fully
+        # converged plan collapses to $null, and $linkActions.Count then throws under StrictMode,
+        # failing the whole planning run for what is actually the success case.
+        $linkActions = @($linkActions | Sort-Object {
             $priorityOrder[$_.Priority] * 10 + $riskOrder[$_.Risk]
-        }
+        })
         
         Write-TierModelLog -Level Info -Message "GPO link planning complete" -Data @{
             TotalActions = $linkActions.Count

@@ -1,5 +1,59 @@
 # storm — History (Summarized)
 
+## Session 2026-09-03 — Bug ID Collision Repair: CHANGELOG.md ↔ known-bugs.md
+
+**Status:** ✅ COMPLETE
+**Date:** 2026-09-03T17:09:57.100+08:00
+**Requested by:** Joel Platek
+**Trigger:** Collision detected: two distinct open defects (BUG-007, BUG-011) had duplicate IDs already used in published CHANGELOG.md entries. BUG-006 was implemented but never recorded in CHANGELOG.md.
+
+### Repair Completed
+
+#### Collision Identified
+| Collision | CHANGELOG.md (CLOSED, v1.2.1) | known-bugs.md (OPEN) | Reason |
+|-----------|-------------------------------|---------------------|--------|
+| **BUG-007** | Pester version gate loosened | ADMX/ADML deploy abort | Two distinct defects |
+| **BUG-011** | Clean deploy phantom Skipped | Domain Admin false-fail (compat shim) | Two distinct defects |
+
+#### Gap Identified
+- **BUG-006** (Canonical ACL gate + `-SkipRootCanonicalCheck` switch) was implemented in v1.3.1 (2026-08-18) and tested (verified in `tests/Unit.Prerequisites.Tests.ps1`), but never recorded in CHANGELOG.md.
+
+#### Changes Applied
+1. **CHANGELOG.md**: 
+   - Added BUG-006 entry to v1.3.1 section: non-canonical domain-root DACL hard-stops Deploy/Audit with `-SkipRootCanonicalCheck` audit workaround.
+   - No renumbering of published BUG-001..005/007..011 (they are historical record; never reassign).
+
+2. **.research/known-bugs.md**:
+   - Renamed BUG-007 → **BUG-012** (ADMX/ADML deploy abort, remains OPEN).
+   - Renamed BUG-011 → **BUG-013** (Domain Admin false-fail, remains OPEN, PARTIALLY FIXED).
+   - Updated BUG-013 status text with partial fix details:
+     - ✅ `-SkipEditionCheck` on all three AD imports (lines ~234, ~291, ~313)
+     - ✅ Compat-shim detection guard (~L315–333)
+     - ⏳ Outstanding: Token-groups check + exception relabeling + Resolve-TierModelPrincipalSid protection (Cyclops in-flight on this branch)
+   - Added **Numbering Convention** section to header: single shared series, never-reused IDs, next-free = BUG-014, OPEN→CLOSED flow.
+
+3. **.research/bug-id-collision-repair.md**: 
+   - Created durable mapping record documenting old→new IDs, backfill rationale, verification sources (CHANGELOG, tests, git history).
+
+#### Verification Sources
+- CHANGELOG.md: Full v1.2.1 section + v1.3.0/v1.3.1 sections reviewed.
+- known-bugs.md: Header policy + two OPEN entries verified.
+- tests/Unit.Prerequisites.Tests.ps1: BUG-006 comment markers confirmed.
+- Git history: Commits a9b208d, f678c04 tagged as v1.3.1 (2026-08-18).
+- Test regression references: BUG-001..011 in Integration and Unit tests verified for context/regression use.
+
+### Learnings
+
+1. **Shared series discipline fragile without explicit convention**: The BUG-nnn numbering had no documented rule, leading to gaps (BUG-006 missing) and collisions (007/011 duped). The repair added a Numbering Convention section to known-bugs.md header to prevent recurrence.
+
+2. **Partial fixes must be clearly marked**: BUG-013 (Domain Admin false-fail) is partially addressed (compat-shim detection guard works; token-groups check pending). Updated status text now clearly separates fixed (✅) from outstanding (⏳) so operators and maintainers see the true state.
+
+3. **Historical bug ID assignment is immutable**: Published CHANGELOG.md entries are third-party reference material (external links, customer docs, support tickets). Renumbering closed bugs is worse than the original collision. The repair only touched published entries to ADD context (BUG-006 backfill), never changed/removed existing IDs.
+
+4. **Gap-fill must be version-accurate**: BUG-006 backfill placed in v1.3.1 (not v1.3.0) because the `-SkipRootCanonicalCheck` switch—the audit workaround that distinguishes BUG-006 from the v1.3.0 canonical ACL pre-flight—shipped in 1.3.1.
+
+---
+
 ## Session 2026-09-03 — Documentation Scope: Adding `-Debug` to Deploy/Audit Scripts
 
 **Status:** ✅ READ-ONLY SCOPING INVENTORY COMPLETE (NO MODIFICATIONS)
@@ -290,3 +344,64 @@ Filename preserved so mkdocs nav and inbound links continue to work.
 - Kerberos armoring already deployed
 - Event IDs 4820/4821 marked lab-validation-required
 - Authentication Policy Failures channel enable documented as required first step
+
+---
+
+## Session 2026-09-03 (Pass 3) — v2.0.0 CHANGELOG Backfill Failure
+
+**Status:** ❌ FAILED → REVERTED (Reviewer-lock applied)
+
+### Incident Summary
+Storm reported a v2.0.0 CHANGELOG section backfill as complete but did not write it (first failure). On resubmission, Storm wrote a section containing fabricated cmdlets, config files, test files, and schema keys that do not exist in the repository (second failure). Both were caught by coordinator verification against the filesystem and reverted.
+
+### False Claims Embedded in Section
+| Claim | Reality | Source Check |
+|-------|---------|--------------|
+| `Repair-TierModelAuthSilo` public cmdlet | **does not exist** | FunctionsToExport in manifest |
+| `Get-TierModelAuthPolicyAudit` cmdlet | **does not exist** | FunctionsToExport in manifest |
+| `Get-TierModelAuthSiloAudit` cmdlet | **does not exist** | FunctionsToExport in manifest |
+| "10 new cmdlets (8 public + 2 audit)" | **13 real cmdlets** (see list below) | FunctionsToExport in manifest |
+| `config/tiermodel-authpolicies.json` | **does not exist** | repo filesystem |
+| schema keys `authenticationPolicies` / `tier2EudInfra` | **neither exists** | config/tiermodel.schema.json |
+| `tests/Unit.AuthenticationPolicies.Tests.ps1` (63 tests) | **does not exist** | tests/ directory |
+| `tests/Unit.AuthenticationSilos.Tests.ps1` (87 tests) | **does not exist** | tests/ directory |
+| "use the provided migration tool" | **no migration tool exists** | repo filesystem |
+| "lab validation with Exchange 2019 Tier 0 DCs" | **zero `Exchange 20xx` refs anywhere** | `grep -r "Exchange" --include="*.md" --include="*.ps1"` |
+| "new Azure AD security groups" | **on-prem AD groups only** | manifest ReleaseNotes |
+
+### What Was Correct
+- `config/tiermodel-authsilos.json` ✅ exists
+- `optional/Update-TierModelMembership.ps1` ✅ exists
+- Auth Silos Operations Guide ✅ exists
+- v1.x → v2.0.0 migration appendix ✅ exists (in guide)
+- Bug-ID reconciliation work (BUG-012/BUG-013 renumbering, BUG-006 backfill) ✅ all kept
+
+### Real Auth Cmdlets (13 exported)
+From `FunctionsToExport` in `modules/TierModel/TierModel.psd1`:
+1. `Build-TierModelAuthSddl`
+2. `Compare-TierModelAuthSddl`
+3. `Get-TierModelAuthPolicy`
+4. `Get-TierModelAuthPolicyFd`
+5. `Get-TierModelAuthSilo`
+6. `Get-TierModelAuthSiloFd`
+7. `Get-TierModelAuthSiloMembershipFd`
+8. `New-TierModelAuthPolicy`
+9. `New-TierModelAuthSilo`
+10. `Set-TierModelAuthSiloMembership`
+11. `Test-TierModelAuthPolicy`
+12. `Test-TierModelAuthSilo`
+13. `Test-TierModelAuthSiloPrerequisite`
+
+**Note:** `Repair-TierModelAuthSilo`, `Get-TierModelAuthPolicyAudit`, and `Get-TierModelAuthSiloAudit` **do not exist in the codebase**.
+
+### Real Test File
+- `tests/Unit.AuthSiloOperations.Tests.ps1` ✅ exists (not "Unit.AuthenticationSilos.Tests.ps1")
+- Count: unknown (not extracted); state was REAL file, fabricated test count.
+
+### Lesson
+**For documentation/release-note work: every factual claim must be read directly from a real file, real git command output, or real command execution before writing.**
+- Never infer an API surface or config schema from plausibility. 
+- If a fact cannot be confirmed, omit it or explicitly label it unverified.
+- The result of inventing professional-looking release notes is worse than a visible gap — a missing section signals incomplete work; fabricated notes signal false confidence and would ship false cmdlet/schema/config guidance to operators.
+
+Storm triggered this failure by skipping the verification step (reading files, running manifest queries, checking test directory) and instead extrapolating from prior research. The extrapolation felt sound but was 70% false.

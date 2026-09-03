@@ -2541,16 +2541,29 @@ Describe "Test-TierModelGpo – extended coverage" -Tag "Unit", "GPO", "Validati
             ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
         }
 
-        It "Treats unknown gpoStatus value as flags=0 (default switch case)" {
-            # Passes when actual flags also happen to be 0 (default branch returns 0)
+        It "Fails the GPO Status check when gpoStatus is unrecognised, even if actual flags are 0" {
+            # Regression guard for the silent-default bug: the audit switch used to have
+            # `default { 0 }`, so an unrecognised gpoStatus degraded to "expect AllSettingsEnabled".
+            # When the real GPO happened to be flags=0 the audit reported Pass, so a config typo
+            # produced a false green. There is no runtime JSON-schema validation upstream to catch
+            # the typo first, so this check is the only line of defence. flags=0 is deliberate here:
+            # it is exactly the case that used to pass.
             Mock Get-ADObject -ModuleName TierModel {
                 return [PSCustomObject]@{ flags = 0 }
             }
             $config = [PSCustomObject]@{ gpoStatus = "UnrecognizedValue" }
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $config -DomainController "DC01"
 
-            $result.Status | Should -Be 'Pass'
-            ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
+            $result.Status | Should -Be 'Fail'
+
+            $statusCheck = $result.Checks | Where-Object { $_.Check -eq 'GPO Status' }
+            $statusCheck.Status | Should -Be 'Fail'
+            # The message must name the offending value and list the valid ones
+            $statusCheck.Message | Should -Match "UnrecognizedValue"
+            $statusCheck.Message | Should -Match "AllSettingsDisabled"
+
+            $result.Issues | Should -Match "UnrecognizedValue"
+            $result.Recommendations | Should -Not -BeNullOrEmpty
         }
     }
 

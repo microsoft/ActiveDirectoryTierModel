@@ -50,6 +50,11 @@ function Get-TierModelOuAcl {
         $actions = @()
         $planErrors = @()
         $warnings = @()
+        # Real count of delegations found already present in AD with an exact match.
+        # This planner only ever emits 'CreateAcl' actions, so TotalActions and CreateActions
+        # are always identical - any "already exist" figure derived by subtracting one from
+        # the other is structurally always zero and tells the operator nothing.
+        $existingAclCount = 0
         
         # Get domain DN for placeholder replacement
         $domainDN = Resolve-TierModelDomainDN -DomainController $DomainController
@@ -67,7 +72,9 @@ function Get-TierModelOuAcl {
                 Actions = $actions
                 Summary = @{
                     TotalActions = 0
+                    TotalInConfig = 0
                     CreateActions = 0
+                    ExistingCount = 0
                     RiskAssessment = @{
                         LowRisk = 0
                         MediumRisk = 0
@@ -248,6 +255,7 @@ function Get-TierModelOuAcl {
                     
                     if ($existingAcl) {
                         $needsApplication = $false
+                        $existingAclCount++
                         Write-TierModelLog -Level Info -Message "ACL delegation already exists with exact match" -Data @{
                             TargetOUPath = $targetOUPath
                             IdentityReference = $identityReference
@@ -319,7 +327,9 @@ function Get-TierModelOuAcl {
             Errors = $planErrors
             Summary = @{
                 TotalActions = $actions.Count
+                TotalInConfig = @($Config.aclDelegations).Count
                 CreateActions = $createActions
+                ExistingCount = $existingAclCount
                 RiskAssessment = @{
                     LowRisk = $lowRiskActions
                     MediumRisk = 0
@@ -356,7 +366,9 @@ function Get-TierModelOuAcl {
             Actions = @()
             Summary = @{
                 TotalActions = 0
+                TotalInConfig = 0
                 CreateActions = 0
+                ExistingCount = 0
                 RiskAssessment = @{
                     LowRisk = 0
                     MediumRisk = 0

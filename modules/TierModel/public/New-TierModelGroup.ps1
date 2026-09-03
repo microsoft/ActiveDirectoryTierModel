@@ -115,7 +115,7 @@ function New-TierModelGroup {
                         } | Out-Null
                     } else {
                         # Show creation progress
-                        Write-Host "  ✅ Creating Group: $groupName ($groupSamAccountName)" -ForegroundColor Green
+                        Write-Host "  Creating Group: $groupName ($groupSamAccountName)" -ForegroundColor Cyan
                         
                         # Create the Group using New-ADGroup
                         $newGroupParams = @{
@@ -133,8 +133,17 @@ function New-TierModelGroup {
                             $newGroupParams['Description'] = $groupDescription
                         }
                         
-                        $newGroup = New-ADGroup @newGroupParams -PassThru
-                        
+                        $newGroup = New-ADGroup @newGroupParams -PassThru -ErrorAction Stop
+
+                        # Verify the write before recording success. Under the PS7 WinPSCompat shim
+                        # the ActiveDirectory proxy can report failure without terminating, leaving
+                        # $newGroup null - a silently missing group is a Tier 0 security control gap.
+                        if ($null -eq $newGroup) {
+                            throw (Get-TierModelWriteFailureDetail -Operation 'New-ADGroup' -Target $groupName).Summary
+                        }
+
+                        Write-Host "  ✅ Created Group: $groupName ($groupSamAccountName)" -ForegroundColor Green
+
                         $applied += [PSCustomObject]@{
                             Name = $groupName
                             SamAccountName = $groupSamAccountName
@@ -185,6 +194,8 @@ function New-TierModelGroup {
                     SamAccountName = $action.Data.samaccountname
                     Path = $action.Path
                     ExceptionMessage = $_.Exception.Message
+                    FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                    CategoryInfo = $_.CategoryInfo.ToString()
                     CorrelationId = $CorrelationId
                 } | Out-Null
             }

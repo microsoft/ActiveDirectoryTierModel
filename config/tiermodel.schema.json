@@ -69,6 +69,7 @@
         "properties": {
           "name": {"type": "string"},
           "mode": {"type": "string", "enum": ["Import", "Create"]},
+          "gpoStatus": {"type": "string", "enum": ["AllEnabled", "AllSettingsEnabled", "UserSettingsDisabled", "ComputerSettingsDisabled", "BothSettingsDisabled", "AllSettingsDisabled"]},
           "guid": {"type": "string"},
           "importPath": {"type": "string"},
           "links": {"type": "array", "items": {"type": "string"}},

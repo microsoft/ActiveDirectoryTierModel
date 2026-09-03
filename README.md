@@ -162,7 +162,7 @@ Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model is availa
 
 ---
 
-**Version**: 1.2.3 | **License**: MIT | **Status**: ✅ Production Ready
+**Version**: 2.1.0 | **License**: MIT | **Status**: ✅ Production Ready
 
 ## 🚀 Releasing
 
