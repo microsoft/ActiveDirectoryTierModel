@@ -1,5 +1,103 @@
 # storm — History (Summarized)
 
+## Session 2026-09-03 — Documentation Scope: Adding `-Debug` to Deploy/Audit Scripts
+
+**Status:** ✅ READ-ONLY SCOPING INVENTORY COMPLETE (NO MODIFICATIONS)
+**Date:** 2026-09-03T13:59:39.519+08:00
+**Requested by:** Joel Platek
+**Trigger:** Team scoping to add `-Debug` (debug log file) capability to `Deploy-TierModel.ps1` and `Audit-TierModel.ps1`, using `optional\Update-TierModelMembership.ps1` v1.7.2 as reference.
+
+### Inventory Summary
+
+#### Current State — Existing Logging Parameters
+1. **Deploy-TierModel.ps1**: 
+   - `.PARAMETER Logging` (switch, enable structured logging)
+   - `.PARAMETER LogPath` (directory, where logs written)
+   - `.PARAMETER OutputFileBase` (filename prefix without timestamp/extension)
+   - 3 `.EXAMPLE` blocks showing `-Logging` usage
+
+2. **Audit-TierModel.ps1**:
+   - `.PARAMETER LogPath` (directory, where reports written)
+   - `.PARAMETER OutputFormat` (enum: Text, Json, Html, NUnitXml)
+   - `.PARAMETER OutputFileBase` (filename prefix)
+   - 6 `.EXAMPLE` blocks (none show logging/output params yet)
+   - Note: Audit uses **separate purpose** (reports, not logs) — different from Deploy
+
+3. **Update-TierModelMembership.ps1** (reference — v1.7.2):
+   - `.PARAMETER EnableDebug` (switch, not `-Debug`)
+   - Creates `Debug\` subfolder beside script (separate from logs)
+   - Filename pattern: `Update-TierModelMembership.debug.<timestamp>.<CorrelationId>.log`
+   - Bounded retention: 7-day age + max 30 files + 200 MB total
+   - Free-space precheck: 50 MB minimum before write
+   - **FAIL-FAST**: aborts before ANY AD changes if debug file cannot be created
+   - Correlation ID in both debug filename AND logging entries (for cross-referencing)
+   - No `.EXAMPLE` entries demonstrate `-EnableDebug` usage
+   - Help text: "deep per-decision troubleshooting dump to a Debug subfolder…"
+
+#### Documentation Surface (What WOULD Change)
+
+**SCRIPT COMMENT-BASED HELP (user-facing):**
+| File | Content | Work |
+|------|---------|------|
+| `Deploy-TierModel.ps1` | `.PARAMETER -Debug` help block | Add 8–12 lines matching Membership template (directory location, retention policy, fail-fast behavior, free-space check) |
+| `Deploy-TierModel.ps1` | `.EXAMPLE` blocks | Add 1–2 new examples showing `-Debug` flag combined with other parameters (e.g., `-FullDeployment -Debug`, `-OuOnly -Debug -Logging`) |
+| `Audit-TierModel.ps1` | `.PARAMETER -Debug` help block | Add 8–12 lines (same template as Deploy) |
+| `Audit-TierModel.ps1` | `.EXAMPLE` blocks | Add 1–2 new examples (e.g., `-FullDeployment -Debug`, `-GposOnly -Debug`) |
+
+**PRIMARY DOCUMENTATION (docs/ folder):**
+| File | Section | Work | Rough Size |
+|------|---------|------|-----------|
+| `docs/tiermodel-logging.md` | New top-level section after "Overview" | Add "Deployment Debug vs. Logging" (clarify `-Debug` separate from `-Logging`; filename pattern; when to use; fail-fast behavior) | 1–2 paragraphs |
+| `docs/tiermodel-logging.md` | New subsection "Debug Features" under Features | Document bounded retention (age/count/size), free-space precheck, fail-fast guarantee, correlation ID cross-ref with logs | 1 section (~8–10 lines) |
+| `docs/tiermodel-logging.md` | "Usage" → new "Enabling Debug in Deployment" | Add examples: `-FullDeployment -Debug`, `-OuOnly -Debug`, output file location | 1 code block + 3–5 lines |
+| `docs/tiermodel-logging.md` | "Security Features" (existing) | Add note: debug files contain sensitive object DNs but never credentials (same redaction as logs) | 2–3 lines |
+| `docs/tiermodel-logging.md` | "Troubleshooting" → new "Debug Log Analysis" subsection | How to read debug logs, correlation ID matching with `-Logging` output, timestamp format | 1 subsection (~6–8 lines) |
+| `docs/quick-deployment-guide.md` | Section "Optional: Enable Logging" | Rename to "Optional: Enable Logging and Debug"; add `-Debug` example; clarify mutual compatibility | Expand ~8–10 lines |
+| `docs/quick-deployment-guide.md` | "Troubleshooting" section | Add new "Debug Logs" bullet: location, when to use, how to share with support | 3–4 lines |
+
+**CHANGELOG & VERSION DOCS:**
+| File | Content | Work |
+|------|---------|------|
+| `CHANGELOG.md` | Unreleased → Added | New entry: "**Debug Logging**: Optional per-decision troubleshooting via `-Debug` in Deploy-TierModel.ps1 and Audit-TierModel.ps1, mirrors optional/Update-TierModelMembership.ps1 v1.7.2 implementation with bounded retention and fail-fast file-creation guarantee." | ~2–3 lines |
+| `mkdocs.yml` | Nav (if separate page created) | No change needed (tiermodel-logging.md already in nav) |
+
+**POTENTIAL FUTURE (if team expands debug scope):**
+- New `docs/troubleshooting.md` page (does not currently exist) — would house "Run with -Debug to troubleshoot" guidance and log analysis patterns. **Not in scoping yet** — captured here as forward reference only.
+
+#### Key Decisions Needed (NOT decided in this scoping)
+
+1. **Parameter name**: Will Deploy/Audit use `-Debug` (shorter) or `-EnableDebug` (consistent with Membership)? 
+   - **Impact**: Changes parameter reference throughout docs/help.
+   
+2. **Debug folder location**: Separate `Debug\` subfolder (like Membership) or mixed with `-LogPath`?
+   - **Impact**: Affects "Usage" examples and file-location guidance in docs.
+   
+3. **File naming pattern**: Will Deploy/Audit follow `Deploy-TierModel.debug.<timestamp>.<CorrelationId>.log` or simpler pattern?
+   - **Impact**: Changes documentation examples and troubleshooting walkthrough.
+
+4. **Correlation ID**: Will Deploy/Audit embed the same CorrelationId in both debug AND `-Logging` output (like Membership)?
+   - **Impact**: Affects "Security Features" and "Troubleshooting" docs (cross-referencing guidance).
+
+5. **Audit's `-Debug` semantic**: For Audit, is `-Debug` per-module/per-check, or script-wide?
+   - **Impact**: Changes examples and "Usage" documentation.
+
+#### What WILL NOT Change (Joel's note: respect existing figures)
+
+- Manual Integration/UAT test counts in README and test-coverage docs — **left untouched**.
+- Test coverage percentages are author-maintained from Excel — **no automated changes**.
+
+### Learnings
+
+1. **Reference implementation proven solid**: Update-TierModelMembership.ps1 v1.7.2 shows bounded retention + fail-fast works in production; can safely mirror for Deploy/Audit.
+
+2. **No existing troubleshooting page**: Docs currently have **no dedicated troubleshooting guide**. The "-Debug" feature would benefit from a future `docs/troubleshooting.md` stub linking to debug log analysis, but that's out of scope here.
+
+3. **Audit vs. Deploy logging model differs**: Audit uses `-OutputFormat` (reports, not logs); Deploy uses `-Logging` (logs). Adding `-Debug` to both is consistent but the OUTPUT PURPOSE is different — Audit reports are compliance/drift findings; Deploy logs are operational records. Debug logs are diagnostic for **both**.
+
+4. **Documentation already primed for debug**: `docs/tiermodel-logging.md` has sections for "Troubleshooting", "Log Analysis", "Security Features" — adding debug guidance is additive, not a restructure.
+
+---
+
 ## Session 2026-09-02 (Pass 4) — Auth Silos Ops Guide: Option 2 table corrections
 
 **Status:** ✅ COMPLETE

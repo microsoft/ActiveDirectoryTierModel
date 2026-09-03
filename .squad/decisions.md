@@ -655,3 +655,275 @@ The built-in Administrator account is commonly renamed. The function resolves `<
 5. **Member-server Remote Credential Guard GPO flagged "still being finalized."** This content is excluded from the current appendix and must be added before the appendix is considered complete.
 
 ---
+
+# CRITICAL VERIFIED FINDINGS — Debug Switch Session 2026-09-03
+
+**Recorded by:** Scribe  
+**Date:** 2026-09-03  
+**Verified by:** Coordinator (Joel Platek)  
+**Status:** Authoritative — empirically confirmed against live module
+
+These findings supersede claims made by Beast and Cyclops in their initial reviews. **Future sessions must reference these, not the erroneous agent claims.**
+
+## Finding 1: `$DebugPreference` Scope Inheritance (REFUTES CYCLOPS)
+
+**Claim by Cyclops:** "`$DebugPreference = 'Continue'` set in SCRIPT scope flows into module function calls (PowerShell propagates preference variables into child scopes)."
+
+**Empirical result (Coordinator):** REFUTED under test.
+
+**Truth:** 
+- `$DebugPreference = 'Continue'` set at SCRIPT scope in Deploy-TierModel.ps1 does NOT reach functions in the imported TierModel module (0 debug records observed).
+- `$global:DebugPreference = 'Continue'` DOES work (1 debug record observed).
+- Explicitly forwarding `-Debug` to the module function (e.g., via `Get-TierModelXXX -Debug`) DOES work (1 record observed).
+- **Verified against:** pwsh 7.x against `modules/TierModel/TierModel.psd1` imported module.
+
+**Design implication:** Any "zero module changes" architecture that relies on script-scope preference inheritance is **NOT VIABLE**. Either the script must set `$global:DebugPreference` (affects global behavior, side effect), or the module functions must receive explicit `-Debug` forwarding (hundreds of call sites), or module helper functions must be added to route debug output.
+
+## Finding 2: 26 Dormant Debug Call Sites Exist (REFUTES BEAST)
+
+**Claim by Beast:** "There are **zero** `Write-TierModelLog -Level Debug` calls anywhere in the codebase."
+
+**Empirical result (Coordinator):** REFUTED under audit.
+
+**Truth:** 26 dormant `Write-TierModelLog -Level Debug` call sites exist across 19 module files:
+- **Concentrated in:** config resolution, OU deployment, group deployment, GUID resolution, ACL planning, and Audit Test-* functions.
+- **Status:** All are "dormant" — they do NOT emit output today because the log level filter in `Write-TierModelLog` does not route Debug to file/console by default. They ARE present and functional.
+- **Implication:** The debug infrastructure in the logger already exists. Activating `-EnableDebug` mode only requires wiring a preference or log-level flag; no new instrumentation is needed for MVP.
+
+## Finding 3: GPO Deployment Path Has ZERO Debug Call Sites (CONFIRMED)
+
+**Finding:** The entire GPO deployment and import pipeline has zero `Write-TierModelLog -Level Debug` entries:
+- `New-TierModelGpo.ps1`
+- `Import-TierModelGpo.ps1`
+- `New-TierModelGPOLink.ps1`
+- `Copy-TierModelAdmx.ps1`
+- `Get-TierModelGpo.ps1`
+- `Set-TierModelGpoTemplate.ps1`
+- `Update-TierModelGPOConfig.ps1`
+
+These 7 files contain 48 `Write-TierModelLog` calls total, all at Info/Warning/Error levels.
+
+**Implication:** If GPO operations fail silently (as in the customer incident), the debug infrastructure will NOT provide insight without manual inspection of AD cmdlet return values. This is a secondary instrumentation gap beyond the scope of the `-EnableDebug` feature but noted for future hardening.
+
+**Also:** Deploy-TierModel.ps1 and Audit-TierModel.ps1 themselves have zero debug call sites.
+
+## Finding 4: Pre-Change Unit Test Baseline (2026-09-03)
+
+**Command:** `cd tests; .\Invoke-AllTests.ps1 -TestType Unit`  
+**Result:** 1573 tests, 1573 passed, 0 failed.  
+**Duration:** ~2 minutes (no AD required).  
+**Environment:** Windows, pwsh 7.x.
+
+**Note:** Wolverine's prior claim of "~1886 tests" was stale/erroneous.
+
+## Finding 5: Write-TierModelLog Add-Content Behavior (-WhatIf Guard)
+
+**Location:** `Write-TierModelLog.ps1` line ~115.
+
+**Code:** Uses bare `Add-Content` with no `-WhatIf:$false` guard.
+
+**Status:** Harmless today — module scope isolates `Write-TierModelLog` from the caller's `$WhatIfPreference`, so even if a caller has `-WhatIf` set, the `Add-Content` still executes and writes to the log file.
+
+**Landmine:** This is a pre-existing bug waiting to detonate. If any new script-scope `Write-DebugLog` helper is added to Deploy/Audit (following the Update-TierModelMembership.ps1 pattern), that helper MUST guard its `Add-Content` call with `-WhatIf:$false` to avoid silent no-op behavior.
+
+**Reference:** `Update-TierModelMembership.ps1` already does this correctly:  `Add-Content ... -WhatIf:$false`.
+
+---
+
+# Decision: Beast — Inventory of Debug Coverage and `-Debug` Feasibility
+
+**Date:** 2026-09-03  
+**Author:** Beast (Core Dev)  
+**Status:** FINDINGS — awaiting Cyclops + Wolverine consensus on design choice  
+**Requested by:** Joel Platek
+
+## Context
+
+Customer incident: Deploy-TierModel.ps1 deployment halted silently with no diagnostic output. Team investigation determined that `-Debug` capability is needed for Deploy-TierModel.ps1 and Audit-TierModel.ps1.
+
+## Inventory Summary
+
+### [CmdletBinding()] Coverage
+- **Module public functions (80/80):** 100% covered — all have `[CmdletBinding()]`
+- **TierModel.psm1 (7 functions):** 100% covered
+- **Deploy-TierModel.ps1:** Has `[CmdletBinding(SupportsShouldProcess)]` ✓
+- **Audit-TierModel.ps1:** Has `[CmdletBinding()]` ✓
+- **GAP: 15 script-internal helpers** (Deploy + Audit combined) lack `[CmdletBinding()]`:
+  - Deploy (8): `Write-TierModelFailFast`, `Invoke-OuDeployment`, `Invoke-GroupDeployment`, `Invoke-UserDeployment`, `Invoke-OuAclDeployment`, `Invoke-GpoDeployment`, `Write-IncludeAclPlanActions`, `Add-IncludeAclPhaseToDeploymentPlan`
+  - Audit (7): `Write-TierModelFailFast`, `Invoke-OuAudit`, `Invoke-GroupAudit`, `Invoke-UserAudit`, `Invoke-OuAclAudit`, `Invoke-GpoAudit`, `Invoke-CanonicalAclAudit`
+
+### Debug Prompt Trap
+PowerShell's `-Debug` common parameter sets `$DebugPreference = 'Inquire'` (in PS 5.1) or `'Continue'` (in PS 7). The Inquire mode is unsuitable for long-running scripts (prompts on every `Write-Debug` call). **This project targets PS 7.0+** per `#requires -Version 7.0`, so the Inquire trap does NOT apply to CI/main deployments. However, lab testing on PS 5.1 systems may encounter prompts.
+
+### Write-TierModelLog Already Has Debug Support
+**CORRECTED FINDING:** The module function `Write-TierModelLog -Level Debug` exists and routes to `Write-Debug $consoleMessage`. The level is defined and functional. There are **26 dormant `Write-TierModelLog -Level Debug` call sites** across 19 module files (not zero as initially claimed). These will automatically emit debug output once the debug preference is set to 'Continue'.
+
+### Reference Implementation: Update-TierModelMembership.ps1
+Membership script avoids native `-Debug` in favor of:
+- Custom `[switch]$EnableDebug` parameter
+- Private `Write-DebugLog` helper (writes to `$PSScriptRoot\Debug\<timestamp>.log`)
+- Zero `$DebugPreference` manipulation (standalone script, no module boundary)
+- **7-day log retention** (not applicable for Deploy/Audit — one-shot scripts)
+
+## Effort Estimate
+
+| Category | Effort | Notes |
+|----------|--------|-------|
+| Add `[CmdletBinding()]` to 15 internal helpers | ~1 hour | Mechanical; Deploy + Audit |
+| Add `-EnableDebug [switch]` to entry-points | ~1-2 hours | Parameter + pref wiring |
+| Write debug file handler (simpler than Membership) | ~1-2 hours | No retention logic |
+| Activate existing 26 dormant debug call sites | 0 hours | Already in place; no new instrumentation needed |
+
+**Total:** 3-5 hours mechanical work. No new risk; all changes are additive.
+
+---
+
+# Decision: Cyclops — Debug Architecture Design
+
+**Date:** 2026-09-03  
+**Author:** Cyclops (Architect)  
+**Status:** RECOMMENDED — Option C awaiting Joel approval  
+**Requested by:** Joel Platek
+
+## Verdict
+
+**MODERATE complexity**, not simple, not complex. The PowerShell mechanics are favorable, but careful UX design and lab validation are required.
+
+## Key Empirical Finding (CORRECTED)
+
+**Initial claim:** "`$DebugPreference = 'Continue'` set in script scope flows into module functions."
+
+**Coordinator's empirical result:** This claim is **INVALID**. Testing on pwsh 7.x against the actual `modules/TierModel/TierModel.psd1` confirmed that script-scope preference does NOT flow into the imported module. Only `$global:DebugPreference = 'Continue'` or explicit `-Debug` forwarding works.
+
+**Implication:** Any "zero module changes" design fails. We must choose between:
+1. Setting `$global:DebugPreference` (side effect on global state)
+2. Explicitly forwarding `-Debug` to module functions (hundreds of call sites)
+3. Adding module helper functions to route debug (breaks the "zero module changes" constraint)
+
+## Recommended Option: C (REVISED)
+
+### Mechanism
+
+1. Add `[switch]$EnableDebug` to Deploy-TierModel.ps1 and Audit-TierModel.ps1 (matches precedent from Membership script).
+2. When `-EnableDebug`, set **`$global:DebugPreference = 'Continue'`** to ensure module functions inherit it.
+3. Auto-enable logging (same `-LogPath` as regular logs).
+4. Existing 26 `Write-TierModelLog -Level Debug` calls will automatically emit structured JSON to the log file and console.
+
+### Pros
+
+- Minimal new code (~30 lines per script)
+- Zero changes to module functions
+- Debug output is structured (JSON via existing `Write-TierModelLog`)
+- Already has 26 pre-wired debug points across 19 module files
+
+### Cons
+
+- `$global:DebugPreference` is a global side effect (mitigated by unsetting it at script exit)
+- Must be validated in lab to confirm no unexpected side effects
+
+### Phases
+
+1. **Wire-up (1-2h):** Add parameter, set preference, auto-enable logging
+2. **Lab validation (1-2h):** Confirm debug output flows correctly
+3. **Test updates (Wolverine, 1-2h):** Verify parameter tests still pass
+4. **Optional Phase 4:** Add NEW debug instrumentation beyond the existing 26 points (future work)
+
+---
+
+# Decision: Storm — Documentation Scope for `-Debug` Feature
+
+**Date:** 2026-09-03  
+**Author:** Storm (DevRel)  
+**Status:** SCOPING COMPLETE — awaiting design finalization
+
+## Work Inventory
+
+### Script Help Blocks (Primary UX)
+- Deploy-TierModel.ps1: Add `.PARAMETER -Debug` + 1-2 `.EXAMPLE` blocks (~0.5-1h)
+- Audit-TierModel.ps1: Add `.PARAMETER -Debug` + 1-2 `.EXAMPLE` blocks (~0.5-1h)
+
+### Primary Documentation
+- `docs/tiermodel-logging.md`: Add 5 new sections on Debug vs Logging, features, usage, security, troubleshooting (~2-3h)
+- `docs/quick-deployment-guide.md`: Rename "Enable Logging" → add Debug, troubleshooting bullet (~0.5h)
+- `CHANGELOG.md`: Add 2-3 line Unreleased entry (~0.25h)
+
+**Total Estimate:** 3.5–5.5 hours
+
+### Decision Gates (Team Must Resolve First)
+
+1. **Parameter Name:** `-Debug` vs `-EnableDebug`?
+2. **Output Location:** Separate debug folder vs co-locate with `-LogPath`?
+3. **File Naming:** Membership pattern vs simpler?
+4. **Correlation ID Sharing:** Same CorrelationId in debug and regular logs?
+5. **Audit-Specific Semantics:** What does `-Debug` capture for Audit?
+
+---
+
+# Decision: Wolverine — Debug Implementation Regression Risk
+
+**Date:** 2026-09-03  
+**Author:** Wolverine (Tester)  
+**Status:** RISK FINDINGS — blockers and constraints identified
+
+## Critical Findings
+
+### BLOCKER 1 — ModuleManifest Count Assertion (HIGH RISK)
+
+**File:** `tests/Unit.ModuleManifest.Tests.ps1`, lines 215–216
+
+Assert fails if any new public function is added to `modules/TierModel/public/` without updating `FunctionsToExport` in `TierModel.psd1`. Exact-count assertion with no grace margin.
+
+**Pre-flight check:** Verify FunctionsToExport matches before each commit.
+
+### BLOCKER 2 — Code Coverage Threshold (HIGH RISK)
+
+**File:** `.github/workflows/ci.yml`
+
+CI enforces 80% minimum coverage on `modules/TierModel/public/*.ps1`. New functions without tests will push denominator up and fail the build.
+
+**Pre-flight check:** Run local coverage test before pushing. If new public functions are added, ensure adequate test coverage.
+
+### CONSTRAINT 1 — ADStubs Have No [CmdletBinding()] (MEDIUM RISK)
+
+**File:** `tests/helpers/ADStubs.ps1`
+
+All test stubs use plain `param()` with no `[CmdletBinding()]`. If the debug impl splatts `-Debug` into AD cmdlet calls, the stub will throw "parameter not found" and break all AD-related tests.
+
+**Design constraint:** Do NOT forward `-Debug` to AD cmdlets. Do NOT splat `$PSBoundParameters` into any AD/GPO call.
+
+### CONSTRAINT 2 — `$DebugPreference = 'Inquire'` Hazard (MEDIUM RISK in Lab)
+
+**Lab scenario:** Running Deploy/Audit with `-Debug` on PS 5.1 will trigger prompts.
+
+**Mitigation:** Document that PS 5.1 behavior differs, or use `-EnableDebug` + file logging (matches Membership pattern and avoids prompts entirely).
+
+## Verified Non-Risks
+
+- Module CmdletBinding coverage: 100% complete, no work needed
+- Logging test coupling: No filename/format assertions, safe to add debug channel
+- ParameterFilter mocks: No common-param checks, won't be affected
+
+## Pre-Flight Checklist
+
+**Before the change:**
+```powershell
+cd tests
+.\Invoke-AllTests.ps1 -TestType Unit
+# Record TotalCount, PassedCount, FailedCount
+```
+
+**After the change:**
+```powershell
+# Same run
+cd tests
+.\Invoke-AllTests.ps1 -TestType Unit
+# Compare counts
+
+# Verify manifest check
+Invoke-Pester -Path tests\Unit.ModuleManifest.Tests.ps1 -Output Detailed
+
+# Check coverage if new public functions added
+# (run pester with CodeCoverage config)
+```
+
+---

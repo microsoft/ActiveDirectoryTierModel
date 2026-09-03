@@ -1,5 +1,26 @@
 # wolverine -- History
 
+## Session 2026-09-03 — Debug Capability Regression Risk Assessment
+
+**Status:** COMPLETE
+**Deliverable:** `.squad/decisions/inbox/wolverine-debug-regression-risk.md`
+
+**Scope:** Read-only risk assessment — no test files written. Assessed the regression surface for adding `-Debug` / `[CmdletBinding()]` to `Deploy-TierModel.ps1`, `Audit-TierModel.ps1`, and `modules/TierModel/public/*.ps1`.
+
+**Key findings:**
+- All 80 public module functions already have `[CmdletBinding()]` — the "ensure CmdletBinding" part of the proposal is a no-op. Both Deploy and Audit scripts already have `[CmdletBinding()]` and already expose `-Debug`.
+- **HIGH (hard break):** `Unit.ModuleManifest.Tests.ps1` lines 215–216 enforces exact count: `DeclaredFunctions.Count Should -Be ActualFunctions.Count`. Any new public function added without updating `FunctionsToExport` in `TierModel.psd1` instantly fails this test.
+- **HIGH (hard break):** CI enforces 80% code coverage. New untested public functions will drop the percentage and fail the build.
+- **MEDIUM (design constraint):** `tests/helpers/ADStubs.ps1` — all stubs use plain `param()` with no `[CmdletBinding()]`. If debug implementation forwards `-Debug` to AD cmdlets (via splat or explicit param), stubs throw binding errors. Solution: never forward `-Debug` to AD cmdlets.
+- **LOW/MEDIUM:** `$DebugPreference = 'Inquire'` is a PS5.1 hazard only. CI runs PS7 where `-Debug` = `Continue`, no prompt. Safe in CI.
+- **ZERO RISK:** Logging tests (`Unit.Logging.Tests.ps1`) use explicit `-LogPath`; no filename pattern assertions. All 304 `-ParameterFilter` usages check domain params, not common params.
+
+**Baseline test count (from history):** 1,886 automated tests (1,572 unit, 314 integration) as of 2026-09-02 baseline.
+
+**How to get a clean baseline:** `cd tests; .\Invoke-AllTests.ps1 -TestType Unit` — no AD/RSAT required, completes in ~2 minutes.
+
+## Learnings
+
 ## Session 2026-09-02 -- Session Orchestration & Finalization
 
 **Status:** COMPLETE
