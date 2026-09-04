@@ -371,8 +371,8 @@ function Test-TierModelPrerequisites {
                 }
                 if ($adShimDetected) {
                     $result.Valid = $false
-                    $null = $result.Errors.Add("ActiveDirectory module is loaded through the Windows PowerShell compatibility shim (deserialized objects); SID resolution would break URA and GPO deployment.")
-                    $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later), or run under Windows PowerShell 5.1.")
+                    $null = $result.Errors.Add("ActiveDirectory module returned deserialized objects (DomainSID resolved to [String] instead of [System.Security.Principal.SecurityIdentifier]); this can break SID resolution for URA and GPO deployment.")
+                    $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later).")
                 }
                 elseif (Get-Module ActiveDirectory) {
                     $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue

@@ -493,7 +493,7 @@ Describe "Test-TierModelGpo - Individual GPO Validation" -Tag "Unit", "GPO", "Va
         
         It "Should validate GPO status configuration" {
             $gpoConfig = [PSCustomObject]@{
-                gpoStatus = "AllEnabled"
+                gpoStatus = "AllSettingsEnabled"
             }
             
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $gpoConfig -DomainController "DC01"
@@ -1733,9 +1733,9 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
     # ─────────────────────────────────────────────────────────────
     Context "GPO status configuration" {
 
-        It "Should call Set-ADObject when mode is 'create' and gpoStatus is AllEnabled" {
+        It "Should call Set-ADObject when mode is 'create' and gpoStatus is AllSettingsEnabled" {
             $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "StatusGPO" -Mode "create" -Extra @{ gpoStatus = "AllEnabled" }
+                New-CreateAction -Name "StatusGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsEnabled" }
             )) -DomainController "DC01"
 
             $result.Executed | Should -Be 1
@@ -1764,9 +1764,9 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        It "Should pass flag=3 for BothSettingsDisabled" {
+        It "Should pass flag=3 for AllSettingsDisabled" {
             New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "BothDisabledGPO" -Mode "create" -Extra @{ gpoStatus = "BothSettingsDisabled" }
+                New-CreateAction -Name "BothDisabledGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsDisabled" }
             )) -DomainController "DC01" | Out-Null
 
             Should -Invoke Set-ADObject -ModuleName TierModel -Times 1 -ParameterFilter {
@@ -1774,14 +1774,17 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        It "Should default to flag=0 for unrecognized gpoStatus value" {
-            New-TierModelGpo -Plan (New-GpoPlan -Actions @(
+        It "Should fail loudly for unrecognized gpoStatus value" {
+            $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
                 New-CreateAction -Name "UnknownStatusGPO" -Mode "create" -Extra @{ gpoStatus = "UnknownValue" }
-            )) -DomainController "DC01" | Out-Null
+            )) -DomainController "DC01"
 
-            Should -Invoke Set-ADObject -ModuleName TierModel -Times 1 -ParameterFilter {
-                $Replace.flags -eq 0
-            }
+            # Unrecognised value throws before the inner try — caught by per-GPO outer catch.
+            # GPO counts as failed, not executed; Converged is false; loop continues.
+            $result.Failed   | Should -Be 1
+            $result.Executed | Should -Be 0
+            $result.Converged | Should -Be $false
+            Should -Invoke Set-ADObject -ModuleName TierModel -Times 0
         }
 
         It "Should not call Set-ADObject when mode is not 'create'" {
@@ -1804,10 +1807,10 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             Mock Set-ADObject -ModuleName TierModel { throw "AD write failed" }
 
             $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "StatusFailGPO" -Mode "create" -Extra @{ gpoStatus = "AllEnabled" }
+                New-CreateAction -Name "StatusFailGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsEnabled" }
             )) -DomainController "DC01"
 
-            # GPO was still created; status failure is non-fatal
+            # GPO was still created; status failure is non-fatal (inner catch, not outer)
             $result.Executed | Should -Be 1
             $result.Failed   | Should -Be 0
         }
@@ -2530,11 +2533,11 @@ Describe "Test-TierModelGpo – extended coverage" -Tag "Unit", "GPO", "Validati
             ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
         }
 
-        It "Passes status check for BothSettingsDisabled (flags=3)" {
+        It "Passes status check for AllSettingsDisabled (flags=3)" {
             Mock Get-ADObject -ModuleName TierModel {
                 return [PSCustomObject]@{ flags = 3 }
             }
-            $config = [PSCustomObject]@{ gpoStatus = "BothSettingsDisabled" }
+            $config = [PSCustomObject]@{ gpoStatus = "AllSettingsDisabled" }
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $config -DomainController "DC01"
 
             $result.Status | Should -Be 'Pass'

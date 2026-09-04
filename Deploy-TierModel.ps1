@@ -224,6 +224,11 @@ elseif ($activeIncludeCount -gt 0 -and $activeScopeCount -eq 1 -and -not $FullDe
 Write-Host "Deploy TierModel orchestration starting." -ForegroundColor Cyan
 Write-Host "Preferred DC: $PreferredDc" -ForegroundColor DarkCyan
 
+# Resolve the active scope to a string once, unconditionally, so the start-log entry and
+# config validation both use the same authoritative value. $null when no scope switch is
+# active (Include-only run) — that string never reaches Test-TierModelConfig's ValidateSet.
+$selectedScope = if ($FullDeployment) { 'FullDeployment' } elseif ($OuOnly) { 'OuOnly' } elseif ($GroupOnly) { 'GroupOnly' } elseif ($UserOnly) { 'UserOnly' } elseif ($GposOnly) { 'GposOnly' } elseif ($OuAclsOnly) { 'OuAclsOnly' } elseif ($AdmxOnly) { 'AdmxOnly' } else { $null }
+
 # Validate logging parameters and prompt if needed
 if ($Logging -and -not $OutputFileBase) {
     $OutputFileBase = Read-Host "Enter base filename for logs (timestamp and extension will be added automatically)"
@@ -490,7 +495,7 @@ if ($Logging) {
     Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "TierModel deployment started" -Data @{
         PreferredDc = $PreferredDc
         Mode = if ($ConfirmApply) { 'EXECUTION' } else { 'PLANNING' }
-        Scope = if ($FullDeployment) { 'FullDeployment' } elseif ($OuOnly) { 'OuOnly' } elseif ($GroupOnly) { 'GroupOnly' } elseif ($UserOnly) { 'UserOnly' } elseif ($GposOnly) { 'GposOnly' } elseif ($OuAclsOnly) { 'OuAclsOnly' } elseif ($AdmxOnly) { 'AdmxOnly' } else { 'Unknown' }
+        Scope = if ($null -ne $selectedScope) { $selectedScope } else { 'IncludeOnly' }
         Version = 'v0.2'
         UserConfirmed = $ConfirmApply
     }
@@ -556,6 +561,62 @@ try {
         Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Failed to load configuration: $($_.Exception.Message)"
     }
     exit 1
+}
+
+# Validate configuration against schema before any AD work begins.
+# Three mutually exclusive branches — no path is silent.
+# Get-TierModelConfig always sets ConfigPath on its return object (Get-TierModelConfig.ps1:177).
+if ($null -eq $selectedScope) {
+    # Include-only run: the 7 scope validators cover OUs, Groups, Users, GPOs, ACLs, and ADMX
+    # only — not the MSA, gMSA, dMSA, WinLaps, AuthSilos, or Audit config sections consumed
+    # by the -Include* switches. Expected and documented skip.
+    Write-Host "Configuration validation skipped: no scope switch active (Include-only run); the 7 scope validators do not cover MSA, gMSA, dMSA, WinLaps, AuthSilos, or Audit config sections." -ForegroundColor Yellow
+    Write-Host ""
+} elseif ($config.PSObject.Properties.Name -notcontains 'ConfigPath') {
+    # ANOMALOUS: a scope is active but the config object has no ConfigPath, meaning it was
+    # not produced by Get-TierModelConfig. Schema validation cannot run. This is unexpected
+    # in any normal deployment and must be surfaced loudly — never silently skipped.
+    Write-Host ""
+    Write-Host "⚠️  WARNING: Configuration validation could not run for scope '$selectedScope': the config object has no ConfigPath property and was not loaded from disk by Get-TierModelConfig. Schema validation is being skipped — deployment is proceeding with an UNVALIDATED config." -ForegroundColor Yellow
+    Write-Host ""
+    if ($Logging) {
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Warning' -Message "Configuration validation skipped: config has no ConfigPath (not loaded by Get-TierModelConfig)" -Data @{ Scope = $selectedScope }
+    }
+} else {
+    Write-Host "Validating configuration for scope '$selectedScope'..." -ForegroundColor Cyan
+    try {
+        $configValidation = Test-TierModelConfig -Config $config -Scope $selectedScope
+    } catch {
+        Write-TierModelFailFast -Message @(
+            "Configuration validation threw an unexpected error for scope '$selectedScope':",
+            $_.Exception.Message
+        )
+        if ($Logging) {
+            Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Configuration validation threw: $($_.Exception.Message)" -Data @{ Scope = $selectedScope }
+        }
+        exit 1
+    }
+    if ($configValidation.Errors.Count -gt 0) {
+        Write-TierModelFailFast -Message (@("Configuration validation failed for scope '$selectedScope'. Deployment cannot proceed:") + @($configValidation.Errors))
+        if ($Logging) {
+            Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Configuration validation failed" -Data @{ Scope = $selectedScope; Errors = $configValidation.Errors }
+        }
+        exit 1
+    }
+    if ($configValidation.Warnings.Count -gt 0) {
+        Write-Host "Configuration validation warnings:" -ForegroundColor Yellow
+        foreach ($warn in $configValidation.Warnings) {
+            Write-Host "  $warn" -ForegroundColor Yellow
+        }
+        if ($Logging) {
+            Write-TierModelLog -LogPath $script:LogFilePath -Level 'Warning' -Message "Configuration validation passed with warnings" -Data @{ Scope = $selectedScope; Warnings = $configValidation.Warnings }
+        }
+    }
+    Write-Host "Configuration validation passed." -ForegroundColor Green
+    Write-Host ""
+    if ($Logging) {
+        Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "Configuration validation passed" -Data @{ Scope = $selectedScope; WarningCount = $configValidation.Warnings.Count }
+    }
 }
 
 # Planned orchestration pattern (placeholder):

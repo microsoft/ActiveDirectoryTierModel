@@ -260,17 +260,19 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             $result.Remediation | Should -Contain "Ensure Domain Admins group exists and user is member of Domain Admins group"
         }
 
-    It "Should fail fast when the AD module is loaded via the WinPS compatibility shim (deserialized objects)" -Tag 'Negative','DomainAdmin','CompatShim' {
-            # PowerShell 7 loads a non-Core-native RSAT AD module through the Windows PowerShell
-            # compatibility shim, which deserializes results so DomainSID comes back as a plain
-            # string instead of a SecurityIdentifier. The prerequisite check must detect this and
-            # fail fast rather than let deployment proceed and resolve empty SIDs into URA/GPO policy.
+    It "Should fail fast when the AD module returns deserialized objects (DomainSID as [String] instead of [SecurityIdentifier])" -Tag 'Negative','DomainAdmin','CompatShim' {
+            # When the ActiveDirectory module returns deserialized objects, DomainSID comes back as
+            # a plain [String] instead of a live [System.Security.Principal.SecurityIdentifier].
+            # This has been observed with WinPS compatibility shim loading, though the root cause
+            # is platform-dependent and not reproduced on all supported platforms. The prerequisite
+            # check must detect this symptom and fail fast rather than let deployment proceed and
+            # resolve empty SIDs into URA/GPO policy.
             Mock Get-ADDomain { return @{ DNSRoot = 'test.contoso.com'; NetBIOSName = 'TEST'; DomainSID = 'S-1-5-21-1111111111-2222222222-3333333333' } } -ModuleName TierModel
 
             $result = Test-TierModelPrerequisites -PreferredDc 'MockDC.test.local' -DependenciesPath $validDepsFile
 
             $result.Valid | Should -Be $false
-            ($result.Errors -join ' ')      | Should -Match 'Windows PowerShell compatibility shim'
+            ($result.Errors -join ' ')      | Should -Match 'deserialized objects'
             ($result.Remediation -join ' ') | Should -Match 'PowerShell 7-native RSAT'
         }
     }

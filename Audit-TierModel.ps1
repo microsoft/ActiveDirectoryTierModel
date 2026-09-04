@@ -281,6 +281,43 @@ try {
     exit 1
 }
 
+# Validate configuration against schema. Audit is read-only and cannot damage the
+# environment, so a validation failure produces a prominent warning and continues rather
+# than exiting — refusing to run would remove the operator's diagnostic tool exactly when
+# they need it most. Findings computed from an invalid config may be unreliable.
+# Three mutually exclusive branches — threw / ran-with-errors / ran-clean.
+Write-Host "Validating configuration for scope '$selectedScope'..." -ForegroundColor Cyan
+try {
+    $configValidation = Test-TierModelConfig -Config $config -Scope $selectedScope
+} catch {
+    Write-Host ""
+    Write-Host "⚠️  WARNING: Configuration validation threw an unexpected error: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "   Audit is proceeding. Findings may be unreliable." -ForegroundColor Yellow
+    Write-Host ""
+    $configValidation = $null
+}
+if ($null -eq $configValidation) {
+    # Threw — already warned above. Do NOT claim success.
+} elseif ($configValidation.Errors.Count -gt 0) {
+    Write-Host ""
+    Write-Host "⚠️  WARNING: Configuration validation found the following errors. Audit is proceeding" -ForegroundColor Yellow
+    Write-Host "   but findings computed from an invalid config may be unreliable. Resolve these" -ForegroundColor Yellow
+    Write-Host "   errors before acting on audit results:" -ForegroundColor Yellow
+    foreach ($err in $configValidation.Errors) {
+        Write-Host "   ❌ $err" -ForegroundColor Red
+    }
+    Write-Host ""
+} else {
+    if ($configValidation.Warnings.Count -gt 0) {
+        Write-Host "Configuration validation warnings:" -ForegroundColor Yellow
+        foreach ($warn in $configValidation.Warnings) {
+            Write-Host "  $warn" -ForegroundColor Yellow
+        }
+    }
+    Write-Host "Configuration validation passed." -ForegroundColor Green
+    Write-Host ""
+}
+
 # Planned orchestration pattern (placeholder):
 # 1. Load config via Get-TierModelConfig
 # 2. For scope-only (e.g. -OuOnly): Call Test-TierModelOu for audit report

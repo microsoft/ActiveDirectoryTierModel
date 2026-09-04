@@ -298,7 +298,7 @@ function ConvertTo-TierModelSidString {
     }
 
     if ([string]::IsNullOrWhiteSpace($candidate)) {
-        throw "SID resolution returned an empty value for $Context. This is the known WinPSCompat deserialization defect - refusing to emit a blank SID into security policy."
+        throw "SID resolution returned an empty value for $Context (a deserialized [String] was received where a live [System.Security.Principal.SecurityIdentifier] was expected; cause undetermined). Refusing to emit a blank SID into security policy."
     }
 
     $candidate = $candidate.Trim()

@@ -144,7 +144,7 @@ function Test-TierModelConfig {
         [Parameter(Mandatory, ParameterSetName = 'FromConfig')][psobject]$Config,
         [Parameter(ParameterSetName = 'FromPath')][string]$SchemaPath = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config' 'tiermodel.schema.json'),
         [Parameter(ParameterSetName = 'FromPath')][switch]$Raw,
-        [Parameter()][string]$Scope = 'FullDeployment'
+        [Parameter()][ValidateSet('OuOnly','GroupOnly','UserOnly','GposOnly','OuAclsOnly','AdmxOnly','FullDeployment')][string]$Scope = 'FullDeployment'
     )
     
     # T0054: Add logging for configuration validation start
@@ -177,6 +177,19 @@ function Test-TierModelConfig {
         }
     } else {
         $config = $Config
+        # BUG-023: Load schema for FromConfig so validation is not silently skipped.
+        # $SchemaPath is only bound for FromPath, so resolve the path explicitly here.
+        $schemaPathForConfig = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config' 'tiermodel.schema.json'
+        if (!(Test-Path -LiteralPath $schemaPathForConfig)) {
+            Write-TierModelLog -Level Error -Message "Schema file not found for FromConfig validation" -Data @{ SchemaPath = $schemaPathForConfig } | Out-Null
+            return [PSCustomObject]@{ Valid = $false; Errors = @("Schema file not found: $schemaPathForConfig"); Warnings = @(); Raw = $null }
+        }
+        try {
+            $schema = Get-Content -Raw -LiteralPath $schemaPathForConfig | ConvertFrom-Json -Depth 50
+        } catch {
+            Write-TierModelLog -Level Error -Message "Schema file could not be parsed for FromConfig validation" -Data @{ SchemaPath = $schemaPathForConfig; ParseError = $_.Exception.Message } | Out-Null
+            return [PSCustomObject]@{ Valid = $false; Errors = @("Schema file could not be parsed: $($_.Exception.Message)"); Warnings = @(); Raw = $null }
+        }
     }
     
     # Generate correlation ID for tracking validation across logs
@@ -194,8 +207,8 @@ function Test-TierModelConfig {
         InvalidAdmxPaths = 0
     }
     
-    # Schema validation if loading from path
-    if ($PSCmdlet.ParameterSetName -eq 'FromPath' -and $schema) {
+    # Schema validation — runs for both FromPath and FromConfig (BUG-023 fix)
+    if ($schema) {
         foreach ($req in $schema.required) {
             if (-not ($config.PSObject.Properties.Name -contains $req)) {
                 $errors += "Missing required top-level property: $req"
@@ -246,28 +259,28 @@ function Test-TierModelConfig {
         # Scope-based validation - only validate components relevant to the deployment scope
         # Based on user requirements:
         # -OuOnly = No other checks (only OUs)
-        # -GroupsOnly = Ou Checks (OUs + Groups)  
-        # -UsersOnly = Ou and Group checks (OUs + Groups + Users)
-        # -OuAclsOnly = Ou and Group checks (OUs + Groups + ACLs)
-        # -ImportAdmxOnly = No other checks (only ADMX)
+        # -GroupOnly = OU checks (OUs + Groups)
+        # -UserOnly = OU and Group checks (OUs + Groups + Users)
+        # -OuAclsOnly = OU and Group checks (OUs + Groups + ACLs)
+        # -AdmxOnly = No other checks (only ADMX)
         
-        # OU validation - required for all scopes except ImportAdmxOnly
-        if ($Scope -ne 'ImportAdmxOnly') {
+        # OU validation - required for all scopes except AdmxOnly
+        if ($Scope -ne 'AdmxOnly') {
             $errors += _validateArrayItems $organizationUnits $schema.properties.organizationUnits 'organizationUnits'
         }
         
-        # Groups validation - required for GroupsOnly, UsersOnly, OuAclsOnly, and FullDeployment
-        if ($Scope -in @('GroupsOnly', 'UsersOnly', 'OuAclsOnly', 'FullDeployment')) {
+        # Groups validation - required for GroupOnly, UserOnly, OuAclsOnly, and FullDeployment
+        if ($Scope -in @('GroupOnly', 'UserOnly', 'OuAclsOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $groups $schema.properties.groups 'groups'
         }
         
-        # Users validation - required for UsersOnly and FullDeployment
-        if ($Scope -in @('UsersOnly', 'FullDeployment')) {
+        # Users validation - required for UserOnly and FullDeployment
+        if ($Scope -in @('UserOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $users $schema.properties.users 'users'
         }
         
-        # GPOs validation - only for FullDeployment
-        if ($Scope -eq 'FullDeployment') {
+        # GPOs validation - required for GposOnly and FullDeployment
+        if ($Scope -in @('GposOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $gpos $schema.properties.gpos 'gpos'
         }
         
@@ -276,8 +289,8 @@ function Test-TierModelConfig {
             $errors += _validateArrayItems $aclDelegations $schema.properties.aclDelegations 'aclDelegations'
         }
         
-        # ADMX validation - only for ImportAdmxOnly and FullDeployment
-        if ($Scope -in @('ImportAdmxOnly', 'FullDeployment')) {
+        # ADMX validation - only for AdmxOnly and FullDeployment
+        if ($Scope -in @('AdmxOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $admx $schema.properties.admx 'admx'
         }
 
@@ -293,8 +306,8 @@ function Test-TierModelConfig {
     }
     
     # Enhanced deep validation
-    # 1. GPO Mode Validation - Only for FullDeployment scope
-    if ($Scope -eq 'FullDeployment') {
+    # 1. GPO Mode Validation - Only for GposOnly and FullDeployment scopes
+    if ($Scope -in @('GposOnly', 'FullDeployment')) {
         $validGpoModes = @('create', 'createAndImport', 'createImportAndConfigure')
         # Use safe property access for gpos
         $configGpos = if ($config -is [hashtable]) {
@@ -407,8 +420,8 @@ function Test-TierModelConfig {
     }
     } # End GPO validation scope check
     
-    # 3. ADMX Source Path Validation - Only for ImportAdmxOnly and FullDeployment scopes
-    if ($Scope -in @('ImportAdmxOnly', 'FullDeployment')) {
+    # 3. ADMX Source Path Validation - Only for AdmxOnly and FullDeployment scopes
+    if ($Scope -in @('AdmxOnly', 'FullDeployment')) {
         # Use safe property access for admx
         $configAdmx = if ($config -is [hashtable]) {
             if ($config.ContainsKey('admx')) { $config['admx'] } else { $null }
