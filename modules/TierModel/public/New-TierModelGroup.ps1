@@ -135,9 +135,9 @@ function New-TierModelGroup {
                         
                         $newGroup = New-ADGroup @newGroupParams -PassThru -ErrorAction Stop
 
-                        # Verify the write before recording success. Under the PS7 WinPSCompat shim
-                        # the ActiveDirectory proxy can report failure without terminating, leaving
-                        # $newGroup null - a silently missing group is a Tier 0 security control gap.
+                        # Verify the write before recording success. A failed AD write can return
+                        # $null without terminating — a silently missing group is a Tier 0 security
+                        # control gap; defensive null-check regardless of platform or root cause.
                         if ($null -eq $newGroup) {
                             throw (Get-TierModelWriteFailureDetail -Operation 'New-ADGroup' -Target $groupName).Summary
                         }

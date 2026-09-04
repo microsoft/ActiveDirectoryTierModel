@@ -206,7 +206,12 @@ function Test-TierModelConfig {
         function _validateArrayItems($array, $definition, $name) {
             $localErrors = @()
             if ($null -eq $array) { return $localErrors }
-            $req = $definition.items.required
+            $itemsDef = $definition.PSObject.Properties['items']
+            if (-not $itemsDef) { return $localErrors }
+            # Prefer x-psm1-required (custom annotation for runtime checks) over JSON Schema required
+            $reqNode = $itemsDef.Value.PSObject.Properties['x-psm1-required']
+            if (-not $reqNode) { $reqNode = $itemsDef.Value.PSObject.Properties['required'] }
+            $req = if ($reqNode) { $reqNode.Value } else { @() }
             foreach ($item in $array) {
                 foreach ($r in $req) {
                     if (-not ($item.PSObject.Properties.Name -contains $r)) {
@@ -290,48 +295,71 @@ function Test-TierModelConfig {
     # Enhanced deep validation
     # 1. GPO Mode Validation - Only for FullDeployment scope
     if ($Scope -eq 'FullDeployment') {
-        $validGpoModes = @('createAndImport', 'createImportAndConfigure')
+        $validGpoModes = @('create', 'createAndImport', 'createImportAndConfigure')
         # Use safe property access for gpos
         $configGpos = if ($config -is [hashtable]) {
             if ($config.ContainsKey('gpos')) { $config['gpos'] } else { $null }
         } else {
             if ($config.PSObject.Properties.Name -contains 'gpos') { $config.gpos } else { $null }
         }
-        if ($configGpos) {
-        foreach ($gpo in $configGpos) {
-            # Check if mode property exists (support both hashtables and PSCustomObjects)
-            $hasModeProperty = if ($gpo -is [hashtable]) { 
-                $gpo.ContainsKey('mode') 
-            } else { 
-                $gpo.PSObject.Properties.Name -contains 'mode' 
-            }
-            
-            # Get GPO name safely
-            $gpoName = if ($gpo -is [hashtable]) { 
-                $gpo['name'] 
-            } else { 
-                if ($gpo.PSObject.Properties.Name -contains 'name') { 
-                    $gpo.name 
-                } else { 
-                    'Unknown GPO' 
+
+        # Build a flat list of GPO leaf items regardless of config shape.
+        # @(...) with pipeline emission prevents PowerShell from unwrapping 1-element arrays.
+        $flatGpos = @(
+            if ($null -eq $configGpos) {
+                # nothing to emit
+            } elseif ($configGpos -is [array]) {
+                # Already a flat array (multi-element test format)
+                $configGpos
+            } elseif (($configGpos -is [hashtable] -and ($configGpos.ContainsKey('mode') -or $configGpos.ContainsKey('name'))) -or
+                      ($configGpos -isnot [hashtable] -and ($configGpos.PSObject.Properties['mode'] -or $configGpos.PSObject.Properties['name']))) {
+                # Single flat GPO item — 1-element test array was unwrapped by PowerShell
+                $configGpos
+            } else {
+                # Nested OU structure (real merged config):
+                # gpos[<OU-DN>][<ImportOnlyGpo|PostConfigureGpo>] = [{ name, mode, ... }, ...]
+                # displayName is a scalar string at the OU level — skip string-valued properties
+                foreach ($ouProp in $configGpos.PSObject.Properties) {
+                    $ouValue = $ouProp.Value
+                    if ($null -eq $ouValue) { continue }
+                    foreach ($containerProp in $ouValue.PSObject.Properties) {
+                        if ($containerProp.Value -is [string]) { continue }
+                        $container = $containerProp.Value
+                        if ($null -eq $container) { continue }
+                        if ($container -is [array]) {
+                            foreach ($item in $container) { if ($null -ne $item) { $item } }
+                        } else {
+                            foreach ($gpoProp in $container.PSObject.Properties) {
+                                if ($null -ne $gpoProp.Value) { $gpoProp.Value }
+                            }
+                        }
+                    }
                 }
             }
-            
+        )
+
+        # 1. GPO Mode Validation
+        if ($configGpos) {
+        foreach ($gpo in $flatGpos) {
+            $hasModeProperty = if ($gpo -is [hashtable]) {
+                $gpo.ContainsKey('mode')
+            } else {
+                $gpo.PSObject.Properties.Name -contains 'mode'
+            }
+            $gpoName = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('name')) { $gpo['name'] } else { 'Unknown GPO' }
+            } else {
+                if ($gpo.PSObject.Properties.Name -contains 'name') { $gpo.name } else { 'Unknown GPO' }
+            }
             if (-not $hasModeProperty) {
                 $errors += "GPO '$gpoName' is missing required 'mode' property"
                 $validationDetails.InvalidGpoModes++
             } else {
-                # Get mode value safely
-                $gpoMode = if ($gpo -is [hashtable]) { 
-                    $gpo['mode'] 
-                } else { 
-                    if ($gpo.PSObject.Properties.Name -contains 'mode') { 
-                        $gpo.mode 
-                    } else { 
-                        $null 
-                    }
+                $gpoMode = if ($gpo -is [hashtable]) {
+                    $gpo['mode']
+                } else {
+                    $gpo.PSObject.Properties['mode'].Value
                 }
-                
                 if ($gpoMode -notin $validGpoModes) {
                     $errors += "GPO '$gpoName' has invalid mode '$gpoMode'. Valid modes: $($validGpoModes -join ', ')"
                     $validationDetails.InvalidGpoModes++
@@ -342,57 +370,37 @@ function Test-TierModelConfig {
         }
     }
     
-    # 2. DenyApplyGroups Reference Validation
-    $groupNames = @()
-    # Use safe property access for groups
-    $configGroups = if ($config -is [hashtable]) {
-        if ($config.ContainsKey('groups')) { $config['groups'] } else { $null }
-    } else {
-        if ($config.PSObject.Properties.Name -contains 'groups') { $config.groups } else { $null }
-    }
-    if ($configGroups) {
-        $groupNames = $configGroups | ForEach-Object { $_.name }
-    }
-    
+    # 2. denyApplyGroupPolicy shape validation
+    # Validates shape only: must be an array of non-empty strings when present.
+    # Entries may reference built-in AD principals (e.g. 'Domain Controllers', 'Read-only Domain Controllers')
+    # that are not defined in config groups — asserting group-membership would be a false positive.
     if ($configGpos) {
-        foreach ($gpo in $configGpos) {
-            # Check if denyApplyGroups property exists (support both hashtables and PSCustomObjects)
-            $hasDenyApplyGroups = if ($gpo -is [hashtable]) { 
-                $gpo.ContainsKey('denyApplyGroups') 
-            } else { 
-                $gpo.PSObject.Properties.Name -contains 'denyApplyGroups' 
+        foreach ($gpo in $flatGpos) {
+            $gpoName = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('name')) { $gpo['name'] } else { 'Unknown GPO' }
+            } else {
+                if ($gpo.PSObject.Properties.Name -contains 'name') { $gpo.name } else { 'Unknown GPO' }
             }
-            
-            # Get denyApplyGroups value safely
-            $denyApplyGroups = if ($gpo -is [hashtable]) { 
-                $gpo['denyApplyGroups'] 
-            } else { 
-                if ($gpo.PSObject.Properties.Name -contains 'denyApplyGroups') { 
-                    $gpo.denyApplyGroups 
-                } else { 
-                    $null 
-                }
+            $denyProp = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('denyApplyGroupPolicy')) { $gpo['denyApplyGroupPolicy'] } else { $null }
+            } else {
+                $node = $gpo.PSObject.Properties['denyApplyGroupPolicy']
+                if ($node) { $node.Value } else { $null }
             }
-            
-            if ($hasDenyApplyGroups -and $denyApplyGroups) {
-                # Get GPO name safely for error messages
-                $gpoName = if ($gpo -is [hashtable]) { 
-                    $gpo['name'] 
-                } else { 
-                    if ($gpo.PSObject.Properties.Name -contains 'name') { 
-                        $gpo.name 
-                    } else { 
-                        'Unknown GPO' 
+            if ($null -ne $denyProp) {
+                if ($denyProp -isnot [array]) {
+                    $warnings += "GPO '$gpoName' denyApplyGroupPolicy must be an array of strings, got: $($denyProp.GetType().Name)"
+                    $validationDetails.InvalidDenyApplyGroups++
+                } else {
+                    $valid = $true
+                    foreach ($entry in $denyProp) {
+                        if ([string]::IsNullOrWhiteSpace($entry)) {
+                            $warnings += "GPO '$gpoName' denyApplyGroupPolicy contains an empty or whitespace entry"
+                            $validationDetails.InvalidDenyApplyGroups++
+                            $valid = $false
+                        }
                     }
-                }
-                
-                foreach ($groupRef in $denyApplyGroups) {
-                    if ($groupRef -in $groupNames) {
-                        $validationDetails.ValidDenyApplyGroups++
-                    } else {
-                        $warnings += "GPO '$gpoName' references denyApplyGroup '$groupRef' which is not defined in groups configuration"
-                        $validationDetails.InvalidDenyApplyGroups++
-                    }
+                    if ($valid) { $validationDetails.ValidDenyApplyGroups += $denyProp.Count }
                 }
             }
         }
@@ -408,48 +416,56 @@ function Test-TierModelConfig {
             if ($config.PSObject.Properties.Name -contains 'admx') { $config.admx } else { $null }
         }
         if ($configAdmx) {
-        foreach ($admxEntry in $configAdmx) {
-            # Safe property access for ADMX path
+        # @($configAdmx) normalises both multi-entry arrays and single-entry objects
+        # (including 1-element arrays that PowerShell unwrapped via if-else assignment).
+        # Each entry supports test format ('path') and real-config format ('sourcePath').
+        foreach ($admxEntry in @($configAdmx)) {
+            # Resolve path: prefer 'path' (test format) then 'sourcePath' (real config)
             $admxPath = if ($admxEntry -is [hashtable]) {
-                if ($admxEntry.ContainsKey('path')) { $admxEntry['path'] } else { $null }
+                if ($admxEntry.ContainsKey('path')) { $admxEntry['path'] }
+                elseif ($admxEntry.ContainsKey('sourcePath')) {
+                    $rp = $admxEntry['sourcePath']
+                    if ([System.IO.Path]::IsPathRooted($rp)) { $rp }
+                    else { Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $rp }
+                } else { $null }
             } else {
-                if ($admxEntry.PSObject.Properties.Name -contains 'path') { $admxEntry.path } else { $null }
+                $pathNode = $admxEntry.PSObject.Properties['path']
+                $srcNode  = $admxEntry.PSObject.Properties['sourcePath']
+                if ($pathNode -and $pathNode.Value) { $pathNode.Value }
+                elseif ($srcNode -and $srcNode.Value) {
+                    $rp = $srcNode.Value
+                    if ([System.IO.Path]::IsPathRooted($rp)) { $rp }
+                    else { Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $rp }
+                } else { $null }
             }
-            
+
             if (-not $admxPath) {
                 $errors += "ADMX entry missing required 'path' property"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
             $language = if ($admxEntry -is [hashtable]) {
                 if ($admxEntry.ContainsKey('language')) { $admxEntry['language'] } else { "en-US" }
             } else {
                 if ($admxEntry.PSObject.Properties.Name -contains 'language') { $admxEntry.language } else { "en-US" }
             }
-            
             if (-not (Test-Path -LiteralPath $admxPath -PathType Container)) {
                 $errors += "ADMX source path '$admxPath' does not exist"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
-            # Check for .admx files
             $admxFiles = Get-ChildItem -Path $admxPath -Filter "*.admx" -ErrorAction SilentlyContinue
             if (-not $admxFiles) {
                 $warnings += "ADMX path '$admxPath' contains no .admx files"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
-            # Check for default locale folder
             $localePath = Join-Path $admxPath $language
             if (-not (Test-Path -LiteralPath $localePath -PathType Container)) {
                 $warnings += "ADMX path '$admxPath' missing default locale folder '$language'"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
             $validationDetails.ValidAdmxPaths++
         }
     }

@@ -105,8 +105,8 @@
 
                     $newPolicy = New-ADAuthenticationPolicy @newParams -PassThru -ErrorAction Stop
 
-                    # Verify the write before claiming success. Under the PS7 WinPSCompat shim the
-                    # ActiveDirectory proxy can report failure without terminating.
+                    # Verify the write before claiming success. A failed AD write can return $null
+                    # without terminating; defensive null-check regardless of platform or root cause.
                     if ($null -eq $newPolicy) {
                         throw (Get-TierModelWriteFailureDetail -Operation 'New-ADAuthenticationPolicy' -Target $policyName).Summary
                     }

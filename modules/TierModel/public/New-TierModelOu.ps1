@@ -179,8 +179,8 @@ function New-TierModelOu {
                 # NOTE: ProtectedFromAccidentalDeletion intentionally omitted here — applied in Phase 1 final step.
 
                 $newOU = New-ADOrganizationalUnit @newOuParams -ErrorAction Stop
-                # Verify the write before recording success. Under the PS7 WinPSCompat shim the
-                # ActiveDirectory proxy can report failure without terminating, leaving $newOU null.
+                # Verify the write before recording success. A failed AD write can return $null
+                # without terminating; defensive null-check regardless of platform or root cause.
                 if ($null -eq $newOU) {
                     throw (Get-TierModelWriteFailureDetail -Operation 'New-ADOrganizationalUnit' -Target $ouName).Summary
                 }

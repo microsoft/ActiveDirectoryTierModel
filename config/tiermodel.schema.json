@@ -1,19 +1,28 @@
-{
+﻿{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.com/tiermodel.schema.json",
   "title": "Tier Model Configuration",
+  "description": "Describes both individual on-disk config segments and the merged runtime object returned by Get-TierModelConfig. The three runtime-injected keys (ConfigHash, LoadedAt, ConfigPath) are added by Get-TierModelConfig and do not exist in any on-disk file.",
   "type": "object",
-  "required": ["version", "organizationUnits", "groups", "users", "gpos"],
   "properties": {
     "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "schemaVersion": {"type": "string"},
+    "comment": {"type": "string"},
+    "lastUpdated": {"type": "string", "description": "Optional ISO date-time recording when this file was last updated."},
     "preferredDc": {"type": "string"},
     "metadata": {
       "type": "object",
       "properties": {
-        "generated": {"type": "string"},
-        "description": {"type": "string"}
+        "created": {"type": "string"},
+        "description": {"type": "string"},
+        "lastModified": {"type": "string"},
+        "author": {"type": "string"}
       },
       "additionalProperties": false
+    },
+    "conditionalLogic": {
+      "type": "object",
+      "description": "Runtime conditional-logic descriptors for group/feature/domain detection and principal resolution. Sub-keys evolve independently; structure is intentionally unconstrained."
     },
     "organizationUnits": {
       "type": "array",
@@ -35,11 +44,14 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "scope"],
+        "required": ["name", "groupscope"],
         "properties": {
           "name": {"type": "string"},
-          "scope": {"type": "string", "enum": ["DomainLocal", "Global", "Universal"]},
-          "members": {"type": "array", "items": {"type": "string"}},
+          "samaccountname": {"type": "string"},
+          "description": {"type": "string"},
+          "groupscope": {"type": "string", "enum": ["DomainLocal", "Global", "Universal"]},
+          "groupcategory": {"type": "string", "enum": ["Security", "Distribution"]},
+          "path": {"type": "string"},
           "comment": {"type": "string"}
         },
         "additionalProperties": false
@@ -54,31 +66,10 @@
           "samAccountName": {"type": "string"},
           "displayName": {"type": "string"},
           "ouPath": {"type": "string"},
+          "description": {"type": "string"},
           "email": {"type": "string"},
           "enabled": {"type": "boolean"},
-          "comment": {"type": "string"}
-        },
-        "additionalProperties": false
-      }
-    },
-    "gpos": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name"],
-        "properties": {
-          "name": {"type": "string"},
-          "mode": {"type": "string", "enum": ["Import", "Create"]},
-          "gpoStatus": {"type": "string", "enum": ["AllEnabled", "AllSettingsEnabled", "UserSettingsDisabled", "ComputerSettingsDisabled", "BothSettingsDisabled", "AllSettingsDisabled"]},
-          "guid": {"type": "string"},
-          "importPath": {"type": "string"},
-          "links": {"type": "array", "items": {"type": "string"}},
-          "linkEnabled": {"type": "boolean"},
-          "scope": {"type": "array", "items": {"type": "string"}},
-          "denyApplyGroups": {"type": "array", "items": {"type": "string"}},
-          "userRightsAssignments": {"type": "array", "items": {"type": "object", "required": ["right", "principals"], "properties": {"right": {"type": "string"}, "principals": {"type": "array", "items": {"type": "string"}}, "resolveSid": {"type": "boolean"}, "comment": {"type": "string"}}, "additionalProperties": false}},
-          "restrictedGroups": {"type": "array", "items": {"type": "object", "required": ["groupName"], "properties": {"groupName": {"type": "string"}, "members": {"type": "array", "items": {"type": "string"}}, "resolveSid": {"type": "boolean"}, "comment": {"type": "string"}}, "additionalProperties": false}},
-          "enabled": {"type": "boolean"},
+          "memberOf": {"type": "array", "items": {"type": "string"}},
           "comment": {"type": "string"}
         },
         "additionalProperties": false
@@ -88,131 +79,333 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["targetPath", "principal", "rights"],
+        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
         "properties": {
-          "targetPath": {"type": "string"},
-          "principal": {"type": "string"},
-          "rights": {"type": "array", "items": {"type": "string"}},
+          "targetOUPath": {"type": "string"},
+          "identityreference": {"type": "string"},
+          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
+          "accesscontroltype": {"type": "string"},
+          "objecttype": {"type": "string"},
+          "activeDirectorysecurityinheritance": {"type": "string"},
+          "inheritanceType": {"type": "string"},
+          "inheritedObjectType": {"type": "string"},
+          "resolveguid": {"type": "boolean"},
           "comment": {"type": "string"}
         },
         "additionalProperties": false
       }
+    },
+    "gpos": {
+      "type": "object",
+      "description": "Keyed by OU distinguished name (may contain template placeholders such as {{DOMAIN_DN}}). Each OU entry holds an optional displayName scalar and two GPO category arrays.",
+      "patternProperties": {
+        "^.+$": {
+          "type": "object",
+          "properties": {
+            "displayName": {"type": "string"},
+            "ImportOnlyGpo": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/gpoEntry"}
+            },
+            "PostConfigureGpo": {
+              "type": "array",
+              "items": {"$ref": "#/$defs/gpoEntry"}
+            }
+          },
+          "required": ["ImportOnlyGpo", "PostConfigureGpo"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "admx": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "fileName": {"type": "string"},
-          "hash": {"type": "string"},
-          "comment": {"type": "string"}
-        },
-        "additionalProperties": true
-      }
+      "type": "object",
+      "description": "ADMX/ADML template management. destinationPath and sourcePath define the copy operation; files is keyed by template filename and records hash and provenance for copy-verification.",
+      "properties": {
+        "destinationPath": {"type": "string"},
+        "sourcePath": {"type": "string"},
+        "files": {
+          "type": "object",
+          "description": "Keyed by ADMX filename. Each entry records comment, hash date, download link, and SHA-256 hash.",
+          "patternProperties": {
+            "^.+$": {
+              "type": "object",
+              "properties": {
+                "comment": {"type": "string"},
+                "hashDate": {"type": "string"},
+                "downloadLink": {"type": "string"},
+                "hash": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "guidMappings": {
+      "type": "object",
+      "description": "AD schema GUID lookup tables loaded verbatim from tiermodel-guid-mappings.json. Contains staticMappings, dynamicMappings, specialValues, and friendlyNameMappings. Sub-structure is intentionally unconstrained."
     },
     "msaAclDelegations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
-        "properties": {
-          "targetOUPath": {"type": "string"},
-          "identityreference": {"type": "string"},
-          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
-          "accesscontroltype": {"type": "string"},
-          "objecttype": {"type": "string"},
-          "activeDirectorysecurityinheritance": {"type": "string"},
-          "inheritedObjectType": {"type": "string"},
-          "resolveguid": {"type": "boolean"},
-          "tier": {"type": "integer"},
-          "comment": {"type": "string"}
-        },
-        "additionalProperties": false
-      }
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/msaDelegationEntry"}
+        }
+      ]
     },
     "gmsaAclDelegations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
-        "properties": {
-          "targetOUPath": {"type": "string"},
-          "identityreference": {"type": "string"},
-          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
-          "accesscontroltype": {"type": "string"},
-          "objecttype": {"type": "string"},
-          "activeDirectorysecurityinheritance": {"type": "string"},
-          "inheritedObjectType": {"type": "string"},
-          "resolveguid": {"type": "boolean"},
-          "tier": {"type": "integer"},
-          "comment": {"type": "string"}
-        },
-        "additionalProperties": false
-      }
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/msaDelegationEntry"}
+        }
+      ]
     },
     "dmsaAclDelegations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
-        "properties": {
-          "targetOUPath": {"type": "string"},
-          "identityreference": {"type": "string"},
-          "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
-          "accesscontroltype": {"type": "string"},
-          "objecttype": {"type": "string"},
-          "activeDirectorysecurityinheritance": {"type": "string"},
-          "inheritedObjectType": {"type": "string"},
-          "resolveguid": {"type": "boolean"},
-          "tier": {"type": "integer"},
-          "comment": {"type": "string"}
-        },
-        "additionalProperties": false
-      }
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/msaDelegationEntry"}
+        }
+      ]
     },
     "winLapsDelegations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["ouDn", "computerSelfPermission", "readGroup", "resetGroup"],
-        "properties": {
-          "ouDn": {"type": "string"},
-          "computerSelfPermission": {"type": "boolean"},
-          "readGroup": {
-            "oneOf": [
-              {"type": "string"},
-              {"type": "array", "items": {"type": "string"}, "minItems": 1}
-            ]
-          },
-          "resetGroup": {
-            "oneOf": [
-              {"type": "string"},
-              {"type": "array", "items": {"type": "string"}, "minItems": 1}
-            ]
-          },
-          "isDomainControllerOu": {"type": "boolean"}
-        },
-        "additionalProperties": false
-      }
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ouDn", "computerSelfPermission", "readGroup", "resetGroup"],
+            "properties": {
+              "ouDn": {"type": "string"},
+              "computerSelfPermission": {"type": "boolean"},
+              "readGroup": {
+                "oneOf": [
+                  {"type": "string"},
+                  {"type": "array", "items": {"type": "string"}, "minItems": 1}
+                ]
+              },
+              "resetGroup": {
+                "oneOf": [
+                  {"type": "string"},
+                  {"type": "array", "items": {"type": "string"}, "minItems": 1}
+                ]
+              },
+              "isDomainControllerOu": {"type": "boolean"},
+              "decryptorGroup": {"type": "string"},
+              "decryptorGpoName": {"type": "string"},
+              "comment": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     },
     "domainAuditRule": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "description": "Domain-root SACL audit rule for Sentinel monitoring. Applies a single canonical audit ACE to the domain root DN.",
+          "required": ["targetDn", "trusteeSid", "auditFlag", "inheritance", "rights"],
+          "properties": {
+            "comment": {"type": "string"},
+            "targetDn": {"type": "string"},
+            "trusteeSid": {"type": "string"},
+            "auditFlag": {"type": "string", "enum": ["Success", "Failure", "Success, Failure"]},
+            "inheritance": {"type": "string"},
+            "rights": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "authenticationPolicies": {
+      "description": "Authentication Policy objects (v2.0.0 auth-silos feature). Loaded from tiermodel-authsilos.json. Null when that file is absent.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string"},
+              "description": {"type": "string"},
+              "userTGTLifetimeMinutes": {"type": ["integer", "null"]},
+              "allowedToAuthenticateFromDeviceGroups": {"type": "array", "items": {"type": "string"}},
+              "enforce": {"type": "boolean"},
+              "protectedFromAccidentalDeletion": {"type": "boolean"},
+              "comment": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "authenticationSilos": {
+      "description": "Authentication Policy Silo objects (v2.0.0 auth-silos feature). Loaded from tiermodel-authsilos.json. Null when that file is absent.",
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string"},
+              "description": {"type": "string"},
+              "policy": {"type": "string"},
+              "memberComputerGroups": {"type": "array", "items": {"type": "string"}},
+              "enforce": {"type": "boolean"},
+              "protectedFromAccidentalDeletion": {"type": "boolean"},
+              "comment": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "ConfigHash": {
+      "type": "string",
+      "description": "SHA-256 hash of all loaded config file contents, computed at runtime by Get-TierModelConfig. Not present in any on-disk file."
+    },
+    "LoadedAt": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of when Get-TierModelConfig loaded the config. Not present in any on-disk file."
+    },
+    "ConfigPath": {
+      "type": "string",
+      "description": "Resolved path to the config directory used by this load. Not present in any on-disk file."
+    }
+  },
+  "additionalProperties": false,
+  "required": ["version", "organizationUnits", "groups", "users", "gpos"],
+  "$defs": {
+    "msaDelegationEntry": {
       "type": "object",
-      "description": "Domain-root SACL audit rule for Sentinel monitoring. Applies a single canonical audit ACE to the domain root DN.",
-      "required": ["targetDn", "trusteeSid", "auditFlag", "inheritance", "rights"],
+      "required": ["targetOUPath", "identityreference", "activedirectoryrights", "accesscontroltype", "objecttype", "activeDirectorysecurityinheritance"],
+      "description": "ACL delegation entry for MSA, gMSA, or dMSA accounts. Shares property names with aclDelegations; adds optional tier classification.",
       "properties": {
+        "targetOUPath": {"type": "string"},
+        "identityreference": {"type": "string"},
+        "activedirectoryrights": {"type": "array", "items": {"type": "string"}},
+        "accesscontroltype": {"type": "string"},
+        "objecttype": {"type": "string"},
+        "activeDirectorysecurityinheritance": {"type": "string"},
+        "inheritedObjectType": {"type": "string"},
+        "resolveguid": {"type": "boolean"},
+        "tier": {"type": "integer"},
+        "comment": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "gpoEntry": {
+      "type": "object",
+      "required": ["name"],
+      "description": "A single GPO managed by the tier model. Speculative forward-only fields (guid, links, scope, enabled, denyApplyGroups) removed — none appear in the shipped config and their presence with additionalProperties:false blocked accurate validation.",
+      "properties": {
+        "name": {"type": "string"},
+        "mode": {
+          "type": "string",
+          "enum": ["create", "createAndImport", "createImportAndConfigure"]
+        },
+        "gpoStatus": {
+          "type": "string",
+          "description": "Maps to Microsoft.GroupPolicy.GpoStatus (.NET enum, 4 real members). AllEnabled and BothSettingsDisabled are not real GpoStatus values and are not accepted.",
+          "enum": ["AllSettingsEnabled", "UserSettingsDisabled", "ComputerSettingsDisabled", "AllSettingsDisabled"]
+        },
+        "importPath": {"type": "string"},
+        "linkEnabled": {"type": "boolean"},
+        "linkOrder": {"type": "integer"},
+        "gpoComment": {"type": "string"},
         "comment": {"type": "string"},
-        "targetDn": {"type": "string"},
-        "trusteeSid": {"type": "string"},
-        "auditFlag": {"type": "string", "enum": ["Success", "Failure", "Success, Failure"]},
-        "inheritance": {"type": "string"},
-        "rights": {
+        "rename": {"type": "string"},
+        "denyApplyGroupPolicy": {
           "type": "array",
           "items": {"type": "string"},
-          "minItems": 1
+          "description": "AD group names that receive a Deny Apply Group Policy ACE on this GPO's security descriptor."
+        },
+        "userRightsAssignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["right", "principals"],
+            "properties": {
+              "right": {"type": "string"},
+              "principals": {
+                "type": "object",
+                "description": "Principal sets resolved at deploy time by strategy, not enumerated as flat strings.",
+                "properties": {
+                  "resolvableGroups": {"type": "array", "items": {"type": "string"}},
+                  "forestRootOnly": {"type": "array", "items": {"type": "string"}},
+                  "conditionalGroups": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "names": {"type": "array", "items": {"type": "string"}},
+                        "conditions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "type": {"type": "string"},
+                              "operator": {"type": "string"}
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "comment": {"type": "string"}
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "literalStrings": {"type": "array", "items": {"type": "string"}}
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "restrictedGroups": {
+          "description": "Desired local group membership state. When non-empty: emptyGroups are fully cleared; membershipGroups are set to exactly the listed members. When empty (empty array), no restricted groups are managed on this GPO.",
+          "oneOf": [
+            {"type": "array", "maxItems": 0},
+            {
+              "type": "object",
+              "properties": {
+                "emptyGroups": {"type": "array", "items": {"type": "string"}},
+                "membershipGroups": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "groupSidOrName": {"type": "string"},
+                      "memberGroups": {"type": "array", "items": {"type": "string"}}
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
         }
       },
       "additionalProperties": false
     }
-  },
-  "additionalProperties": false
+  }
 }

@@ -241,12 +241,14 @@ function ConvertTo-TierModelSidString {
 
     .DESCRIPTION
     Private helper (not exported). AD cmdlets normally return a live
-    [System.Security.Principal.SecurityIdentifier] for .SID / .objectSid, but when the
-    ActiveDirectory module is loaded through the Windows PowerShell compatibility shim
-    (WinPSCompatSession) the objects are DESERIALIZED and those properties come back as
-    plain [String]. Reading .Value off a String yields $null, which previously produced
-    BLANK principals in GPO GptTmpl.inf (User Rights Assignment and Restricted Groups) -
-    a silent security-configuration failure.
+    [System.Security.Principal.SecurityIdentifier] for .SID / .objectSid. On platforms where
+    the ActiveDirectory module loads through the Windows PowerShell Compatibility shim
+    (WinPSCompatSession — platform-dependent; not reproduced on Windows Server 2025 /
+    PowerShell 7.5.1), the objects are DESERIALIZED and those properties come back as plain
+    [String]. Reading .Value off a String yields $null, which previously produced BLANK
+    principals in GPO GptTmpl.inf (User Rights Assignment and Restricted Groups) - a silent
+    security-configuration failure. The helper also defends against any other code path that
+    returns a SID as a string rather than as a SecurityIdentifier.
 
     This helper accepts every shape safely (SecurityIdentifier, String, byte[],
     deserialized PSObject exposing .Value) and THROWS when the result cannot be
@@ -278,7 +280,7 @@ function ConvertTo-TierModelSidString {
         $candidate = $InputSid.Value
     }
     elseif ($InputSid -is [string]) {
-        # Deserialized (compat-shim) shape: the SID is already the string itself.
+        # String shape (deserialized on some platforms, or returned directly by certain cmdlets):
         $candidate = $InputSid
     }
     elseif ($InputSid -is [byte[]]) {

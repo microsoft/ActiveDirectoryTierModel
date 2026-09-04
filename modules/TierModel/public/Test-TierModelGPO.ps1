@@ -163,14 +163,28 @@ function Test-TierModelGpo {
                     $currentFlags = $gpoADObject.flags
                     $observedGpoFlags = $currentFlags
                     
-                    # Valid gpoStatus values and their AD 'flags' equivalents. Must stay in exact
-                    # agreement with the deploy switch in New-TierModelGpo.ps1.
+                    # Valid gpoStatus values and their AD 'flags' attribute values.
+                    #
+                    # ⚠ CRITICAL: these are AD 'flags' attribute values, NOT .NET GpoStatus
+                    # enum ordinals. The ordinals are inverted for AllSettingsEnabled (ordinal 3)
+                    # and AllSettingsDisabled (ordinal 0) — do NOT "fix" that inversion.
+                    # Empirically verified on TierLab-DC01 by Joel Platek, 2026-09-04:
+                    #   AllSettingsEnabled       → flags 0
+                    #   UserSettingsDisabled     → flags 1
+                    #   ComputerSettingsDisabled → flags 2
+                    #   AllSettingsDisabled      → flags 3
+                    #
+                    # Must stay in exact agreement with the deploy lookup in
+                    # New-TierModelGpo.ps1. If these tables drift a status deployed as
+                    # flags=X will audit as a different value — unresolvable drift because
+                    # re-running deploy keeps writing the wrong flags value.
+                    #
+                    # Exactly 4 real .NET GpoStatus members (BUG-016: AllEnabled and
+                    # BothSettingsDisabled were invented and have been removed).
                     $validGpoStatus = [ordered]@{
-                        'AllEnabled'               = 0
                         'AllSettingsEnabled'       = 0
                         'UserSettingsDisabled'     = 1
                         'ComputerSettingsDisabled' = 2
-                        'BothSettingsDisabled'     = 3
                         'AllSettingsDisabled'      = 3
                     }
 
@@ -265,7 +279,7 @@ function Test-TierModelGpo {
                     Actual = 'Enabled state not reported'
                     Message = 'Unable to determine GPO enabled state - GpoStatus was not returned by the directory'
                 }
-            } elseif ($reportedStatus -in @('AllSettingsDisabled', 'BothSettingsDisabled')) {
+            } elseif ($reportedStatus -in @('AllSettingsDisabled')) {
                 # Advisory only - see the note above. Never a Fail, never an Issue.
                 $testResult.SettingsDisabled = $true
                 $testResult.Checks += [PSCustomObject]@{

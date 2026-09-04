@@ -172,9 +172,9 @@ function New-TierModelWinLapsAcl {
                     } | Out-Null
 
                     if ($PSCmdlet.ShouldProcess("GPO: $gpoName", "Set-GPRegistryValue ADPasswordEncryptionPrincipal = $decryptorValue")) {
-                        # Set-GPRegistryValue is a proxy function with no -PassThru: it emits the GPO
-                        # object it modified by default. Capture it (never let it leak into this
-                        # function's output stream) and verify the write before claiming success.
+                        # Set-GPRegistryValue has no -PassThru parameter: it emits the GPO object it
+                        # modified by default. Capture it (never let it leak into this function's
+                        # output stream) and verify the write before claiming success.
                         # See Get-TierModelWriteFailureDetail.
                         $decryptorResult = Set-GPRegistryValue -Name $gpoName `
                             -Key $lapsKey `

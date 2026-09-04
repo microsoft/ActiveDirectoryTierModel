@@ -104,10 +104,9 @@ function New-TierModelUser {
                         $newUserParams['AccountPassword'] = $tempPassword
                         $newUserParams['ChangePasswordAtLogon'] = $true
                         
-                        # -ErrorAction Stop is required: under the PS7 WinPSCompat shim the
-                        # ActiveDirectory proxy reports failure via WriteError and does not honour an
-                        # inherited Stop preference, so without this a failed create falls through
-                        # and the account is counted as executed.
+                        # -ErrorAction Stop is required: without it a failed create can fall through
+                        # without terminating and the account is counted as executed. Root cause is
+                        # platform-dependent; explicit -ErrorAction Stop is the reliable safeguard.
                         New-ADUser @newUserParams -ErrorAction Stop | Out-Null
 
                         Write-Host "  ✅ Created User: $userName ($userSamAccountName)" -ForegroundColor Green

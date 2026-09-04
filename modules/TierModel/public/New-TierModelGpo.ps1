@@ -5,16 +5,21 @@ function Get-TierModelWriteFailureDetail {
     produce a verifiable result.
 
     .DESCRIPTION
-    Under PowerShell 7 the ActiveDirectory and GroupPolicy modules are loaded through the
-    Windows PowerShell compatibility shim as script proxy functions that report failure via
-    $PSCmdlet.WriteError(). That path does not honour an inherited 'Stop' preference the way a
-    binary cmdlet does, so a failed write can fall through without terminating and leave the
-    result variable $null. Callers therefore null-check the result and, when it is $null, use
-    this helper to recover the error that the proxy emitted.
+    Null-return verification for AD and GroupPolicy write cmdlets: a failed write can leave the
+    result variable $null without terminating. Root cause on any given platform is not yet
+    established (see NOTE). Callers null-check the result and, when it is $null, use this helper
+    to recover the most recent error record.
 
-    Because the shim marshals errors across a runspace boundary the exception is flattened -
-    InnerException is normally absent - but FullyQualifiedErrorId and CategoryInfo survive, so
-    those are captured explicitly alongside the message.
+    NOTE (2026-09-04): Earlier versions of this comment attributed silent write failures to the
+    Windows PowerShell Compatibility (WinPSCompat) shim — proxy functions calling
+    $PSCmdlet.WriteError() that ignore an inherited Stop preference. This mechanism was NOT
+    reproduced on Windows Server 2025 / PowerShell 7.5.1 (TierLab-DC01): every AD and
+    GroupPolicy cmdlet loaded natively (CommandType=Cmdlet, not Function). The shim may still
+    apply on older RSAT management workstations where GroupPolicy is not Core-native. Root
+    cause for the original GPO silent-fail incident is not yet established.
+
+    FullyQualifiedErrorId and CategoryInfo are captured explicitly because InnerException may
+    be absent when exceptions cross runspace or serialisation boundaries.
 
     .PARAMETER Operation
     Name of the cmdlet or operation that was attempted, e.g. 'New-GPO'.
@@ -160,22 +165,48 @@ function New-TierModelGpo {
                     # Configure GPO status (User/Computer settings enabled/disabled) for create-only mode GPOs
                     # Only needed for 'create' mode because import operations will set status from imported GPO
                     if ($gpoMode -eq 'create' -and $gpoData.PSObject.Properties.Name -contains 'gpoStatus') {
+                        # Validate gpoStatus BEFORE the inner try so an unrecognised value propagates
+                        # to the outer catch (proper GPO-failure accounting + red ERROR console line)
+                        # rather than the gpoStatus-specific inner catch (warning-only, GPO counted
+                        # as executed). This is the fail-loud-per-GPO convention used throughout.
+                        $validGpoStatusValues = @(
+                            'AllSettingsEnabled',
+                            'UserSettingsDisabled',
+                            'ComputerSettingsDisabled',
+                            'AllSettingsDisabled'
+                        )
+                        if ([string]$gpoData.gpoStatus -notin $validGpoStatusValues) {
+                            $validList = $validGpoStatusValues -join ', '
+                            throw "GPO '$gpoName' has unrecognized gpoStatus '$($gpoData.gpoStatus)'. Valid values: $validList"
+                        }
+
                         try {
                             $domain = Get-ADDomain -Server $DomainController
                             $domainDN = $domain.DistinguishedName
                             
-                            # Map gpoStatus values to AD flags. Must stay in exact agreement with the
-                            # audit switch in Test-TierModelGPO.ps1, otherwise a value handled there
-                            # but not here deploys as flags 0 and audits as a different value —
-                            # unresolvable drift, because re-running deploy keeps writing 0.
+                            # Map gpoStatus names to AD 'flags' attribute values.
+                            #
+                            # ⚠ CRITICAL: these are AD 'flags' attribute values, NOT .NET GpoStatus
+                            # enum ordinals. The ordinals are inverted for AllSettingsEnabled (ordinal 3)
+                            # and AllSettingsDisabled (ordinal 0) — do NOT "fix" that inversion.
+                            # Empirically verified on TierLab-DC01 by Joel Platek, 2026-09-04:
+                            #   AllSettingsEnabled       → flags 0
+                            #   UserSettingsDisabled     → flags 1
+                            #   ComputerSettingsDisabled → flags 2
+                            #   AllSettingsDisabled      → flags 3
+                            #
+                            # Must stay in exact agreement with the audit lookup in
+                            # Test-TierModelGPO.ps1. If these tables drift a status written here
+                            # audits as a different value — unresolvable drift because re-running
+                            # deploy keeps writing the wrong flags value.
+                            #
+                            # Exactly 4 real .NET GpoStatus members (BUG-016: AllEnabled and
+                            # BothSettingsDisabled were invented and have been removed).
                             $flagValue = switch ($gpoData.gpoStatus) {
-                                'AllEnabled'               { 0 }
                                 'AllSettingsEnabled'       { 0 }
-                                'UserSettingsDisabled'    { 1 }
+                                'UserSettingsDisabled'     { 1 }
                                 'ComputerSettingsDisabled' { 2 }
-                                'BothSettingsDisabled'     { 3 }
                                 'AllSettingsDisabled'      { 3 }
-                                default { 0 } # Default to all enabled if unrecognized
                             }
                             
                             # Set the flags attribute on the GPO AD object

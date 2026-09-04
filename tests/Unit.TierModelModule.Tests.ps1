@@ -515,7 +515,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
     Context 'FromPath — array item missing required sub-property' {
         BeforeAll {
-            # Group item has 'name' but is missing required 'scope'.
+            # Group item has 'name' but is missing required 'groupscope'.
             # Using GroupsOnly scope; organizationUnits is empty so the OU
             # parent-child check is skipped (avoids StrictMode crash on $ou.path).
             $script:MissingSubPropFile = Join-Path $env:TEMP "tm-missingsubprop-$([guid]::NewGuid()).json"
@@ -534,7 +534,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
         It 'returns Valid=$false and an error naming the missing sub-property' {
             $result = Test-TierModelConfig -Path $script:MissingSubPropFile -SchemaPath $script:SchemaPath -Scope GroupsOnly
             $result.Valid | Should -Be $false
-            ($result.Errors -join ' ') | Should -Match "missing required property 'scope'"
+            ($result.Errors -join ' ') | Should -Match "missing required property 'groupscope'"
         }
     }
 

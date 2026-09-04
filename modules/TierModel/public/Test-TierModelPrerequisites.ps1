@@ -312,9 +312,10 @@ function Test-TierModelPrerequisites {
         # Authoritative membership verdict is taken from the caller's own logon token:
         # derive the Domain Admins SID from the account domain SID (RID 512) and test the
         # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
-        # immune to the WinPSCompat deserialization defect (BUG-011) that made the previous
-        # object comparison ($_.SID -eq $currentUser.User) return False for a real Domain
-        # Admin. It also reflects effective nested membership without a -Recursive AD query.
+        # immune to the class of SID-deserialization defect documented in BUG-011, where a
+        # directory-module returning string-typed SIDs caused object comparisons to fail
+        # silently. (BUG-011 is platform-dependent; not reproduced on WS2025/PS7.5.1.)
+        # It also reflects effective nested membership without a -Recursive AD query.
         # The AD-module block below still runs, but only to classify the ENVIRONMENT and to
         # select the correct remediation text - it no longer decides membership.
         $isDomainAdmin = $false
@@ -349,18 +350,20 @@ function Test-TierModelPrerequisites {
             $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
         }
 
-        # Classify the AD environment (compat shim / module availability / group presence)
+        # Classify the AD environment (shim detection / module availability / group presence)
             try {
                 Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false -SkipEditionCheck | Out-Null
                 $adShimDetected = $false
                 if (Get-Module ActiveDirectory) {
-                    # Guard: under PowerShell 7, an RSAT ActiveDirectory module that is not Core-native
-                    # loads through the Windows PowerShell compatibility shim (WinPSCompatSession) and
-                    # returns DESERIALIZED objects - SIDs come back as strings, so .SID.Value / .objectSid.Value
+                    # Guard: on platforms where the RSAT ActiveDirectory module is not Core-native,
+                    # it may load through the Windows PowerShell Compatibility shim (WinPSCompatSession)
+                    # and return DESERIALIZED objects - SIDs come back as strings, so .SID.Value / .objectSid.Value
                     # resolve empty. That silently breaks SID resolution deployment-wide (URA and GPO
-                    # restricted-groups principals resolve to nothing). Detect it by probing whether the
-                    # domain SID comes back as a plain string (deserialized) instead of a SecurityIdentifier,
-                    # and fail fast rather than deploy broken policy.
+                    # restricted-groups principals resolve to nothing). This probe detects that condition
+                    # by checking whether the domain SID comes back as a plain string (deserialized) instead
+                    # of a SecurityIdentifier, and fails fast rather than deploying broken policy.
+                    # NOTE: Not reproduced on Windows Server 2025 / PowerShell 7.5.1, where modules
+                    # load natively. The probe is retained as a defence against older RSAT platforms.
                     try {
                         $adDomainProbe = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
                         if ($adDomainProbe.DomainSID -is [string]) { $adShimDetected = $true }

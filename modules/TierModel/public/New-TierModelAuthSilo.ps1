@@ -80,8 +80,8 @@
 
                     $newSilo = New-ADAuthenticationPolicySilo @newParams -PassThru -ErrorAction Stop
 
-                    # Verify the write before claiming success. Under the PS7 WinPSCompat shim the
-                    # ActiveDirectory proxy can report failure without terminating.
+                    # Verify the write before claiming success. A failed AD write can return $null
+                    # without terminating; defensive null-check regardless of platform or root cause.
                     if ($null -eq $newSilo) {
                         throw (Get-TierModelWriteFailureDetail -Operation 'New-ADAuthenticationPolicySilo' -Target $siloName).Summary
                     }

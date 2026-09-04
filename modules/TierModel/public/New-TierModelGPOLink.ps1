@@ -124,8 +124,8 @@ function New-TierModelGPOLink {
                         
                         $newLink = New-GPLink -Name $gpoName -Target $targetOUPath -LinkEnabled $linkEnabledParam -Order $requiredOrder -Enforced $enforcedParam -Server $DomainController -ErrorAction Stop
 
-                        # Verify the write before claiming success. Under the PS7 WinPSCompat shim
-                        # the GroupPolicy proxy can report failure without terminating.
+                        # Verify the write before claiming success. A failed GPO write can return
+                        # $null without terminating; defensive null-check regardless of root cause.
                         if ($null -eq $newLink) {
                             throw (Get-TierModelWriteFailureDetail -Operation 'New-GPLink' -Target "$gpoName -> $targetOUPath").Summary
                         }
