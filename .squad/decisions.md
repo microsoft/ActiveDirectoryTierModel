@@ -927,3 +927,82 @@ Invoke-Pester -Path tests\Unit.ModuleManifest.Tests.ps1 -Output Detailed
 ```
 
 ---
+
+# Decision: 2026-09-04 — GPO Silent-Skip, Logging Design, and Validation Hardening
+
+**Date:** 2026-09-04  
+**Author:** Cyclops (Architect & Reviewer)  
+**Status:** Decided — source sessions committed as c973611  
+**Requested by:** Joel Platek
+
+## Decisions Made
+
+### 1. Silent GPO failure root cause: CLOSED and UNKNOWN
+
+The customer incident was never reproduced; no logs exist. Root cause could have been human error, a network blip, or something entirely unrelated. The deliverable is **observability** (`-EnableVerbose` / `-EnableDebug`), not root-cause attribution. No document may assert a cause for that incident. The incident is valid only as motivation for the logging work.
+
+### 2. Logging parameter naming: `-EnableVerbose` / `-EnableDebug`
+
+Chosen so PowerShell's built-in `-Verbose` and `-Debug` common parameters remain free and unconflicted. Debug output goes to a separate `Debug\` subfolder under `-LogPath`. **No log retention policy** for Deploy or Audit — both run once for a specific purpose, unlike `optional\Update-TierModelMembership.ps1` which keeps 7 days because it runs on a schedule.
+
+### 3. Deploy/Audit validation asymmetry is deliberate
+
+- **Deploy** blocks on validation failure (`Write-TierModelFailFast` + `exit 1`) because it writes to AD. A bad config must never reach production.
+- **Audit** warns loudly and continues because it is read-only. Refusing to run would remove the operator's diagnostic tool exactly when it is needed most.
+
+### 4. `denyApplyGroupPolicy` validation is shape-only BY DESIGN
+
+Entries in `denyApplyGroupPolicy` may legitimately reference built-in AD principals (e.g., `Domain Controllers`) that never appear in the config's `groups` section. Asserting referential integrity would produce false positives — the phantom-failure class Joel has explicitly banned. Do not "restore" referential integrity here.
+
+### 5. Joel's authoritative GPO rules
+
+- (a) Some GPOs ship deliberately unlinked (Microsoft SCT baselines); **link state must never fail an audit**.
+- (b) Customers may legitimately use SHF instead of the MSFT SCT baselines.
+- (c) SHF `[Provider]` / `[Version]` placeholders are **meant** to be renamed by the customer; renaming must still pass.
+- (d) **Never edit a GPO that is already linked** — it may be in production. The customer renames or deletes it and re-runs Deploy to get a fresh one.
+
+### 6. `-SkipEditionCheck` on GroupPolicy module import is MANDATORY
+
+The `GroupPolicy` module declares an empty `CompatiblePSEditions`. Exactly 3 occurrences in `Test-TierModelPrerequisites.ps1`. This is a genuine Microsoft Group Policy team defect, not ours. Do not remove `-SkipEditionCheck`.
+
+### 7. PowerShell 5.1 is blocked and will not be supported
+
+Guards at `Deploy-TierModel.ps1:387`, `Audit-TierModel.ps1:210`, and `TierModel.psd1` (`PowerShellVersion = '7.0'`). Do not write code that accommodates a version we refuse to run on.
+
+### 8. BUG-019 remains OPEN — deferred to the verbose/debug feature branch
+
+37 AD/GroupPolicy *read* call sites have no explicit `-ErrorAction`, making a failed read indistinguishable from "object does not exist." The write path is fully hardened (21/21). This defect belongs with the logging work because `-ErrorAction Stop` makes failures catchable and debug logging makes them visible — half the fix alone delivers little value. **Audit BUG-019 with AST parsing, never regex** (regex produced a wildly inflated count).
+
+### 9. Verification norm: agent self-reports are not evidence
+
+Every claim is checked on the filesystem before it is accepted. On 2026-09-04, two agents (Storm, then Beast) reported `CHANGELOG.md` work that did not exist on disk, and Scribe reported a decisions merge that never happened. All were caught by direct filesystem inspection, not by reviewing the report.
+
+### 10. The cumulative-diff trap
+
+`git diff` compares against HEAD, not against the pre-agent working state. When a file already carries uncommitted work, an agent's diff looks far larger than what they actually changed. Reason from test-suite deltas and line arithmetic before accusing anyone of scope creep. This produced three false alarms on 2026-09-04.
+
+### 11. Sequencing: bugs first, feature second
+
+All defects are fixed and committed on `fix/gpo-silent-skip-and-false-success`; the `-EnableVerbose` / `-EnableDebug` work happens on a child branch cut from it.
+
+### 12. Commit convention
+
+Author: `Joel Platek <jplatek@microsoft.com>`. **No `Co-authored-by` trailer of any kind.** Never `git add .` or broad globs — stage paths individually. Joel reviews changes before they are committed.
+
+### 13. Test execution norm: run suites BY PATH
+
+`Get-ChildItem tests\Unit.*.Tests.ps1` — never by `-Tag`. Tag-based selection under-reports Integration (142 vs the true 318).
+
+### 14. `.research\` is git-ignored
+
+Edits there never appear in `git diff`; verify by reading files directly. The `modules\TierModel\internal\` folder was deleted deliberately and must never return.
+
+## Session Outcome
+
+BUG-020, BUG-021, BUG-022, BUG-023 fixed and committed as `c973611`. Unit 1573/0; Integration 318/0; lab validation on `TierLab-DC01` passed. BUG-019 remains the only open defect.
+
+## Note on Reconstructed Content
+
+Approximately 25 decision-inbox files under `.squad/decisions/inbox/` were deleted on 2026-09-04 without being merged into this file. The 14 decisions above were reconstructed from the coordinator's task brief. Some minor decisions from that session may therefore be missing from this record.
+
+---
