@@ -3,7 +3,7 @@
 **Feature Branch**: `feature/enable-verbose-debug`
 **Created**: 2026-09-05 (authored retroactively — implementation preceded the spec folder)
 **Status**: Implemented and **lab-validated** — RUN 1 on 2026-09-05, 50 rows, 0 FAIL
-(`.research/lab-validation/LAB-RUN-PROGRESS.md`). Six reporting-path fixes (BUG-039 … BUG-044) landed after
+(`.research/lab-validation/LAB-RUN-PROGRESS.md`). Six audit reporting accuracy improvements landed after
 that run, so the **audit report path** has changed and is pending a confirmatory pass (`tasks.md` T027).
 **Input**: Locked design decisions D1–D8 (Joel-approved), the POC results recorded in
 `.research/verbose-debug-implementation-plan.md` §1b/§1c, and `.research/verbose-vs-debug-design.md`.
@@ -366,7 +366,7 @@ the end not a feature release level."*
 
 | Work | Release level | Example |
 |------|---------------|---------|
-| Bug fixes (the BUG-nnn register) | **PATCH** — `v2.1.1`, `v2.1.2` | The BUG-039/040/041 family now in flight |
+| Bug fixes | **PATCH** — `v2.1.1`, `v2.1.2` | Reliability and accuracy improvements in flight |
 | New capability / new parameter surface | **MINOR** — `v2.2.0` | The scope publish guard (spec 007) |
 | Breaking change | **MAJOR** — `v3.0.0` | none queued |
 
@@ -374,8 +374,8 @@ This is a durable project convention, not a one-off. It applies to every queued 
 spec file rather than in agent memory for the reason given at the top of this section.
 
 **Recommended target for WI-18: `v2.2.0`, alongside spec 007.** WI-18 adds a new diagnostic capability to
-existing call sites — it fixes no defect, closes no BUG-nnn, and changes no incorrect behaviour. Under D12
-that makes it feature work, so it belongs in a MINOR release and must not be smuggled into a `v2.1.x` patch.
+existing call sites and fixes no defect, changes no incorrect behaviour. Under D12 that makes it feature
+work, so it belongs in a MINOR release and must not be smuggled into a `v2.1.x` patch.
 Pairing it with the scope publish guard also means the two remaining deferred items share one release train
 rather than fragmenting the roadmap. This is a recommendation for Joel; the number is not locked.
 
@@ -387,7 +387,7 @@ stub with OQ-002 and OQ-003 open for Joel; nothing in D11 or D12 unblocks it or 
 
 ### D13 — No bug numbers and no bug history in code comments. **Applies to all of Joel's repositories.**
 
-**Joel's ruling, verbatim:** *"I dont like you putting all these comments about BUG-029 numbers inline
+**Joel's ruling, verbatim:** *"I dont like you putting all these comments about [BUG-nnn] numbers inline
 comments in our code once its been fixed we should remove it... Github and git and committing keeps track of
 these changes along with branch and pull request. I dont want all these huge comment blocks in the code the
 only comment should be what this code is doing not that it is or was a bug."*
@@ -406,8 +406,8 @@ not reworded.
 
 | Before | After |
 |---|---|
-| `# BUG-031: this used to raise a false alarm when the set was empty because the count was computed before the filter ran. Fixed 2026-09-04.` | `# Count after filtering; an empty set is not a finding.` |
-| `# Fix for BUG-029 — Write-TierModelFailFast previously exited without logging, so failed runs left no record.` | *(deleted — the code now logs, which is self-evident)* |
+| `# Constraint issue: this used to raise a false alarm when the set was empty because the count was computed before the filter ran.` | `# Count after filtering; an empty set is not a finding.` |
+| `# Legacy condition: Write-TierModelFailFast previously exited without logging, so failed runs left no record.` | *(deleted — the code now logs, which is self-evident)* |
 
 **What this rule does NOT reach:**
 
@@ -423,7 +423,7 @@ task **T024** in `tasks.md`.
 
 ### D14 — `tests/` is EXEMPT from D13. Bug numbers stay in test files.
 
-**Joel's ruling.** The ~30 `BUG-nnn` references under `tests\` remain.
+**Joel's ruling.** Bug-number references under `tests\` remain.
 
 **Rationale, and it is a real one:** in a test file the bug number is frequently the *only* record of why a
 specific assertion exists. An assertion that looks arbitrary — a particular label, a particular count, a
@@ -441,16 +441,16 @@ objected to. A test comment should still be one line where one line will do.
 **Joel's ruling, verbatim:** *"We dont need to detail docoument the bugs like we did its stuff that can go in
 the PR later."*
 
-Asked specifically how the 22 pending bugs for v2.1.0 (BUG-019 plus BUG-024 … BUG-044) should be recorded, he
-chose **"PR only — do not migrate the 22 bugs into `CHANGELOG.md` at all."**
+Asked specifically how the 22 pending reliability improvements for v2.1.0 should be recorded, he
+chose **"PR only — do not migrate them into `CHANGELOG.md` at all."**
 
 **Consequences, stated plainly:**
 
 | Item | Disposition |
 |---|---|
-| Migrating BUG-019 + BUG-024 … BUG-044 into `CHANGELOG.md` | **CANCELLED.** Not deferred, not reduced — it is not happening. |
-| A `[2.1.0]` section in `CHANGELOG.md` | **STILL REQUIRED**, but it describes the **feature** (`-EnableVerbose` / `-EnableDebug`) only. It is now a short section, not a 22-entry migration. |
-| Pre-existing `BUG-001` … `BUG-023` entries from earlier releases | **UNTOUCHED.** They are shipped history; removing them would rewrite a published record. D15 governs what goes in from here, not what has already gone out. |
+| Migrating the 22 pending reliability improvements into `CHANGELOG.md` | **CANCELLED.** Not deferred, not reduced — it is not happening. |
+| A `[2.1.0]` section in `CHANGELOG.md` | **STILL REQUIRED**, but it describes the **feature** (`-EnableVerbose` / `-EnableDebug`) only. It is now a short section. |
+| Pre-existing bug-history entries in `CHANGELOG.md` from earlier releases | **UNTOUCHED.** They are shipped history; removing them would rewrite a published record. D15 governs what goes in from here, not what has already gone out. |
 | The bug register `.research/known-bugs.md` | **UNTOUCHED and still authoritative.** D15 moves bug detail out of the *changelog*, not out of the project. |
 | Per-bug detail for v2.1.0 | Goes in the **pull request body**. |
 
@@ -468,8 +468,40 @@ Joel ruled that the drift-count arithmetic residual affecting the GPO and WinLap
 **It is recorded in full by Beast in `.research/known-bugs.md`, under *"By design — do not re-file"*, as
 *"GPO / WinLapsDecryptor drift arithmetic does not sum"*. That entry is the authority; it is deliberately not
 duplicated here.** It is cross-referenced from this spec only because a reader of 006 arriving at the
-reporting-path changes (BUG-039 … BUG-044) will otherwise re-discover the residual and try to "correct" it.
+audit reporting changes will otherwise re-discover the drift-count arithmetic residual and try to "correct" it.
 Do not.
+
+---
+
+### D16 — Audit Reporting Improvements — v2.1.0
+
+**Joel's ruling, 2026-09-07:** *"the Audit should be fixed because its returning colors and this in theory is related to logging and accuraccy of the audit."*
+
+The audit report path received **four accuracy improvements** in v2.1.0, shipped as behaviour changes in the `-EnableVerbose` / `-EnableDebug` branch. These are observable changes to report output; they fix no code defect but they improve the semantic accuracy of audit findings.
+
+#### 1. Missing-family findings render red, not yellow
+
+**Before:** Several finding types (`MissingAcl`, `MissingAuditRule` and others) fell through an exact-literal match in the old label map and rendered **yellow** — meaning "drift" — when they should have rendered **red** — meaning "missing" (absent, not merely different).
+
+**After:** Missing-family findings now render **red** consistently across all entity types, correctly distinguishing absence (red) from drift (yellow).
+
+#### 2. `[AuditRight]` rows relabelled `[MissingAuditRule]` — for Pass and Fail rows only
+
+**Before:** All `[AuditRight]` labels were uniform across the report.
+
+**After:** `[AuditRight]` rows are relabelled **`[MissingAuditRule]`** **only when reporting Pass or Fail audit-rule findings**. Rows reporting any third state — for example, "rule exists but with wrong properties" — still render `[AuditRight]`. This distinction reflects the actual audit result: a pass or fail on audit rules means the rule is present or absent, not just misconfigured. **State the accuracy of the actual audit result, not a generic label.**
+
+#### 3. WinLaps decryptor: `[Error]` became `[Missing]` on one specific error path only
+
+**Before:** All decryptor errors rendered `[Error]`.
+
+**After:** On the specific path where `Get-GPO` succeeded but matched **no GPO** (the GPO does not exist in the domain), the finding now renders **`[Missing]` only**. **Five other error paths remain `[Error]`**, because they mean "could not determine whether it exists" — a domain controller is unreachable, the query threw an exception, or similar. Relabelling those as `[Missing]` would report an unreachable infrastructure problem as a clean, missing-and-acceptable estate — a lie. **The distinction is essential: [Missing] means "we looked and it is not there"; [Error] means "we could not look".**
+
+#### 4. Drift counters derived from shared functions — per-section and grand total aligned
+
+**Before:** Drift counter logic was duplicated across reporting loops, creating opportunities for disagreement between the per-section counters and the grand total.
+
+**After:** Per-section drift counters and the grand total are now computed by calling **shared functions** from both reporting loops. They cannot disagree because they share the same implementation. **Drift counts objects, not findings** — a single object may appear in multiple findings, but is counted once. The compliance percentage depends on this distinction.
 
 ---
 

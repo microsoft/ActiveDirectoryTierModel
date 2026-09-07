@@ -29,8 +29,15 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
             schemaVersion = "1.0.0"
         }
         
-        # Create temporary test files
-        $tempPath = [System.IO.Path]::GetTempPath()
+        # Create temporary test files.
+        # Each run gets its own directory. These files previously used fixed names directly in
+        # the system temp root, so two suite runs on one machine - a shared build agent, or two
+        # people at once - shared the same paths and the first run to finish deleted the files
+        # the other was still reading, failing tests that have nothing to do with the change
+        # under test.
+        $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) "TierModelPrereq_$([Guid]::NewGuid().ToString('N'))"
+        New-Item -Path $tempPath -ItemType Directory -Force | Out-Null
+        $script:tempRoot = $tempPath
         $script:validDepsFile = Join-Path $tempPath "valid-dependencies.json"
         $script:invalidDepsFile = Join-Path $tempPath "invalid-dependencies.json"
         $script:missingDepsFile = Join-Path $tempPath "missing-dependencies.json"
@@ -41,9 +48,8 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
     }
     
     AfterAll {
-        # Cleanup temporary files
-        Remove-Item $script:validDepsFile -ErrorAction SilentlyContinue
-        Remove-Item $script:invalidDepsFile -ErrorAction SilentlyContinue
+        # Cleanup the run's own directory, so a concurrent run's files are never touched.
+        Remove-Item $script:tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
     
     Context "PowerShell Version Checks" -Tag 'Version','Prereq' {
@@ -142,7 +148,7 @@ Describe "TierModel Prerequisites Tests" -Tag 'Unit','Prereq' {
                 }
                 schemaVersion = "1.0.0"
             }
-            $testDepsFile = Join-Path ([System.IO.Path]::GetTempPath()) "test-deps-missing.json"
+            $testDepsFile = Join-Path $script:tempRoot "test-deps-missing.json"
             $testDeps | ConvertTo-Json | Set-Content $testDepsFile
             
             try {
@@ -1047,14 +1053,19 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
     BeforeAll {
         $script:ExtDC = "DC01.test.local"
 
-        # Valid deps file: Pester + ActiveDirectory + GroupPolicy
+        # Valid deps file: Pester + ActiveDirectory + GroupPolicy.
+        # Per-run directory, so concurrent suite runs on one machine cannot delete each
+        # other's fixtures mid-test.
+        $script:ExtTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "TierModelPrereqExt_$([Guid]::NewGuid().ToString('N'))"
+        New-Item -Path $script:ExtTempRoot -ItemType Directory -Force | Out-Null
+
         $depsObj = @{ pester = "5.7.1"; modules = @{ ActiveDirectory = "1.0.1.0"; GroupPolicy = "1.0" }; schemaVersion = "1.0.0" }
-        $script:ExtDepsFile = Join-Path ([System.IO.Path]::GetTempPath()) "ext-prereq-full.json"
+        $script:ExtDepsFile = Join-Path $script:ExtTempRoot "ext-prereq-full.json"
         $depsObj | ConvertTo-Json | Set-Content $script:ExtDepsFile
 
         # Deps file with only Pester (no modules section) for isolated Pester tests
         $pesterDeps = @{ pester = "5.7.1"; modules = @{}; schemaVersion = "1.0.0" }
-        $script:ExtPesterOnlyDeps = Join-Path ([System.IO.Path]::GetTempPath()) "ext-prereq-pester.json"
+        $script:ExtPesterOnlyDeps = Join-Path $script:ExtTempRoot "ext-prereq-pester.json"
         $pesterDeps | ConvertTo-Json | Set-Content $script:ExtPesterOnlyDeps
 
         InModuleScope TierModel {
@@ -1081,8 +1092,7 @@ Describe "Test-TierModelPrerequisites – Extended Coverage" -Tag "Unit", "Prere
     }
 
     AfterAll {
-        Remove-Item $script:ExtDepsFile        -ErrorAction SilentlyContinue
-        Remove-Item $script:ExtPesterOnlyDeps  -ErrorAction SilentlyContinue
+        Remove-Item $script:ExtTempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     It "Should write verbose fallback and continue when Write-TierModelLog throws (line 84)" {

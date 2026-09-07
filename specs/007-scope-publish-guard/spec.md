@@ -27,23 +27,23 @@ the problem is rare.
 
 That is why deferring costs a v2.1.0 user nothing — not because the failure is unlikely to be encountered.
 
-> **Numbering note**: the source design document enumerates **six** instances (BUG-027, BUG-028, BUG-030,
-> BUG-032, BUG-034, BUG-036) and argues about preventing *instance seven*. If a seventh instance has since
-> been identified, the register at `.research/known-bugs.md` is authoritative and this section should be
-> corrected against it.
+> **Note on scope**: the source design document identified **six** defect instances affecting different scope
+> combinations and argued about preventing a potential *seventh* instance. These defects have all been
+> individually fixed in v2.1.0. Their details are recorded in `.research/known-bugs.md`, which is
+> authoritative. This section describes them by scope/symptom pattern rather than by identifier.
 
 ---
 
 ## 1. The Problem This Would Solve
 
-| Bug | Scope affected | Symptom |
-|-----|----------------|---------|
-| BUG-027 | `-FullDeployment` (consolidated) | `$auditSummary` totals never published — report/XML/log all zeros |
-| BUG-028 | consolidated per-entity loop | `$driftFindings` re-initialised inside the loop — only the last entity survived |
-| BUG-030 | `-AdmxOnly`, standalone `-Include*` | `$driftFindings` never assigned — "No drift detected" on a drifted domain |
-| BUG-032 | `-GposOnly` | findings published without `ResourceType` — report interpolation threw, **no report at all** |
-| BUG-034 | standalone (3 producers) | findings published in a shape the normaliser mis-typed |
-| BUG-036 | standalone (8 producers) | findings published with `ResourceType = Unknown` |
+| Defect | Scope affected | Symptom |
+|--------|----------------|---------|
+| 1 | `-FullDeployment` (consolidated) | Audit totals never published — report/XML/log all zeros |
+| 2 | consolidated per-entity loop | Findings re-initialised inside loop — only the last entity survived |
+| 3 | `-AdmxOnly`, standalone `-Include*` | Findings never assigned — "No drift detected" on a drifted domain |
+| 4 | `-GposOnly` | Findings published without ResourceType — report interpolation threw, **no report at all** |
+| 5 | standalone (3 producers) | Findings published in incorrect shape — normaliser mis-typed them |
+| 6 | standalone (8 producers) | Findings published with `ResourceType = Unknown` |
 
 The common structure, stated precisely:
 
@@ -70,16 +70,16 @@ seven.**
 
 A post-branch assertion of the form "were these variables assigned?" **passes vacuously**:
 
-- **It would have missed BUG-028.** `$driftFindings` *was* assigned — repeatedly. The bug was that each
+- **It would have missed Defect 2** (re-initialization in a loop). The `$driftFindings` variable *was* assigned — repeatedly. The bug was that each
   assignment destroyed the previous one. The variable is non-empty at the assertion point and the assertion
   goes green.
-- **It would have missed BUG-032, BUG-034 and BUG-036.** All three published a populated, non-empty findings
+- **It would have missed Defects 4, 5, 6** (malformed findings). All three published a populated, non-empty findings
   collection. The *contents* were wrong (missing `ResourceType`, wrong `Type`, `ResourceType = Unknown`).
   An existence check cannot see inside.
-- **It would have missed BUG-027's worst consequence.** `$auditSummary.TotalChecked` was `0` — a legitimate
+- **It would have missed Defect 1's** (consolidated totals) **worst consequence.** The total-checked count was `0` — a legitimate
   value on a clean domain. "Is it set?" is satisfied by `0`.
 
-So a naive guard would have caught **1 of 6** (BUG-030) while creating a new, highly visible artifact that
+So a naive guard would have caught **1 of 6** (Defect 3, unassigned findings) while creating a new, highly visible artifact that
 *appears* to verify the contract. Reviewers would reasonably stop looking. **A guard that can pass vacuously
 is worse than no guard**, for the same reason a control that fails for the wrong reason is worse than no
 control, and for the same reason `Should -Match 'COMPLIANT'` passed against the text "not compliant".
@@ -91,7 +91,7 @@ Any design that survives must be **non-vacuous by construction**.
 ## 3. Proposed Design — Publish Helper + Arithmetic Cross-Check + Double-Publish Detector
 
 Three parts. The helper supplies uniformity; the cross-check supplies non-vacuity; the detector catches the
-BUG-028 shape. **None of the three is sufficient alone.**
+defect pattern from Defect 2 (re-initialization). **None of the three is sufficient alone.**
 
 ### 3.1 A single publish helper every branch must route through
 
@@ -108,22 +108,22 @@ Publish-TierModelScopeResult
 It performs the assignment to `$auditSummary` / `$driftFindings`, runs every finding through
 `ConvertTo-TierModelDriftFinding`, and records that scope `X` has published.
 
-This alone removes the *class* of BUG-030/032/034/036: a branch cannot publish an un-normalised finding,
+This alone removes the *class* of findings-related defects (Defects 3, 4, 5, 6): a branch cannot publish an un-normalised finding,
 because publishing and normalising become the same action.
 
 ### 3.2 The arithmetic cross-check — the non-vacuity mechanism
 
 The helper rejects a publication that is internally inconsistent:
 
-- `DriftCount -gt 0` but `Findings.Count -eq 0` → **throw**. This is BUG-030 and BUG-027 exactly, and unlike
+- `DriftCount -gt 0` but `Findings.Count -eq 0` → **throw**. This catches Defects 3 and 1 (unassigned findings / uninitialized totals), and unlike
   an existence check it is *not* satisfied by a clean domain: on a clean domain `DriftCount` is `0` and the
   rule is not engaged.
 - `Findings.Count -gt DriftCount` → **throw**. The `AuditRight`/`Pass` inverse case: compliant rows leaking
   into the drift collection.
 - `TotalChecked -lt (DriftCount + ErrorCount)` → **throw**. Catches a stale `TotalChecked` published beside
-  live counts, which is BUG-027's precise shape.
+  live counts, which matches Defect 1's pattern (uninitialized consolidated totals).
 - Every finding must render: `Type`, `ResourceType`, `Identifier`, `Details` all present and non-empty, and
-  `ResourceType -ne 'Unknown'` → **throw**. This is BUG-032, BUG-034, BUG-036.
+  `ResourceType -ne 'Unknown'` → **throw**. This catches Defects 4, 5, 6 (malformed findings).
 
 **Why this is not vacuous**: it does not ask *"did you publish?"* — it asks *"does what you published agree
 with itself?"* The counts and the findings are produced by different code paths in every branch, so they
@@ -134,14 +134,14 @@ constitute genuinely independent evidence. A branch that forgets to publish find
 and the findings wrongly and consistently, the cross-check agrees and passes. That residual gap is real. It
 is much smaller than the existence check's gap, but it exists.
 
-### 3.3 The double-publish detector — the BUG-028 case
+### 3.3 The double-publish detector — the Defect 2 case
 
 The helper records each `-Scope` that publishes. A second publication for the same scope, or any publication
 after the reporting variables have been read, throws. This is the only one of the three that would have
-caught BUG-028, whose signature was *legitimate assignment repeated destructively*.
+caught Defect 2 (re-initialized findings), whose signature was *legitimate assignment repeated destructively*.
 
-Note this required knowing BUG-028's shape to design. **The author explicitly declines to claim the guard
-would have caught it prospectively** — reverse-engineering a detector from a known bug is weaker evidence
+Note this required knowing Defect 2's pattern to design. **The author explicitly declines to claim the guard
+would have caught it prospectively** — reverse-engineering a detector from a known defect is weaker evidence
 than it looks.
 
 ---
@@ -152,14 +152,14 @@ than it looks.
 
 | # | Branch | Publishes today | Notes |
 |---|--------|-----------------|-------|
-| 1 | `-FullDeployment` / consolidated | counts + findings | the BUG-027/028 site |
+| 1 | `-FullDeployment` / consolidated | counts + findings | consolidated publishing site (totals + re-initialization) |
 | 2 | `-OuOnly` | counts + findings | |
 | 3 | `-GroupOnly` | counts + findings | |
 | 4 | `-UserOnly` | counts + findings | |
 | 5 | `-OuAclOnly` | counts + findings | hand-built projection, deliberately not routed through the normaliser (carries a `Type` derivation the normaliser cannot express) |
-| 6 | `-GposOnly` | counts + findings | BUG-032 |
-| 7 | `-AdmxOnly` | counts + findings | BUG-030 |
-| 8 | standalone `-Include*` aggregate | counts + findings | BUG-030/034/036; 8 producers behind one branch |
+| 6 | `-GposOnly` | counts + findings | Defect 4 site |
+| 7 | `-AdmxOnly` | counts + findings | Defect 3 site |
+| 8 | standalone `-Include*` aggregate | counts + findings | multiple findings-related defects; 8 producers behind one branch |
 | 9 | canonical-ACL phase | error count only | **publishes no findings by design** |
 | 10 | prerequisite / fail-fast exits | nothing | terminates before reporting |
 | 11 | `-ReportOnly`-style no-op paths | nothing | |
@@ -194,8 +194,8 @@ than the current failure mode, where the artifact is written successfully and is
 
 **⚠️ The caveat — a guard that throws is a guard that can kill a healthy run.** If the cross-check is wrong
 about a legitimate shape, a *healthy* audit dies at the publish step and produces no report at all. That is
-BUG-032's failure mode reintroduced by the fix for it. The canonical-ACL phase shows the risk is not
-theoretical: **it has still never been observed succeeding against a good DC** — every observation to date
+similar to Defect 4's failure mode (missing ResourceType) — a guard that could itself become a new failure
+mode. The canonical-ACL phase shows the risk is not theoretical: **it has still never been observed succeeding against a good DC** — every observation to date
 had an unreachable DC. If it emits a shape the guard rejects, a clean domain produces no report.
 
 A mitigation would be to have the guard **record a loud, correlated log entry and a console banner** rather

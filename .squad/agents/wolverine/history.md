@@ -550,3 +550,247 @@ percentage".
 
 **No product defects found.** Rogue's three prompt sites, the D8 seam and the NON-BLOCKING-3
 replay all behave exactly as documented; every failure I produced was one I injected.
+
+---
+
+## 2026-09-07 — T018b verdict + audit counter/colour coverage (Rogue's reporting fix)
+
+**Scope: `tests\` only.** 1 test replaced by 3 in `Unit.WinLapsAclOperations.Tests.ps1`, 22 added
+in `Unit.AuditReporting.Tests.ps1`. By-path Unit **1632/1632/0**, Integration **330/330/0**,
+CI-shaped **1962/1962/0** (32 containers), coverage 87.37% PASS. No commits, no staging, no product
+file touched. Full reasoning in `.squad/decisions/inbox/wolverine-audit-counter-tests.md`.
+
+**75. Ruling on T018b: the test was wrong.** `Get-GPO -All` succeeding and matching nothing is a
+determinate absence, not an inability to determine compliance. Decided independently of the brief
+on evidence I gathered myself, and the piece that settled it was **sibling parity read in source**:
+`Test-TierModelAuthPolicy.ps1` L104-110 reports a policy that is not in the directory as
+`Status='Missing'` with `$missingCount++`. Same situation, same vocabulary — the decryptor was the
+outlier, not the precedent. Do not rule on a label from its own producer alone; find the producer
+that already faced the identical question.
+
+**76. The test that earns its keep is the one guarding the branch you cannot reach.** Five `Error`
+construction sites in `Test-TierModelWinLapsDecryptor`; four are mockable, the fifth is the **outer
+catch** and is unreachable because every inner failure is already handled. Control C3 relabelled it
+`'Error' -> 'Unverified'`: **1 test failed out of 88, and it was the AST census.** Behavioural
+coverage of five branches had four of them. When a producer has N sites of one kind, count them with
+the AST and assert N — it is the only thing that sees the site no fixture can drive.
+
+**77. Assert two classes AGAINST EACH OTHER, not each in isolation.** The anti-collapse test walks
+five branches in one `It` asserting `Errors`/`Missing` jointly per case. Controls C1 and C2 collapsed
+the classification in **opposite** directions and both failed it. Five separate `It`s each asserting
+`Errors -gt 0` would have caught C2 and missed C1 entirely — which is exactly the shape of the test
+I deleted. Same family as learning #70.
+
+**78. A `Mock` registered inside `& { ... }` binds to that child scope and never reaches the call
+under test.** My first table-driven version carried a `Setup` scriptblock per case and invoked it
+with `&`. Rewrote to literal `Mock` calls in a `switch` inside the `It` body. This is learning #67's
+sibling: Pester's scope resolution punishes any indirection you put between the `It` and the `Mock`.
+Ordering within the single `It` then matters, because mocks accumulate — later `Mock`s of the same
+command override earlier ones, and cases that return early must come last.
+
+**79. The brief's reduced-bug assertion was not satisfiable as written, and that is a finding.**
+I was asked to assert `Get-SafePropertyValue` agrees for a hashtable and a PSCustomObject. **It does
+not.** Measured: `Summary.Drift` -> 5 on a PSCustomObject, **0** on a hashtable. Rogue routed the
+drift reads *around* it via `Get-SummaryCount`; he never made it dictionary-aware, and given its five
+surviving `Summary.Total*` callers that was the right call (skill rule 10). So the agreement
+assertion goes on `Get-EntityDriftTotals`/`Get-EntityErrorTotal`, and the type-blindness is pinned
+three ways instead: the **mechanism** as a fact about PowerShell (`@{Drift=6}.PSObject.Properties.Name`
+contains `Keys`/`Count`, never `Drift` — an assertion that cannot rot), one explicitly-labelled
+live-limitation test carrying its own deletion instructions, and an AST ratchet over all 7 call sites.
+**Write the assertion the requirement needs against the function that actually carries it; do not
+write a failing assertion against a helper nobody fixed.**
+
+**80. Two figures from one shared function agree tautologically — the ratchet is the real test.**
+Section drift and grand total both call `Get-EntityDriftTotals`, so summing them and comparing proves
+nothing on its own (skill rule 14). What carries the weight is asserting **exactly 2 call sites** for
+each shared helper: one per loop, no third copy. Same technique for colour — 4 classifier call sites
+and **0** surviving `-eq 'Missing'` colour literals. The numbers (drift 14, missing 8, mismatched 5,
+errors 1, from an 8-section drifted estate built from the nine real wrap sites) are the rule-2
+drifted fixture that makes the helpers themselves honest.
+
+**81. Cyclops was right and the brief understated it: `[Error]` rendered YELLOW.** Confirmed by
+control R3, which restored the original `if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }` rule
+and produced Yellow for `Error`. A report whose most severe line — compliance not established — is
+coloured less urgently than a mismatch is worse than the under-coloured drift Joel actually reported.
+The replacement classifies by severity **class**, and the assertion that matters most is
+**unknown -> Red**: under-stating severity is the failure mode that produced the bug, so a producer
+inventing a type name tomorrow must escalate, never demote.
+
+**82. A latent dead comparison found and deliberately NOT asserted.**
+`Audit-TierModel.ps1` L1918-1922: `elseif (Get-SafePropertyValue $result 'Summary.TotalOUs' -gt 0)`.
+`Get-SafePropertyValue` is a plain two-positional-parameter function, so `-gt` and `0` fall into
+`$args` and are discarded — the branch tests truthiness, not `> 0`. Behaviourally identical today and
+only reachable when `EntityType` is absent, which no wrapped producer allows. Pre-existing, outside
+Rogue's change, outside `tests\`. **Reported and left un-asserted in either direction**, so whoever
+fixes it does not have to fight a test to do it. Skill rule 17 in the other direction: record the
+non-change, but do not calcify the defect.
+
+**83. By-path and CI-shaped reconciling exactly is itself a check.** Unit 1632 + Integration 330 =
+**1962** = the CI-shaped figure. When those two sums agree, nothing is being discovered in one shape
+and skipped in the other — the cheapest available guard against the container/StrictMode divergence
+of learning #55. Coverage stayed flat at 87.37% because `Audit-TierModel.ps1` is **not** in the CI
+`CodeCoverage.Path` list; the reporting path has never been measured by the gate, which is worth
+remembering before anyone reads that percentage as suite-wide assurance.
+
+**84. Six control-proofs, each restoring the product byte-identically (hash-verified).**
+C1 revert the absence relabel / C2 collapse an Error site to Missing / C3 relabel the unreachable
+outer catch / R1 route drift back through the dotted-path reader / R2 restore the `Max(a,b)+c`
+double-count / R3 restore the original colour rule. Failure counts 3/3/1/4/4/4, every one for the
+intended reason. **Not one of my new assertions has only ever been watched passing.**
+
+**No product defects found in Rogue's change.** Every failure I produced was one I injected. My
+four CI-parity recommendations remain open and unacted.
+
+### 85. A test that can only be proved in a unit test, because an adjacent fix removed the fixture
+Rogue relabelling the decryptor absence branch removed the **only** `Error` producer in the lab
+estate. Cyclops's A/B then showed zero `[Error]` findings across all eight scopes — so the colour
+fix for `[Error]` became unprovable outside a unit test, with nothing failing to say so. This is my
+own rule 19 landing on my own work. When a fix changes what a *class* of data looks like, ask which
+existing fixtures that fix has just destroyed, and re-home those assertions into unit tests before
+the lab evidence evaporates.
+
+### 86. Cover the severity you care about in its own test, not as a member of a family
+I originally covered `[Error]` inside a bundled "undeterminable verdicts are red" test. That passes
+for the wrong reason: it survives as long as *any* sibling keeps the branch alive. Control R4 —
+flipping `Error`->Yellow **only** — is what proved the standalone test earns its place: 3 failures,
+all specifically about `Error`, with the family tests still green. If a test cannot distinguish its
+subject from its neighbours, it is testing the neighbours.
+
+### 87. Count the render surface, do not assume the refactor reached all of it
+I asserted 4 coloured render sites because the classifier had 4 call sites. The real number is
+**6** — two inline `switch` maps (GPO ~L1200, ADMX ~L2221) were never converted. The test failed
+expecting 4 and finding 6, and per rule 16 I went looking instead of tuning. Both maps happen to get
+`Error->Red` right, but both end `default { 'Gray' }`, which demotes ADMX's own types — the exact
+class of bug the classifier existed to kill. **Call-site count of the new helper is not the same
+population as sites that do the job.** Enumerate by behaviour, not by helper usage.
+
+### 88. When a consumer's producers fall to zero, say so and stop there
+Rogue deleted the last `Type='AuditRight'` producer. Census over the enumerated 86-file surface:
+0 producers, 1 surviving consumer branch. That is a rule 19 shape and worth flagging — but Joel had
+explicitly reserved the ruling, so the correct action was to **leave the failing test failing in
+both directions**. Relaxing it would have pinned absence just as firmly as tightening it would have
+pinned presence. A failing test that correctly encodes an unresolved question is a better artifact
+than a green one that quietly answers it. I strengthened the report instead: no exported artifact
+consumes `Findings`, so the removal loses no machine-readable data — evidence Joel can rule on.
+
+### 89. 33 failures that were not a regression, and how to tell in one run
+A CI-shaped run showed 1970/1937/**33**. All 33 in one file, all saying `Dependencies file not
+found`. Before diagnosing the tree I checked for other `pwsh` processes — this box is shared with
+the other agents — and re-ran with nothing concurrent: **1970/1969/1**. The decisive move was the
+controlled re-run, not reading the failures harder. **On a shared box, "did anything else run at the
+same time?" is a cheaper first hypothesis than any code change**, and it is falsifiable in one run.
+
+### 90. A single sample of a race is not a measurement, and counts hide what names reveal
+My first concurrency control looked like the fix made things *worse*: 2 failures with the fix, 0
+without. Both numbers were noise from single pairs. Re-running with **failure names captured**
+immediately showed the truth — the surviving failures all named `ext-prereq-full.json`, a **second**
+fixed-path fixture site I had missed. The count said "your fix is wrong"; the names said "your fix
+is incomplete". Had I trusted the count I would have reverted a correct fix. For nondeterministic
+failures, always instrument identity, repeat the trial, and never conclude from n=1.
+
+### 91. The suite had one file that could not be run twice at once
+`Unit.Prerequisites.Tests.ps1` built five fixtures as fixed names in the shared system temp root and
+deleted them in `AfterAll`. Population check: of 16 temp-path constructions in `tests\`, 14 already
+used `Get-Random`/`New-Guid` — this file was the sole outlier. Fixed to per-run GUID directories:
+concurrent-pair failures went 13/4/6 -> 1/0/0. It does not affect real CI (single process), so it is
+a workflow fix, not a correctness fix — flagged as discretionary and trivially reversible. One
+residual, rarer race remains (module-import contention, ~1 pair in 6); reported, not chased.
+
+### 92. My control scripts' restore check was vacuous, and the box is shared
+`control-*.ps1` compared the file to the backup **immediately after copying the backup back**, which
+is guaranteed true and proves nothing. Worse, another agent was editing the working tree during my
+session — Rogue landed `Invoke-OuAclAudit` and `Test-TierModelAuditRule.ps1` changes mid-run, which
+I noticed only because `git diff --stat` moved 214 -> 229. A backup/restore control can silently
+clobber a concurrent edit. Capture the hash **before** any mutation and compare against that, and
+re-check `git diff --stat` either side of any product-mutating control.
+
+### 93. Use the real producer as the fixture when the producer is the thing that might drift
+For the `[Error]` colour gap I first wrote a synthetic producer-shaped hashtable. Better: mock
+`Get-GPO` to throw, run the **real** `Test-TierModelWinLapsDecryptor`, and push its **actual**
+findings through the **real** normaliser and colour classifier lifted from the report. A synthetic
+shape asserts my belief about the producer; the real one asserts the producer. It also bought a
+two-for-one — the same test proves `[Error]` renders red *and* pins the five could-not-determine
+branches that the lab estate can no longer exercise at all.
+
+### 94. Two guards that produce the same outcome today still need two controls
+`AuditRight` + `Status='Pass'` is dropped by a status guard, and `AuditRight` + `Status='Fail'` is
+relabelled by a separate rule. In this estate both paths end up looking like "no `[AuditRight]` in
+the output", so a single test cannot tell them apart. Controls E3 and E4 each broke exactly one
+guard and each failed a disjoint set of tests. **When two mechanisms coincide on today's data,
+the proof that you have pinned both is that breaking either fails something different.**
+
+### 95. Pin the precise claim, not the observable summary of it
+The tempting assertion was "`[AuditRight]` never appears". That is false — it is reachable
+vocabulary for any non-absence state, merely unreached in this estate. The correct pin is "never
+appears for a Pass or Fail row". Asserting the observable summary would have frozen an accident of
+the current data as if it were designed behaviour, which is the same error class as tuning a fixture
+to a moved count.
+
+### 96. My restore guard finally earned its keep, and it fired on a live tree
+Having fixed learning 92's vacuous check, the new control script compared against a hash captured
+**before** any mutation — and reported `restored=False` for `Audit-TierModel.ps1`. I did not assume
+corruption and did not assume innocence: I checked BOM, line endings, all four mutated regions, and
+the parse. All clean. The cause was Rogue editing the file concurrently (`diff --stat` 224 -> 226).
+**A guard that fires on benign concurrency is still working correctly** — the failure mode it exists
+to catch is indistinguishable from the benign case until you look, and the whole point is that you
+are made to look.
+
+### 97. Check the brief against the tree before building on it
+I was told a producer change was "under consideration" and that "Rogue has made no edits". The edit
+had been in the working tree the entire session, was removing all nine `AuditRight` rows, and was
+the single failing test in the suite. The upstream account of the *normaliser* was exactly right and
+I verified it independently; the account of the *tree* was wrong. **Verify the mutable claim (what
+is in the tree right now) separately from the durable one (how the code behaves)** — they come from
+different places and go stale at very different rates.
+
+### 98. Retiring a test means asking what it was the only guard for
+`Emits one granular AuditRight finding per configured right` encoded ruled-out behaviour and had to
+go. But it was the sole pin on that producer's finding shape AND, indirectly, the reason anyone
+looked at the per-right console loop at all. Deleting it bare would have removed two guards while
+appearing to remove one. I replaced it with a reconciliation invariant
+(`Compliant + Drift + Errors == Findings.Count`) plus an explicit pin on the console output that the
+ruling deliberately kept. **Before deleting a test, list what fails if it is simply gone — then
+decide what replaces each item on that list.**
+
+### 99. A reconciliation invariant outlives the literal it replaces
+The old assertion was `Should -Be 9`. It caught exactly one regression shape and died the moment the
+ruling changed the count. The replacement catches **any** re-multiplication of per-object findings
+and is indifferent to how many rights are configured. Control F1 re-added the per-right rows and
+failed both reconciliation tests without either knowing the number 9. **When a count is a
+consequence of a rule, assert the rule.**
+
+### 100. A guard for a producer nobody has written yet still needs a test
+With Option A landed, no producer emits `Type='AuditRight'`. The normaliser branch is retained on
+purpose, which is right — but it means the branch's only remaining exercise is my unit tests. I
+recorded that in the Context header so the next reader does not delete them as redundant coverage of
+a dead shape, and relabelled the `ProducerDriftShapes` exemplar from a producer name to
+`AuditRight shape (normaliser branch, no live producer)`. **Test fixtures named after producers
+become lies when the producer changes; name them after what they actually exercise.**
+
+## 2026-09-07 18:05 - Addendum 4: unreachable-directory inversion (Cyclops)
+
+101. **An assertion of absence is the easiest place for a bug to hide.** `Unit.GroupOperations.Tests.ps1:622`
+     asserted `DriftFindings | Should -BeNullOrEmpty` for a group the directory could not be read for.
+     That is not a weak assertion - it is a *precise* one, pinning exactly the wrong answer. Reading it as
+     "the test doesn't cover much" would have been wrong; it covered the defect and held it in place.
+     When a fix makes a `Should -BeNullOrEmpty` go red, check whether the emptiness was the bug.
+102. **Ruling on the assertion required reading the producer, not the test.** The test alone cannot say
+     whether empty is right. The diff showed the pre-fix catch added a warning and `continue`d, with
+     `\ = \ + \` - so the group was counted nowhere and the section
+     printed "All Groups are compliant". Warnings do not reach the compliance verdict; only DriftCount does.
+     That asymmetry is what made the old behaviour a lie rather than merely terse.
+103. **Error vs Missing is the load-bearing distinction, so it is what the control must break.** My most
+     valuable control was not deleting the finding - it was relabelling `Type='Error'` to `'Missing'`.
+     Both keep the suite emitting a finding; only one reports an unreachable DC as a confirmed absence.
+     Same call Rogue made refusing to relabel the five WinLaps could-not-determine sites, now pinned twice.
+104. **Fixing two producers when only one had a test leaves half the fix unexercised - and the suite is
+     silent about it.** Cyclops made the identical change to Group and User. Only Group went red, because
+     only Group had a test on that path. I searched `Unit.UserOperations.Tests.ps1` for every marker of the
+     branch (`InvalidOperationException`, `Failed to query`, `ReadFailure`, `UnverifiedCount`) - zero hits.
+     The User half could have been reverted with a green suite. **"Only one test failed" is a statement about
+     test coverage, not about blast radius.** Added 2 tests; control-proved all three User mutations fail them.
+105. **A count of failures is a coverage measurement in disguise.** One red across a two-file fix should
+     prompt "why not two?" rather than relief. Asking it cost one grep and found the gap.
+106. Control-proofing a colleague's file is measurement, not an edit, *if and only if* the restore is
+     verified against a hash captured before mutation. Six breaks across two files Joel had SHA-verified;
+     all six restored=True and `git diff --stat` still reads the +66/-10 he signed off.

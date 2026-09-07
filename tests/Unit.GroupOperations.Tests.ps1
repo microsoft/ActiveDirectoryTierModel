@@ -619,7 +619,7 @@ Describe "Group Operations" -Tag "Unit", "Group", "Phase3" {
             $result.Summary.MismatchCount | Should -BeGreaterThan 0
         }
 
-        It "Should add warning and continue when Get-ADGroup throws a non-identity exception" {
+        It "Should add a warning AND an unverified finding when Get-ADGroup throws a non-identity exception" {
             Mock Get-ADGroup -ModuleName TierModel {
                 throw [System.InvalidOperationException]::new("Query failure")
             }
@@ -640,7 +640,27 @@ Describe "Group Operations" -Tag "Unit", "Group", "Phase3" {
 
             $result.Warnings.Count | Should -BeGreaterThan 0
             ($result.Warnings | Where-Object { $_ -match "Failed to query" }) | Should -Not -BeNullOrEmpty
-            $result.DriftFindings | Should -BeNullOrEmpty
+
+            # This assertion was previously 'DriftFindings | Should -BeNullOrEmpty', which pinned
+            # the defect: a group the directory could not be read for produced no finding, was
+            # counted nowhere, and the section printed "All Groups are compliant". Silence is the
+            # wrong answer for a question we failed to ask.
+            #
+            # A read failure is a could-NOT-determine state, so it is reported as 'Error' and
+            # deliberately NOT as 'Missing' - the group may well exist. Conflating the two would
+            # report an unreachable domain controller as a confirmed absence.
+            $readFailures = @($result.DriftFindings | Where-Object { $_.Type -eq 'Error' })
+            $readFailures.Count | Should -Be 1
+            $readFailures[0].Identifier | Should -Be 'Tier0Admins/ReadFailure'
+            $readFailures[0].Details    | Should -Match 'could not be read'
+
+            $result.Summary.MissingCount    | Should -Be 0 -Because 'an unreadable group is not a confirmed absence'
+            $result.Summary.MismatchCount   | Should -Be 0
+            $result.Summary.UnverifiedCount | Should -Be 1
+
+            # The load-bearing consequence: unverified must reach the drift total, because that
+            # total is what decides whether the estate renders as compliant.
+            $result.Summary.DriftCount | Should -BeGreaterThan 0 -Because 'a group whose state is unknown must never render as compliant'
         }
 
         It "Should populate ResolvedPaths in result when IncludeResolvedPaths is specified" {

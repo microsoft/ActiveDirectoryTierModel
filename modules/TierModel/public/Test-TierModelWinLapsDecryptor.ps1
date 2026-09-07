@@ -151,13 +151,29 @@ function Test-TierModelWinLapsDecryptor {
                     if (-not $Silent) {
                         Write-Host "    `u{274C} No GPO found matching pattern '$gpoPattern'" -ForegroundColor Red
                     }
+                    # MISSING, not Error. Get-GPO -All SUCCEEDED and the filter matched nothing:
+                    # the decryptor GPO is simply absent from the estate. That is a determinate
+                    # finding about the configuration, identical in kind to Auth Policy's
+                    # 'Missing', and it must not be reported as an inability to determine
+                    # compliance - which is what an 'Error' means everywhere else in this report
+                    # and what drives "COMPLIANCE COULD NOT BE FULLY DETERMINED".
+                    #
+                    # Scoped deliberately to THIS branch only. The sibling Error findings in this
+                    # function - ambiguous multi-GPO match, Get-GPO throwing, group resolution
+                    # failing, domain resolution failing, and the outer catch - are genuine
+                    # could-not-determine states and MUST stay 'Error'. A blanket Error->Missing
+                    # relabel here would report an unreachable DC as a clean-but-missing estate.
+                    #
+                    # $drift = $missingCount + $mismatchCount + $errorCount, so the section's
+                    # Drift total is unchanged by moving this row between the two counters; only
+                    # the Errors count and the rendered label change, which is the intent.
                     $findings += [PSCustomObject]@{
                         GpoName  = $gpoPattern
                         Expected = 'GPO must exist'
                         Actual   = 'No matching GPO'
-                        Status   = 'Error'
+                        Status   = 'Missing'
                     }
-                    $errorCount++
+                    $missingCount++
                     continue
                 } elseif ($matchedGpos.Count -gt 1) {
                     $nameList = ($matchedGpos | Select-Object -ExpandProperty DisplayName) -join ', '

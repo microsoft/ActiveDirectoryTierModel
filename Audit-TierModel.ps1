@@ -348,6 +348,24 @@ function ConvertTo-TierModelDriftFinding {
         if ($findingType -eq 'Compliant') { return }
         if ($findingStatus -and $findingStatus -in @('Pass', 'Compliant', 'OK', 'Success', 'True')) { return }
 
+        # 'AuditRight' is state-AGNOSTIC. Test-TierModelAuditRule emits it for BOTH outcomes from a
+        # single hashtable, carrying the real verdict in Status ('Pass'/'Fail') and the observed
+        # state in ActualValue ('Present'/'Missing'). The Pass rows are already dropped by the
+        # guard above, so in practice everything reaching here is a failure - but the label is
+        # still DERIVED from the finding's own state rather than rewritten wholesale, so an
+        # 'AuditRight' emitted one day for some non-absent reason cannot be mislabelled as an
+        # absence.
+        #
+        # Renamed to 'MissingAuditRule' and deliberately NOT to 'MissingAcl': these are SACL
+        # AUDIT rules, not DACL access rules, and 'MissingAuditRule' is already the spelling this
+        # same producer uses for the summary row of the very same drift.
+        if ($findingType -eq 'AuditRight') {
+            $actualState = if ($names -contains 'ActualValue') { [string]$Finding.ActualValue } else { $null }
+            if ($actualState -eq 'Missing' -or $findingStatus -eq 'Fail') {
+                $findingType = 'MissingAuditRule'
+            }
+        }
+
         $identifier = 'Unknown'
         foreach ($key in @('Identifier', 'FileName', 'GpoName', 'PolicyName', 'SiloName', 'Name', 'DistinguishedName')) {
             if (($names -contains $key) -and $Finding.$key) { $identifier = [string]$Finding.$key; break }
@@ -384,6 +402,119 @@ function ConvertTo-TierModelDriftFinding {
             Details      = $details
         }
     }
+}
+
+function Get-TierModelFindingColor {
+    <#
+    .SYNOPSIS
+    Maps a drift-finding Type to a console colour by SEVERITY CLASS, never by exact string match.
+    .DESCRIPTION
+    The rule this replaces coloured a finding red only when its Type was the exact literal
+    'Missing', and yellow for everything else. That was written in the initial v1.0.0 codebase,
+    when the only producers were Test-TierModelOu/Group/User and every Type genuinely was the
+    literal 'Missing' or 'Mismatch'. The -IncludeMsa / -IncludeGmsa / -IncludeDmsa /
+    -IncludeWinLaps / -IncludeAuthSilos producers added afterwards publish 'MissingAcl',
+    'MissingAuditRule', 'AuditRight' and 'Error'. None of those equal the literal, so every one
+    of them fell to the else branch and rendered YELLOW - including outright 'Error' findings,
+    which is a worse outcome than the under-coloured drift that was actually reported.
+
+    Classification is therefore by severity CLASS rather than by enumerating the names that
+    happen to exist today, so a producer that invents a new type name tomorrow is coloured
+    sensibly instead of being silently downgraded to yellow:
+
+      Red    - undeterminable: Error / Unverified / Failed. An audit that could not establish
+               compliance is the most severe line on the page and must never render yellow.
+      Red    - absent: any type CONTAINING 'Missing' - so 'Missing', 'MissingAcl' and
+               'MissingAuditRule' all land here without this function needing to know any
+               producer's spelling - plus NotFound / Absent.
+      Yellow - present but wrong: Mismatch / Unexpected / NonCompliant / Extra / Drift / Warning.
+      Red    - UNKNOWN. An unrecognised type is escalated rather than demoted, so a producer
+               inventing a new type name is never under-stated.
+    #>
+    param([string]$Type)
+
+    if ([string]::IsNullOrWhiteSpace($Type)) { return 'Red' }
+
+    if ($Type -match '(?i)error|unverified|failed|failure')                      { return 'Red' }
+    if ($Type -match '(?i)missing|notfound|not_found|absent')                    { return 'Red' }
+    if ($Type -match '(?i)mismatch|unexpected|noncompliant|extra|drift|warning') { return 'Yellow' }
+
+    return 'Red'
+}
+
+function Get-TierModelUnverifiedCount {
+    <#
+    .SYNOPSIS
+    Reads a producer's unverified (read-failure) count from either Summary shape.
+    .DESCRIPTION
+    An object whose state could not be read is neither missing nor mismatched. Without this
+    count a section shows Missing 0 and Mismatched 0 above a non-zero Total Drift, and the
+    breakdown cannot be reconciled against the total printed beneath it.
+
+    Summary arrives as a hashtable from some producers and a PSCustomObject from others, and
+    Set-StrictMode -Version Latest throws on a missing property, so both shapes are probed
+    explicitly. An absent count means "not reported", which is zero unverified.
+    #>
+    param($Summary)
+
+    if ($null -eq $Summary) { return 0 }
+
+    if ($Summary -is [System.Collections.IDictionary]) {
+        if ($Summary.Contains('UnverifiedCount')) { return [int]$Summary['UnverifiedCount'] }
+        return 0
+    }
+
+    if ($Summary.PSObject.Properties.Name -contains 'UnverifiedCount') { return [int]$Summary.UnverifiedCount }
+    return 0
+}
+
+function Write-TierModelComplianceLine {
+    <#
+    .SYNOPSIS
+    Renders a compliance line, keeping three different outcomes visibly distinct.
+    .DESCRIPTION
+    A percentage is only meaningful when objects were checked and the audit that checked them
+    completed. Three outcomes are therefore reported differently:
+
+      Errors present  - "N/A (could not be determined)", red. The checks that did run are an
+                        incomplete picture, so a percentage over them overstates what is known.
+      Nothing checked - "Not checked - nothing configured", grey. A scope with no configured
+                        objects has neither passed nor failed. It contributes nothing to the
+                        numerator or the denominator, and must never render green - a percentage
+                        here reports an unexamined scope as compliant.
+      Otherwise       - the percentage, coloured by band.
+
+    A scope that IS configured but whose objects are absent from the directory still reports a
+    real check count and real drift, so it takes the percentage branch and is reported as drift.
+    "Nothing to check" and "everything is missing" are different results and stay that way.
+
+    Percentage is accepted from callers whose producer already publishes one, so this never
+    restates a figure that is already correct; it is computed only when not supplied.
+    #>
+    param(
+        [int]$TotalChecked,
+        [int]$DriftCount = 0,
+        [int]$ErrorCount = 0,
+        $Percentage = $null,
+        [string]$Label = '  Compliance',
+        [string]$Suffix = ''
+    )
+
+    if ($ErrorCount -gt 0) {
+        Write-Host "$($Label): N/A (could not be determined)" -ForegroundColor Red
+        return
+    }
+
+    if ($TotalChecked -le 0) {
+        Write-Host "$($Label): Not checked - nothing configured" -ForegroundColor Gray
+        return
+    }
+
+    $pct = if ($null -ne $Percentage) { [double]$Percentage } else {
+        [math]::Round((($TotalChecked - $DriftCount) / $TotalChecked) * 100, 2)
+    }
+
+    Write-Host "$($Label): $pct%$Suffix" -ForegroundColor $(if ($pct -ge 90) { 'Green' } elseif ($pct -ge 70) { 'Yellow' } else { 'Red' })
 }
 
 function Stop-TierModelDiagnosticsTranscript {
@@ -856,31 +987,15 @@ function Invoke-OuAudit {
         Write-Host "  Total Checked: $($audit.Summary.TotalChecked)" -ForegroundColor Gray
         Write-Host "  Missing: $($audit.Summary.MissingCount)" -ForegroundColor Red
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
-        # FINAL-3: surface the unverified count here too. Without it the operator sees
-        # Missing 0 / Mismatched 0 / Total Drift 1 and has no way to reconcile the numbers.
-        # Read defensively: Summary is a hashtable from Test-TierModelOu but callers may
-        # supply a PSCustomObject, and Set-StrictMode -Version Latest throws on a missing
-        # property. An absent count means "not reported", which is 0 unverified.
-        $unverifiedCount = 0
-        if ($audit.Summary -is [System.Collections.IDictionary]) {
-            if ($audit.Summary.Contains('UnverifiedCount')) { $unverifiedCount = [int]$audit.Summary['UnverifiedCount'] }
-        } elseif ($audit.Summary.PSObject.Properties.Name -contains 'UnverifiedCount') {
-            $unverifiedCount = [int]$audit.Summary.UnverifiedCount
-        }
+        # Objects whose state could not be read are neither missing nor mismatched, so without
+        # this line the breakdown above does not sum to the Total Drift below it.
+        $unverifiedCount = Get-TierModelUnverifiedCount $audit.Summary
         Write-Host "  Unverified (read failures): $unverifiedCount" -ForegroundColor $(if ($unverifiedCount -eq 0) { 'Gray' } else { 'Red' })
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage.
-        # FINAL-1: zero checks is NOT 100% compliant - it is unknown. Likewise, if the audit
-        # raised errors then the checks that did run are not a complete picture, so a
-        # percentage over them would overstate what we actually know. Both cases print N/A.
-        $complianceUnknown = ($audit.Summary.TotalChecked -le 0) -or ($audit.Errors.Count -gt 0)
-        if ($complianceUnknown) {
-            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
-        } else {
-            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
-            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
-        }
+        # Errors, nothing-configured and a real percentage are three different outcomes. The
+        # shared renderer keeps them distinct here and at every other section.
+        Write-TierModelComplianceLine -TotalChecked $audit.Summary.TotalChecked -DriftCount $audit.Summary.DriftCount -ErrorCount $audit.Errors.Count
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -897,7 +1012,7 @@ function Invoke-OuAudit {
         if ($audit.DriftFindings.Count -gt 0) {
             Write-Host "Drift Findings:" -ForegroundColor Red
             $audit.DriftFindings | ForEach-Object {
-                $color = if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
@@ -939,15 +1054,14 @@ function Invoke-GroupAudit {
         Write-Host "  Total Checked: $($audit.Summary.TotalChecked)" -ForegroundColor Gray
         Write-Host "  Missing: $($audit.Summary.MissingCount)" -ForegroundColor Red
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
+        # Objects whose state could not be read are neither missing nor mismatched, so without
+        # this line the breakdown above does not sum to the Total Drift below it.
+        $unverifiedCount = Get-TierModelUnverifiedCount $audit.Summary
+        Write-Host "  Unverified (read failures): $unverifiedCount" -ForegroundColor $(if ($unverifiedCount -eq 0) { 'Gray' } else { 'Red' })
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage (same rule as Invoke-OuAudit)
-        if ($audit.Summary.TotalChecked -le 0 -or $audit.Errors.Count -gt 0) {
-            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
-        } else {
-            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
-            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
-        }
+        # Same three outcomes as every other section.
+        Write-TierModelComplianceLine -TotalChecked $audit.Summary.TotalChecked -DriftCount $audit.Summary.DriftCount -ErrorCount $audit.Errors.Count
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -964,7 +1078,7 @@ function Invoke-GroupAudit {
         if ($audit.DriftFindings.Count -gt 0) {
             Write-Host "Drift Findings:" -ForegroundColor Red
             $audit.DriftFindings | ForEach-Object {
-                $color = if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
@@ -1005,15 +1119,14 @@ function Invoke-UserAudit {
         Write-Host "  Total Checked: $($audit.Summary.TotalChecked)" -ForegroundColor Gray
         Write-Host "  Missing: $($audit.Summary.MissingCount)" -ForegroundColor Red
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
+        # Objects whose state could not be read are neither missing nor mismatched, so without
+        # this line the breakdown above does not sum to the Total Drift below it.
+        $unverifiedCount = Get-TierModelUnverifiedCount $audit.Summary
+        Write-Host "  Unverified (read failures): $unverifiedCount" -ForegroundColor $(if ($unverifiedCount -eq 0) { 'Gray' } else { 'Red' })
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage (same rule as Invoke-OuAudit)
-        if ($audit.Summary.TotalChecked -le 0 -or $audit.Errors.Count -gt 0) {
-            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
-        } else {
-            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
-            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
-        }
+        # Same three outcomes as every other section.
+        Write-TierModelComplianceLine -TotalChecked $audit.Summary.TotalChecked -DriftCount $audit.Summary.DriftCount -ErrorCount $audit.Errors.Count
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -1030,7 +1143,7 @@ function Invoke-UserAudit {
         if ($audit.DriftFindings.Count -gt 0) {
             Write-Host "Drift Findings:" -ForegroundColor Red
             $audit.DriftFindings | ForEach-Object {
-                $color = if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
@@ -1072,16 +1185,15 @@ function Invoke-OuAclAudit {
     # Add entity type to audit result for consolidated reporting
     $audit | Add-Member -NotePropertyName 'EntityType' -NotePropertyValue 'OU ACL' -Force
 
+    # Project the audit's findings into the DriftFindings shape the report consumers render.
+    # Routed through the shared normaliser so this scope uses the same vocabulary as every other
+    # producer: each finding keeps its own Type, and the console colour is derived from that
+    # Type's severity class. A configuration warning therefore renders as '[Warning]' in yellow
+    # rather than being reported as an error the audit did not encounter, while 'Error' findings
+    # continue to render as errors.
     $ouAclDriftFindings = @()
     if (($audit.PSObject.Properties.Name -contains 'Findings') -and $audit.Findings) {
-        $ouAclDriftFindings = @($audit.Findings | ForEach-Object {
-            [PSCustomObject]@{
-                Type         = if ($_.Type -eq 'Missing' -or $_.Type -eq 'Mismatch') { $_.Type } else { 'Error' }
-                ResourceType = $_.ResourceType
-                Identifier   = $_.Identifier
-                Details      = $_.Details
-            }
-        })
+        $ouAclDriftFindings = @($audit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL')
     }
     $audit | Add-Member -NotePropertyName 'DriftFindings' -NotePropertyValue $ouAclDriftFindings -Force
 
@@ -1110,14 +1222,22 @@ function Invoke-GpoAudit {
         # Display audit summary with consistent format
         Write-Host "GPO Audit Summary:" -ForegroundColor White
         Write-Host "  Total Checked: $($audit.Summary.TotalGpos)" -ForegroundColor Gray
-        Write-Host "  Missing: 0" -ForegroundColor Red
-        Write-Host "  Mismatched: $($audit.Summary.Drift + $audit.Summary.Errors)" -ForegroundColor Yellow
+        # The producer publishes three mutually exclusive failure buckets - Missing, Error,
+        # Mismatch - and the console reports each as its own line. The three sum to the Total
+        # Drift printed below. A shape that does not publish the buckets reports the whole of
+        # drift as Mismatched.
+        $gpoSummaryKeys = $audit.Summary.PSObject.Properties.Name
+        $gpoHasBuckets = ($gpoSummaryKeys -contains 'MissingGpos') -and
+                         ($gpoSummaryKeys -contains 'ConfigurationMismatches') -and
+                         ($gpoSummaryKeys -contains 'AuditErrors')
+        $gpoMissing    = if ($gpoHasBuckets) { [int]$audit.Summary.MissingGpos } else { 0 }
+        $gpoMismatched = if ($gpoHasBuckets) { [int]$audit.Summary.ConfigurationMismatches } else { $audit.Summary.Drift }
+        $gpoErrors     = if ($gpoHasBuckets) { [int]$audit.Summary.AuditErrors } else { [int]$audit.Summary.Errors }
+        Write-Host "  Missing: $gpoMissing" -ForegroundColor Red
+        Write-Host "  Mismatched: $gpoMismatched" -ForegroundColor Yellow
+        Write-Host "  Errors: $gpoErrors" -ForegroundColor Red
         Write-Host "  Total Drift: $($audit.Summary.Drift + $audit.Summary.Errors)" -ForegroundColor $(if (($audit.Summary.Drift + $audit.Summary.Errors) -eq 0) { 'Green' } else { 'Red' })
-        Write-Host "  Compliance: $($audit.Summary.CompliancePercentage)%" -ForegroundColor $(
-            if ($audit.Summary.CompliancePercentage -ge 90) { 'Green' } 
-            elseif ($audit.Summary.CompliancePercentage -ge 70) { 'Yellow' } 
-            else { 'Red' }
-        )
+        Write-TierModelComplianceLine -TotalChecked $audit.Summary.TotalGpos -ErrorCount $gpoErrors -Percentage $audit.Summary.CompliancePercentage
         Write-Host "" # Blank line for spacing
         
         # Display findings if any.
@@ -1272,9 +1392,10 @@ function Invoke-CanonicalAclAudit {
     $durationMs = [long](New-TimeSpan -Start $startTime -End (Get-Date)).TotalMilliseconds
 
     # Console summary — explicit breakdown so "Total Checked" is never ambiguous.
-    # Same rule as Invoke-OuAudit: zero checks or any error means compliance is unknown,
-    # not 100%. (This site uses $compliancePct, which is why it was missed in the first
-    # catalogue of the 'else { 100 }' pattern.)
+    # Zero checks or any error means compliance is unknown, not 100%. Reported inline rather
+    # than through the shared renderer: this function is extracted and executed on its own,
+    # so it must not depend on a sibling helper. The domain root is always checked, so the
+    # "nothing configured" state cannot arise here.
     $complianceUnknown = ($totalChecked -le 0) -or ($errors -gt 0)
     $compliancePct = if ($complianceUnknown) { 0 } else { [math]::Round(($compliant / $totalChecked) * 100, 2) }
 
@@ -1655,6 +1776,75 @@ if ($FullDeployment) {
         try { return [int]$raw } catch { return 0 }
     }
 
+    # ONE definition of "what did this entity report", called by BOTH the grand-total loop below
+    # and the per-section counter further down, so the two cannot disagree.
+    #
+    # Summary is read through the hashtable-aware helpers above rather than a dotted-path
+    # property walk. Every standalone producer (MSA/gMSA/dMSA ACL, WinLaps ACL, WinLaps
+    # Decryptor, Domain Audit Rule, Auth Policies, Auth Silos) publishes its Summary as a
+    # hashtable literal, and a hashtable's PSObject.Properties are IsReadOnly/Keys/Values/Count
+    # - never its keys - so a property walk cannot reach Drift/Missing/Mismatched.
+    #
+    # Sharing the computation, rather than patching the second copy to match the first, is what
+    # stops the section line and the grand total from ever drifting apart again.
+    function Get-EntityDriftTotals($result) {
+        $summary = if ($result.PSObject.Properties.Name -contains 'Summary') { $result.Summary } else { $null }
+
+        $missing    = (Get-SummaryCount $summary 'Missing')    + (Get-SummaryCount $summary 'MissingCount')
+        $mismatched = (Get-SummaryCount $summary 'Mismatched') + (Get-SummaryCount $summary 'MismatchCount')
+        $unverified = Get-SummaryCount $summary 'UnverifiedCount'
+
+        # No producer publishes both spellings of the drift total (AST-verified), so preferring
+        # 'Drift' over 'DriftCount' matches today's behaviour and cannot double-count if a
+        # future shape carries both.
+        $drift = if (Test-SummaryKey $summary 'Drift') {
+            Get-SummaryCount $summary 'Drift'
+        } elseif (Test-SummaryKey $summary 'DriftCount') {
+            Get-SummaryCount $summary 'DriftCount'
+        } else {
+            $missing + $mismatched + $unverified
+        }
+
+        [PSCustomObject]@{
+            Missing    = $missing
+            Mismatched = $mismatched
+            Unverified = $unverified
+            Drift      = $drift
+        }
+    }
+
+    # Summary.Errors (a count), the top-level Errors collection, and findings whose verdict is
+    # 'Error' are THREE representations of the SAME error set - producers emit two or three of
+    # them for one underlying failure. The standalone family increments its error counter on
+    # exactly the same line that appends the Error finding (AST-verified across MSA/gMSA/dMSA
+    # ACL, WinLaps ACL, WinLaps Decryptor, Domain Audit Rule, Auth Policy, Auth Silo and OU ACL),
+    # so adding them together double-counts. OU/Group/User publish DriftFindings rather than
+    # Findings, so the third source is simply absent for them.
+    #
+    # Taking the MAXIMUM of all three cannot double-count and cannot under-count relative to any
+    # single source: a producer that publishes a count but no findings still reports its count,
+    # and a producer that emits Error findings but leaves Summary.Errors at 0 (Test-TierModelAdmx
+    # does exactly this) still reports its findings. The previous form - Max(summary, topLevel)
+    # PLUS findings - is why an audit that failed once rendered "Errors: 2" above a single error
+    # line. That was invisible while the section counter was hashtable-blind and would have
+    # become visible the moment it was fixed, so it is corrected here rather than shipped.
+    function Get-EntityErrorTotal($result) {
+        $summary = if ($result.PSObject.Properties.Name -contains 'Summary') { $result.Summary } else { $null }
+
+        $summaryErrorCount  = Get-SummaryCount $summary 'Errors'
+        $topLevelErrorCount = [int](Get-SafePropertyValue $result 'Errors')
+
+        $findingErrorCount = 0
+        if (($result.PSObject.Properties.Name -contains 'Findings') -and $result.Findings) {
+            $findingErrorCount = @($result.Findings | Where-Object {
+                ($_.PSObject.Properties.Name -contains 'Type'   -and $_.Type   -eq 'Error') -or
+                ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')
+            }).Count
+        }
+
+        return [Math]::Max([Math]::Max($summaryErrorCount, $topLevelErrorCount), $findingErrorCount)
+    }
+
     # Calculate totals handling different property names across entity types
     $totalChecked = 0
     $totalDrift = 0
@@ -1711,50 +1901,16 @@ if ($FullDeployment) {
             $totalChecked += $checked
         }
         
-        # Handle different drift property names - use safe property access for both hashtables and PSObjects
-        $entityMissing    = (Get-SummaryCount $result.Summary 'Missing')    + (Get-SummaryCount $result.Summary 'MissingCount')
-        $entityMismatched = (Get-SummaryCount $result.Summary 'Mismatched') + (Get-SummaryCount $result.Summary 'MismatchCount')
-        $entityUnverified = Get-SummaryCount $result.Summary 'UnverifiedCount'
+        # Handle different drift property names - one shared computation with the section counter.
+        $entityTotals = Get-EntityDriftTotals $result
 
-        $totalMissing    += $entityMissing
-        $totalMismatched += $entityMismatched
-        $totalUnverified += $entityUnverified
+        $totalMissing    += $entityTotals.Missing
+        $totalMismatched += $entityTotals.Mismatched
+        $totalUnverified += $entityTotals.Unverified
+        $totalDrift      += $entityTotals.Drift
 
-        # No producer publishes both spellings of the drift total (AST-verified), so preferring
-        # 'Drift' over 'DriftCount' matches today's behaviour and cannot double-count if a
-        # future shape carries both.
-        if (Test-SummaryKey $result.Summary 'Drift') {
-            $totalDrift += Get-SummaryCount $result.Summary 'Drift'
-        }
-        elseif (Test-SummaryKey $result.Summary 'DriftCount') {
-            $totalDrift += Get-SummaryCount $result.Summary 'DriftCount'
-        }
-        else {
-            $totalDrift += $entityMissing + $entityMismatched + $entityUnverified
-        }
-        
-        # Handle different error property names - use safe property access for both hashtables and PSObjects.
-        # Summary.Errors (a count) and the top-level Errors collection are two representations
-        # of the SAME error set - several entity types emit both. Summing them double-counts,
-        # so take whichever reports more rather than adding them together.
-        $summaryErrorCount = if ($result.Summary -is [hashtable]) {
-            if ($result.Summary.ContainsKey('Errors')) { [int]$result.Summary['Errors'] } else { 0 }
-        } else {
-            [int](Get-SafePropertyValue $result 'Summary.Errors')
-        }
-        $topLevelErrorCount = [int](Get-SafePropertyValue $result 'Errors')
-        $totalErrors += [Math]::Max($summaryErrorCount, $topLevelErrorCount)
-        
-        # Handle findings-based errors
-        if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $errorFindings = $result.Findings | Where-Object {
-                ($_.PSObject.Properties.Name -contains 'Type'   -and $_.Type   -eq 'Error') -or
-                ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')
-            }
-            if ($errorFindings) { 
-                $totalErrors += if ($errorFindings -is [array]) { $errorFindings.Count } else { 1 }
-            }
-        }
+        # Handle error counts - same shared computation the section counter uses.
+        $totalErrors += Get-EntityErrorTotal $result
     }
     
     # $totalDrift is accumulated per result in the loop above, honouring each producer's own drift
@@ -1768,11 +1924,12 @@ if ($FullDeployment) {
     # whose phase died has not established compliance and must never render green.
     $totalErrors += $auditSummary.ErrorCount
 
-    # TRUE-FINAL-2: the headline verdict must consult $totalErrors. A run that errored has
-    # not established compliance - "could not determine" is a third state, distinct from
-    # both COMPLIANT and DRIFT, and must never render green.
+    # A run that errored has not established compliance, and a run that checked nothing has not
+    # established it either. Both outrank the drift verdict, and neither may render green.
     if ($totalErrors -gt 0) {
         Write-Host "Overall Audit Status: ⚠️  COMPLIANCE COULD NOT BE FULLY DETERMINED ($totalErrors error(s))" -ForegroundColor Red
+    } elseif ($totalChecked -le 0) {
+        Write-Host "Overall Audit Status: ⚪ NOT CHECKED - nothing configured" -ForegroundColor Gray
     } else {
         Write-Host "Overall Audit Status: $(if ($totalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $totalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($totalDrift -eq 0) { 'Green' } else { 'Red' })
     }
@@ -1783,14 +1940,8 @@ if ($FullDeployment) {
     Write-Host "  Unverified (read failures): $totalUnverified" -ForegroundColor $(if ($totalUnverified -eq 0) { 'Gray' } else { 'Red' })
     Write-Host "  Total Drift: $totalDrift" -ForegroundColor $(if ($totalDrift -eq 0) { 'Green' } else { 'Red' })
     Write-Host "  Total Errors: $totalErrors" -ForegroundColor Red
-    
-    # Calculate and display compliance percentage (see FINAL-1 in Invoke-OuAudit)
-    if ($totalChecked -le 0 -or $totalErrors -gt 0) {
-        Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
-    } else {
-        $compliancePercentage = [math]::Round((($totalChecked - $totalDrift) / $totalChecked) * 100, 2)
-        Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
-    }
+
+    Write-TierModelComplianceLine -TotalChecked $totalChecked -DriftCount $totalDrift -ErrorCount $totalErrors
     Write-Host "" # Blank line after compliance
     
     # Show per-entity breakdown
@@ -1882,25 +2033,13 @@ if ($FullDeployment) {
             }
         }
         
-        $entityDrift = (Get-SafePropertyValue $result 'Summary.Drift') + 
-                      (Get-SafePropertyValue $result 'Summary.DriftCount') +
-                      (Get-SafePropertyValue $result 'Summary.Missing') +
-                      (Get-SafePropertyValue $result 'Summary.Mismatched')
-        
-        $entityErrors = (Get-SafePropertyValue $result 'Summary.Errors') + 
-                       (Get-SafePropertyValue $result 'Errors')
-        
-        # Handle findings-based errors safely
-        if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $errorFindings = $result.Findings | Where-Object {
-                ($_.PSObject.Properties.Name -contains 'Type'   -and $_.Type   -eq 'Error') -or
-                ($_.PSObject.Properties.Name -contains 'Status' -and $_.Status -eq 'Error')
-            }
-            if ($errorFindings) { 
-                $entityErrors += if ($errorFindings -is [array]) { $errorFindings.Count } else { 1 }
-            }
-        }
-        
+        # The SAME two helpers the grand total above consumes, so the per-section line and the
+        # Overall Summary are now guaranteed to reconcile: the sum of every section's Drift is
+        # exactly $totalDrift, and the sum of every section's Errors is exactly $totalErrors
+        # (before the phase-level throws that never reached $auditResults are folded in).
+        $entityTotals = Get-EntityDriftTotals $result
+        $entityDrift  = $entityTotals.Drift
+        $entityErrors = Get-EntityErrorTotal $result
         Write-Host "${entityType}:" -ForegroundColor Cyan
         Write-Host "  Checked: $entityChecked, Drift: $entityDrift, Errors: $entityErrors" -ForegroundColor Gray
         
@@ -1942,7 +2081,7 @@ if ($FullDeployment) {
 
         if ($entityDriftFindings.Count -gt 0) {
             $entityDriftFindings | ForEach-Object {
-                $color = if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "    [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         }
@@ -2099,8 +2238,11 @@ else {
         if ($admxAudit -and ($admxAudit.PSObject.Properties.Name -contains 'Summary') -and $admxAudit.Summary) {
             $auditSummary.TotalChecked  = [int]$admxAudit.Summary.TotalFiles
             $auditSummary.DriftCount    = [int]$admxAudit.Summary.Drift
-            # The console reports ADMX drift as "Mismatched" with Missing pinned at 0.
-            $auditSummary.MismatchCount = [int]$admxAudit.Summary.Drift
+            # Missing and Mismatched are the producer's breakdown of Drift. When a shape does
+            # not publish them the whole of Drift is reported as Mismatched, as before.
+            $admxSummaryKeys = $admxAudit.Summary.PSObject.Properties.Name
+            $auditSummary.MissingCount  = if ($admxSummaryKeys -contains 'Missing') { [int]$admxAudit.Summary.Missing } else { 0 }
+            $auditSummary.MismatchCount = if ($admxSummaryKeys -contains 'Mismatched') { [int]$admxAudit.Summary.Mismatched } else { [int]$admxAudit.Summary.Drift }
             if ($admxAudit.Summary.PSObject.Properties.Name -contains 'Errors') {
                 $auditSummary.ErrorCount += [int]$admxAudit.Summary.Errors
             }
@@ -2112,16 +2254,13 @@ else {
         
         Write-Host "" # Blank line for spacing
         # Display audit summary with consistent format
+        $admxErrors = if ($admxAudit.Summary.PSObject.Properties.Name -contains 'Errors') { [int]$admxAudit.Summary.Errors } else { 0 }
         Write-Host "ADMX Audit Summary:" -ForegroundColor White
         Write-Host "  Total Checked: $($admxAudit.Summary.TotalFiles)" -ForegroundColor Gray
-        Write-Host "  Missing: 0" -ForegroundColor Red
-        Write-Host "  Mismatched: $($admxAudit.Summary.Drift)" -ForegroundColor Yellow
+        Write-Host "  Missing: $($auditSummary.MissingCount)" -ForegroundColor Red
+        Write-Host "  Mismatched: $($auditSummary.MismatchCount)" -ForegroundColor Yellow
         Write-Host "  Total Drift: $($admxAudit.Summary.Drift)" -ForegroundColor $(if ($admxAudit.Summary.Drift -eq 0) { 'Green' } else { 'Red' })
-        Write-Host "  Compliance: $($admxAudit.Summary.CompliancePercentage)%" -ForegroundColor $(
-            if ($admxAudit.Summary.CompliancePercentage -ge 90) { 'Green' } 
-            elseif ($admxAudit.Summary.CompliancePercentage -ge 70) { 'Yellow' } 
-            else { 'Red' }
-        )
+        Write-TierModelComplianceLine -TotalChecked $admxAudit.Summary.TotalFiles -ErrorCount $admxErrors -Percentage $admxAudit.Summary.CompliancePercentage
         Write-Host "" # Blank line for spacing
         
         # Display findings if any
@@ -2377,7 +2516,15 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     }
 
     Write-Host "`n=== $resultsHeader ===" -ForegroundColor Magenta
-    Write-Host "Overall Status: $(if ($standaloneTotalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $standaloneTotalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($standaloneTotalDrift -eq 0) { 'Green' } else { 'Red' })
+    # Same verdict rule as the consolidated path: errors outrank drift, and a scope with nothing
+    # configured has not passed. Only a completed run over real objects can render green.
+    if ($standaloneTotalErrors -gt 0) {
+        Write-Host "Overall Status: ⚠️  COMPLIANCE COULD NOT BE FULLY DETERMINED ($standaloneTotalErrors error(s))" -ForegroundColor Red
+    } elseif ($standaloneTotalChecked -le 0) {
+        Write-Host "Overall Status: ⚪ NOT CHECKED - nothing configured" -ForegroundColor Gray
+    } else {
+        Write-Host "Overall Status: $(if ($standaloneTotalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $standaloneTotalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($standaloneTotalDrift -eq 0) { 'Green' } else { 'Red' })
+    }
     Write-Host "  Total Checked: $standaloneTotalChecked" -ForegroundColor White
     Write-Host "  Total Drift: $standaloneTotalDrift" -ForegroundColor $(if ($standaloneTotalDrift -gt 0) { 'Red' } else { 'Green' })
     Write-Host "  Total Errors: $standaloneTotalErrors" -ForegroundColor $(if ($standaloneTotalErrors -gt 0) { 'Red' } else { 'Green' })

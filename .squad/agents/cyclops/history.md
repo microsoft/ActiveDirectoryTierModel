@@ -939,3 +939,403 @@ artifact.
 - `Restage-Lab.ps1` still does not stage `.research\`. Re-copied by hand, as warned.
 - The 21 `PASS*` rows on RUN 1 all carry the same single skip; the run is genuinely
   clean.
+
+
+---
+
+## 2026-09-07 - Pinned PRE-FIX baseline for the audit drift-counter defect (build 23b5100)
+
+Captured the "before" for Rogue's in-flight audit reporting fix. Did NOT test his fix.
+Full evidence: C:\CyclopsStage\run-20260907-124147\FINDINGS-drift-counter-before-state.md
+
+### Building from the commit was not a formality - the working tree was already +122/-4
+
+`git archive 23b5100` to C:\CyclopsStage, verified 698/698 blobs. The staged
+Audit-TierModel.ps1 hashed 825009aa...; the working-tree copy hashed 7dd37603... with
+**122 insertions and 4 deletions already applied**. Copying the working tree would have
+measured a half-finished fix and silently invalidated the entire baseline. This is the
+single highest-value instruction in the brief and it was already true at the moment I
+started.
+
+**Verification method matters as much as the staging.** My first hash sweep reported 1
+mismatch (SUPPORT.md) and it was MY bug: `git hash-object` applies the clean filter under
+`core.autocrlf=true`, which mangles a blob that already contains CRLF. `--no-filters`
+plus a byte-length check against `git cat-file -s` proved it identical. Nearly reported a
+staging failure that did not exist. **When a hash check fails on exactly one file, suspect
+the checker before the artifact.**
+
+### The brief's central premise was FALSE, and that is the finding
+
+The brief said the standalone `-Include*` paths render through the defective loop.
+**They do not.** All six standalone scopes (`-IncludeWinLaps`, `-IncludeMsa`, `-IncludeGmsa`,
+`-IncludeDmsa`, `-EnableAuditing`, `-IncludeAuthSilos`) reconcile **perfectly** - every
+`Drift` equals the number of findings printed. They use an entirely different renderer
+(`=== X Audit Summary ===`, findings as bare `X <text>` with **no `[Type]` label at all`).
+
+The defect lives **only** in consolidated `-FullDeployment` runs. Had I only run the
+scopes the brief named, I would have reported "cannot reproduce" and been wrong; had
+Rogue validated his fix on `-IncludeWinLaps`, he would have validated code that never
+executes the defect. **Run the scope the brief tells you to run AND the one it doesn't.**
+
+### Blast radius is wider than reported in sections, narrower at the headline
+
+- `-FullDeployment` alone: **4 of 6** sections that print findings have `Drift: 0`.
+  Includes OU (31), Group (29), User (3), OU ACL (105) - core sections the brief never
+  mentioned. Reachable with the plainest possible invocation, no `-Include*` needed.
+- `-FullDeployment` + all includes: **12 of 14** sections wrong. Only GPO and ADMX correct.
+- Section `Drift` counters sum to **206**; grand total says **374/402**. They are computed
+  independently, which is exactly why the grand total survived while the sections did not.
+- `Total Checked` reconciles **exactly** (375=375, 403=403) in both scopes. The Checked
+  counter is sound; do not let anyone "fix" it.
+
+**The headline is NOT reporting a clean estate.** `-FullDeployment` prints
+`Overall Audit Status: 374 DRIFT ITEMS` and `Total Drift: 374` against 374 printed - exact.
+The feared "clean verdict over a list of drift" does not occur at the top line.
+
+### The unpredicted defect: decryptor errors counted twice, and it hijacks the verdict
+
+`Total Errors: 12` over section counters summing to 6. Bisected the consolidated scopes one
+switch at a time: MSA 0, EnableAuditing 0, **WinLaps 12**, WinLaps standalone **6**.
+The consolidated path counts the 6 decryptor errors **exactly twice**, while `Total Checked`
+for the same switch rises by 13 (7+6) - counted once. So the double-count is isolated to the
+error accumulator.
+
+That matters because ANY non-zero error count flips the headline from
+`374 DRIFT ITEMS` to `COMPLIANCE COULD NOT BE FULLY DETERMINED (12 error(s))`, **suppressing
+a 402-drift-item headline behind an indeterminate verdict**. So the blast radius does reach
+the top line - in the opposite direction from the one predicted. Worth saying plainly to
+Joel: the tool does not claim clean, it claims it cannot tell.
+
+Also: grand-total `Total Drift` is 8 short in the all-includes scope (402 vs 410 printed),
+exactly the `[AuditRight]` count - Domain Audit Rule counts as 1 drifted object but prints 9
+finding lines. "Findings printed" and "objects checked" are different units in that section.
+
+### Colour: confirmed, but the polarity in the brief is inverted
+
+Measured: `[Missing]`=**Red**; `[MissingAcl]`, `[MissingAuditRule]`, `[AuditRight]`,
+`[Error]`=**Yellow**. The brief predicted the exact-match on 'Missing' would leave Missing
+yellow too. It is the opposite: the exact match gets Red and everything else falls through
+to Yellow. **The user-visible consequence it predicted - `[Error]` rendering yellow - is
+confirmed.** Also: the `Checked/Drift/Errors` line is **Gray unconditionally**, at any value.
+
+### You cannot capture console colour by redirecting. Prove your instrument first.
+
+`$PSStyle.OutputRendering='Ansi'` does **not** make `Write-Host -ForegroundColor` emit ANSI
+into a redirected file - control ladder gave **0 ESC bytes in 128**. Colour required a
+`Write-Host` proxy recording `ForegroundColor` and forwarding to
+`Microsoft.PowerShell.Utility\Write-Host` (product bytes never touched; re-hashed after).
+Validated the proxy against an 8-rung ladder including a `-NoNewline` split before trusting
+one measurement. Same discipline as the RUN 1 verbose ladder, and it paid again.
+
+**Unicode nearly cost me the colour table.** ~120 finding lines came back colour="unknown".
+Not a product behaviour and not a proxy failure: the parent Windows PowerShell 5.1 decodes
+child `pwsh` stdout with the OEM codepage, destroying the arrow and cross glyphs, so raw-log
+text no longer matched JSONL text. Setting `[Console]::OutputEncoding` in the **child** does
+nothing - it must be set in the **parent** before launching. Two artifacts disagreeing sent
+me to the bytes, and the bytes were right; the JSONL had had the colours all along.
+
+### Harness defects that masqueraded as product failures
+
+- `& script @arrayOfStrings` splats **positionally**, not by name. `-IncludeWinLaps` landed
+  on `-OutputFormat` and threw a ValidateSet error that looked exactly like a product bug.
+  Hashtable splat required.
+- `$LASTEXITCODE` is **unset** under `Set-StrictMode -Version Latest` until a native command
+  runs - the wrapper threw "CYCLOPS_THREW" on a completely successful audit.
+
+### Logs retained this time - the RUN 2 gap is not repeated
+
+Everything is under `C:\CyclopsStage\run-20260907-124147\` (host, outside the repo), with a
+clean UTF-8 archival set in `final\` and the first-pass + bisect logs alongside. The
+`.colour.jsonl` files are the higher-fidelity artifact: one record per `Write-Host` call with
+`{seq,fg,nn,text}`, every glyph intact, and the only record of colour that exists. The final
+pass doubles as a reproducibility check - every counter and finding count reproduced exactly
+across two independent runs.
+
+### Lab left clean
+
+No checkpoint created, deleted or renamed - still exactly three on DC01. Estate probe
+identical before and after (Audit performs no writes), so the fixture Joel reset is intact and
+DC01 is left Running on `WinLapsSchema`. **Removed `C:\TierModel` from the guest afterwards**:
+it held the 23b5100 build, and leaving a stale build at the canonical staging path is precisely
+the torn-build hazard this exercise existed to avoid. Whoever tests Rogue's fix must stage it
+themselves.
+
+
+---
+
+## 2026-09-07 (later) - A/B validation of Rogue's drift-counter fix against my own baseline
+
+Full evidence: C:\CyclopsStage\run-20260907-124147\FINDINGS-drift-counter-AB-result.md
+
+### The baseline paid for itself immediately
+
+Because the BEFORE numbers were precise (12 of 14 sections, 206 vs 374/402, 12 vs 6), this was a
+real experiment rather than a look-see. Every predicted movement could be scored, and the two
+that did NOT move as predicted were visible instantly instead of being lost in a general
+impression of improvement. **Precise before-numbers are what convert "looks fixed" into a
+result.** This is the second time retaining artifacts has decided the outcome of a later session.
+
+### Snapshot first, and prove the isolation
+
+HEAD was still 6725ab3 with the fix uncommitted, so `git archive` was useless this time.
+Snapshotted the working tree as the literal first action, then re-hashed the live files
+afterwards to prove they had not moved under me (Rogue idle, both STABLE).
+
+The isolation step that made the A/B trustworthy: `git diff --name-only 23b5100 6725ab3` returns
+**only four .squad history files** - zero product delta. So I could build AFTER as
+`23b5100 + the 2 snapshotted files` and prove by SHA256 that the two 698-file builds differ in
+**exactly 2 files**. Without that check I would have been comparing across an unknown commit gap
+and quietly attributing it to Rogue.
+
+### Result: the fix works. 12 of 14 -> 1 of 14, and Total Checked did not move.
+
+Plain `-FullDeployment` now 0 of 6 broken. Section sums reconcile with the grand total in both
+scopes (374/374, 402/402). Verdict flipped:
+
+    BEFORE  Overall Audit Status: COMPLIANCE COULD NOT BE FULLY DETERMINED (12 error(s))
+    AFTER   Overall Audit Status: 402 DRIFT ITEMS
+
+`Total Checked` 375->375 and 403->403, unmoved - the thing Joel most wanted protected. Confirmed
+reproducible: ran the full scope twice, all 15 section rows identical.
+
+**Rogue's type-blindness diagnosis is corroborated by my own data.** He said `Checked:` was right
+only because it used an explicit `-is [hashtable]` branch. That is exactly why my BEFORE run found
+`Total Checked` reconciling perfectly while every other counter collapsed - I had recorded the
+symptom without knowing the cause, and his cause predicts my symptom. Independent corroboration,
+not agreement.
+
+### The three things that did NOT match the prediction - all worth more than the ones that did
+
+1. **`Total Errors` went 12 -> 0, not 12 -> 6.** Not a miss: the 6 decryptor findings were
+   *reclassified* Error->Missing, so there were no errors left to count. The prediction assumed
+   they would survive de-duplication. **A number moving further than predicted needs a cause
+   before it is credited** - here the cause is sound and sections still agree with the total.
+2. **`[Error]` colour is now UNVERIFIABLE in this fixture.** Zero `[Error]` findings across all
+   eight scopes, because the only producer was relabelled. The predicted red-for-Error change is
+   **unexercised**. A fix can be made untestable by an adjacent fix, and if I had only checked
+   "did any yellow become red" I would have reported a pass. Reported it as UNTESTED instead.
+3. **Labels are now section-uniform.** Domain Audit Rule went `[AuditRight]x8 + [MissingAuditRule]x1`
+   to `[MissingAuditRule]x9`; all 14 sections now render exactly one distinct label. Message bodies
+   are unchanged so no detail is lost, but `[AuditRight]` has vanished from the product's output.
+   Possibly deliberate BUG-048 normalisation - flagged rather than credited, because it was not
+   in the predicted set.
+
+### The unreachable-DC question answered cheaply, and the limit of the answer stated
+
+Rogue refused a blanket Error relabel to avoid reporting an unreachable DC as a clean-but-missing
+estate. Probed it non-mutatingly with `-PreferredDc NOSUCHDC99`: the run is **hard-stopped at the
+prerequisite gate, exit 1**, and never reaches the decryptor. So that disaster cannot occur via
+`-PreferredDc`.
+
+**I deliberately did not over-claim from this.** It rules out only the connectivity-at-startup
+shape; a DC lost mid-run, or `Get-GPO` failing on permissions, still lands on the five
+`Status='Error'` sites he left alone. His caution stands, it is just already defended one layer up
+for the commonest case. One cheap probe, one bounded conclusion - the opposite of the RUN 2
+mistake of manufacturing state until something broke.
+
+### The Domain Audit Rule row is a units question, not a surviving bug
+
+`Checked: 1, Drift: 1` over 9 printed lines. It is now internally consistent (section says 1,
+grand total counts 1, 402 = 410 - 8) so Rogue's "cannot disagree by construction" holds. But the
+printed-vs-counter reconciliation check will flag it forever until someone rules whether the
+counter reports drifted **objects** or drifted **findings**. Recommended Joel rule and the output
+state it - otherwise this becomes a permanent false alarm in every future reconciliation pass,
+including Storm's.
+
+### Lab hygiene: removed the build again, for the mirror-image reason
+
+Last run I deleted `C:\TierModel` because it held a stale committed build. This time I deleted it
+because it held an **uncommitted, unreviewed** one - anyone auditing that DC would silently be
+exercising Rogue's in-flight fix without knowing. Same hazard, opposite direction. Checkpoints
+untouched (3), estate identical before and after, DC01 left Running on `WinLapsSchema`.
+
+---
+
+## Session: BUG-052 empty-scope investigation (2026-09-07, ~16:35-17:20)
+
+**Assignment:** read-only diagnose-and-recommend. Registered claim: "a scope with nothing to check
+reports as CLEAN, structural, affecting every producer's empty-config path." Explicitly flagged as
+never verified by execution. Joel rules on the behaviour; team recommends.
+
+### Method
+- `git archive HEAD` (6725ab3) -> `C:\CyclopsStage\bug052\build` (698 files). Never read the working
+  tree: Rogue live in `Audit-TierModel.ps1`, `Test-TierModelAuditRule.ps1`,
+  `Test-TierModelWinLapsDecryptor.ps1`; Storm live in `docs\`, `specs\`.
+- Offline harness first (fast, keeps the lab free), lab only where a live directory was required.
+- Reused `cyclops-proxy.ps1` for colour capture. It ported to a producer-level harness unchanged.
+
+### Result: the registered claim is PARTLY WRONG
+- Population stated properly: 21 `Test-TierModel*` functions; **13** are config-driven scope
+  producers; 8 are per-item/non-scope helpers.
+- All 13 return `Checked=0, Drift=0` on an empty scope. But **rendering splits 6 / 7**: six print a
+  green "compliant" verdict, seven print nothing at all standalone (their zeros still reach the
+  consolidated renderer as `Checked: 0, Drift: 0, Errors: 0`).
+- **"Every producer" is wrong for 3 of 13.** Emptying `organizationUnits`/`groups`/`users` makes
+  `Get-TierModelConfig` HARD FAIL ("The property 'Count' cannot be found on this object") and the
+  audit aborts. It does not report clean; it fails closed. Bisected in the lab, 12 sections, one at
+  a time. Cause: `Get-TierModelConfig` L194-197 reads `.Count` on properties the merge leaves unset.
+
+### Two defects nobody predicted
+1. **`Audit-TierModel.ps1:2381` — the standalone headline ignores errors.** It branches on
+   `$standaloneTotalDrift` alone. Lab printed `Overall Status: ✅ COMPLIANT` GREEN with
+   `Total Errors: 2` RED one line below. The consolidated path HAS this guard (L1774, "TRUE-FINAL-2");
+   the standalone path never got it. Independent of BUG-052 - fires on any errored standalone run.
+2. **`Test-TierModelGroup` / `Test-TierModelUser` report an UNREACHABLE DIRECTORY as compliant.**
+   Case (c). Errors captured into `.Errors`, never rendered, headline green. `Test-TierModelOu`
+   already carries the fix (`UnverifiedCount`, "an OU we could not read is not a pass"); Group/User
+   never received it. Structural census: 1 of 13 has an unverified counter; 5 of 13 have neither an
+   unverified counter nor error rendering.
+
+### Zero-case arithmetic (executed, per instruction)
+- Unguarded integer `0/0` -> terminating RuntimeException. **But no unguarded site is reachable.**
+- 5 of 7 compliance sites already guard with `-le 0` -> "N/A (could not be determined)" RED.
+- 2 of 7 (L1116 GPO, L2120 ADMX) read producer `CompliancePercentage`, whose producers return
+  `else { 100 }` -> **silent 100%, GREEN**. Lab-confirmed: `Compliance: 100%` green over
+  `Total Checked: 0`. If a double operand ever appeared: NaN, which fails every `-ge` and renders RED.
+- So the answer is "all three, in different places". The defect is INCONSISTENCY, not absence.
+- Irony: GPO and ADMX were the only two sections CORRECT in my drift-counter baseline. They are the
+  two wrong here.
+
+### Case (b) is already correct - protect it
+Configured but zero live objects (the undeployed WinLaps estate) reports drift correctly
+(`[MissingAcl] ... does not exist`, `❌ Missing — not found in AD`, red). A BUG-052 fix must NOT
+collapse (a) and (b), or it destroys a distinction the tool currently gets right.
+
+### Recommendation
+Option 1: "Not checked / nothing configured" - neutral, gray, excluded from the compliance
+denominator, headline becomes NOT CHECKED when every scope is empty. Chosen because it is **the rule
+the codebase already picked** in 5 of 7 sites and in `Test-TierModelOu`; it makes the tool
+self-consistent rather than adding a fourth opinion. Rejected: treating empty as drift (that is the
+shape of my own earlier -1.74% compliance mistake, and it merges (a) with (b)).
+
+### Method lessons (new)
+- **Two hypotheses of mine died on execution this session, both cheaply, both before they reached a
+  report.** (i) "`ConvertFrom-Json '[]'` yields `$null`" - FALSE, it yields an empty `Object[]`,
+  `.Count` = 0. (ii) my offline StrictMode loader harness was contaminated (dot-sourcing loses
+  `$script:` scope, so the BASELINE failed too and the test could not discriminate). Discarded it and
+  bisected in the lab where the baseline loads clean. **A harness whose control also fails is not a
+  measurement.**
+- **My result extractor was wrong before the product was.** First pass reported 7 producers returning
+  nothing; they actually return FLAT counters (`TotalChecked`/`Drift`) rather than a nested `Summary`.
+  Fixed the extractor, and 13 of 13 resolved. Same trap as last round - suspect the instrument first.
+- A harness config key typo (`authenticationPolicySilos` vs the real `authenticationSilos`)
+  accidentally produced a perfect case-(a) demonstration. Recorded it as a typo, not a finding.
+- Producers can be driven OFFLINE for the empty case, because an empty scope short-circuits before
+  any AD call. Stub the directory boundary to THROW a marked error - then AD contact on an empty
+  scope becomes visible rather than silent.
+
+### Hygiene
+Repo untouched: root 13 files, 0 staged, HEAD 6725ab3. Guest cleaned. DC01 checkpoints still 3
+(`DC-Promoted-Clean`, `WinLapsSchema`, `AuthSilo-Lab`) - none created, deleted or renamed. Estate
+unchanged. Logs retained at `C:\CyclopsStage\bug052\` (primary artifact: `lab9\`, and
+`FINDINGS-bug052-empty-scope.md`).
+
+---
+
+## Session: BUG-056 fix - unreachable directory reported as compliant (2026-09-07, ~17:15-17:50)
+
+**Scope:** `Test-TierModelGroup.ps1` + `Test-TierModelUser.ps1` ONLY. Mirror `Test-TierModelOu`'s
+`UnverifiedCount`; do not invent a third pattern. I found this defect last session; I fixed it.
+
+### What I changed (both files, same shape as Ou)
+1. `$unverifiedCount = 0` with a plain-language rationale comment (no bug IDs - Joel's rule).
+2. The **non-identity read-failure catch**: now prints a RED `Read: FAILED` line, emits a
+   `Type='Error'` `.../ReadFailure` drift finding, logs Error, and increments `$unverifiedCount`.
+   Group's site previously printed YELLOW "Query Failed" and only added a warning. I KEPT the
+   existing `$warnings +=` (additive, so warning-based assertions still hold).
+3. The **per-item outer catch**: increments `$unverifiedCount` (a group/user whose audit threw was
+   counted nowhere).
+4. `$driftCount = $missingCount + $mismatchCount + $unverifiedCount`; `UnverifiedCount` added to
+   both the success Summary and the outer-catch Summary.
+5. New rendered line: `Unverified Groups/Users (read failures): N ⚠️  - state could NOT be determined` RED.
+6. User's outer catch previously returned `DriftFindings = @()` and hardcoded zeros, discarding
+   everything. Now returns the real counters, mirroring Ou.
+
+### Verified by execution, colour captured, delta proven = 2 files
+Three-state harness, BEFORE (pristine HEAD export) vs AFTER (same export + my 2 files):
+| state | BEFORE | AFTER |
+|---|---|---|
+| nothing configured | Green "All compliant", Drift 0 | **unchanged** (BUG-052 territory, not mine) |
+| configured but absent | Missing=1, Drift=1, RED | **unchanged** - NOT collapsed into unverified |
+| could not read | **Green "All compliant", Drift 0** | **Unverified=1, Drift=1, RED** |
+Three states, three renderings. Confirmed again in the lab with REAL AD: state2 on the undeployed
+estate gave Missing=29/3 with Unverified=0.
+
+### A measurement that did NOT move - reported rather than buried
+Lab probe with a DC name that does not resolve: `Checked=0 Drift=0` in BOTH builds. Cause found, not
+guessed: `Resolve-TierModelDomainDN` throws BEFORE the per-item loop, so the outer catch runs and the
+per-item counter never executes. **Nothing green renders** (the summary block is skipped entirely) -
+so "never render green" still holds - but turning that into a "could not determine" verdict belongs
+to the standalone headline in `Audit-TierModel.ps1`, which is Rogue's file. Two sub-shapes of
+could-not-read: (c1) domain resolves, per-object read fails -> mine, fixed; (c2) domain DN
+unresolvable -> producer renders nothing, headline is Rogue's.
+
+### Test prediction stated BEFORE running, then measured
+Predicted exactly ONE test moves: `Unit.GroupOperations.Tests.ps1:622` "Should add warning and
+continue when Get-ADGroup throws a non-identity exception", on `$result.DriftFindings | Should
+-BeNullOrEmpty` - because that assertion **encodes the defect**. Measured: BEFORE 99/99 pass,
+AFTER 98 pass / 1 fail, that exact test, that exact assertion. Prediction == measurement.
+
+### Harness lesson (third time this pattern has bitten, third time caught)
+First Pester run reported **99 of 99 failing** on AFTER, including plan-generation tests my change
+cannot reach. Implausible -> suspected the harness, not the fix. Cause: I ran BEFORE and AFTER in the
+SAME pwsh process, so the already-imported `TierModel` module collided with the second build. Re-ran
+each build in its OWN process: 99/99 and 98/1. **Never run two builds of the same module in one
+PowerShell process** - `Import-Module -Force` does not save you, and Pester's `-ModuleName` mocks
+bind to the loaded instance.
+
+### Hygiene
+Diff footprint exactly 2 files (+66/-10). No BOM introduced (both files were BOM-less, still are),
+CRLF preserved, 0 parse errors, no bug IDs in comments. Nothing staged, HEAD still 6725ab3, root 13
+files. Guest cleaned. DC01 checkpoints still 3. Logs: `C:\CyclopsStage\bug056\`.
+
+---
+
+## Session: sweep for literal summaries in error paths (2026-09-07, ~18:40)
+
+**Question:** is Test-TierModelUser's hardcoded-zero outer catch the seventh instance of a pattern,
+or was it the last one? READ-ONLY.
+
+**Population stated:** 80 .ps1 under `modules\TierModel\public\` + `TierModel.psm1`.
+**`modules\TierModel\internal\` DOES NOT EXIST** - the brief assumed it did. `Audit-TierModel.ps1`
+lives at repo ROOT, not in the module, and is Rogue's: reported, never opened live.
+
+### Method - six passes, each one closing the previous one's blind spot
+A regex cannot find a *shape*. Used the PowerShell AST.
+1. all literal hashtable entries -> 173 hits (useless: includes parameter splats)
+2. only inside catch/trap, key mapped to a measured variable -> 86 "discards evidence" (still loose:
+   a var merely INITIALISED empty counts)
+3. require the var to be ACCUMULATED (`+=`/`++`) before the catch -> 36; AUDIT = 3 entries / 2 files
+4. **blind spot found:** pass 3 only counted `+=`/`++`, so `$totalChecked = $gpos.Count` (a measured
+   plain assignment) was misfiled as init-only. Closed it -> AUDIT went **3/2 files -> 6/4 files**.
+   The narrow check was under-reporting by half. This is the whole lesson of the task.
+5. decisive test: does the zeroing return ALSO carry an error signal? -> 1 site with none
+6. **that 1 was a false positive of my own instrument** - `Errors = $errorCount` (a variable) and
+   `Findings = $findings` (holding an Error-typed finding) are signals my regex could not see.
+   Made signal detection variable-aware -> **0 false-clean**.
+
+### The zero is defensible because the instrument was proven able to find the bug
+Mutation battery: for all 12 audit error-returns, stripped EVERY error signal via AST extent offsets.
+**12/12 caught.** First battery (regex-based) reported 11/12 with `Test-TierModelUser` MISSED - and
+that miss was a defect in my MUTATION GENERATOR, whose greedy `.*?` swallowed the whole `Summary`
+block so the sweep was never handed a valid mutant. Rebuilt on AST offsets. **Suspect the instrument,
+including the instrument that tests the instrument.**
+
+### Result
+- catch/error returns that zero a count: **33 sites / 27 files** at HEAD, **32 / 26** present state
+  (one fewer: my own User fix). **FALSE-CLEAN: 0.**
+- The codebase has a coherent, consistent contract: an error return zeros the counts but ALWAYS sets
+  an error signal (`Errors>=1`, populated `Errors`, an `Type='Error'` finding, `Converged=$false`,
+  `Status='Failed'`, `CompliancePercentage = 0` with the comment "Never 100").
+- **User was the LAST instance, not the seventh.** Wolverine was right about the shape and right to
+  raise it; execution shows it does not recur.
+- Residual risk is NOT in the producers - it is whether the renderer SURFACES those error signals.
+  That is BUG-055 (standalone headline ignores errors), already Rogue's.
+- Guard-path (non-catch) zero returns: 26 across 18 files, 24 without an error signal - the BUG-052
+  empty-scope family Joel already ruled on. Verified 3 by reading: DmsaAcl L46 = genuine BUG-052
+  guard; AuditRule L238 = SUCCESS return, false positive; AuthSiloPrerequisite L83 = already correct
+  (`Passed=$false` + real failure message) and is the in-codebase precedent for Joel's Option 1.
+
+### Hygiene
+Read-only honoured: zero product edits this session. Diff footprint still exactly the BUG-056 +66/-10.
+Artifacts: `C:\CyclopsStage\sweep\`.

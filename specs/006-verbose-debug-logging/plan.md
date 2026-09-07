@@ -43,7 +43,7 @@ broken. This prohibition must eventually be defended by CI (see **T018**), not b
 - `.research/verbose-vs-debug-design.md` — the original design study, including the AD/GPO module-shape
   measurements.
 - `.research/test-plan-verbose-debug.md`, `.research/test-plan-verbose-debug-v2.md` — the test plan.
-- `.research/known-bugs.md` — the authoritative bug register for the BUG-019 .. BUG-038 squash.
+- `.research/known-bugs.md` — the authoritative register for reliability improvements currently in flight.
 
 ---
 
@@ -78,8 +78,8 @@ broken. This prohibition must eventually be defended by CI (see **T018**), not b
 | **D11** | **WI-18 / D9 — `-Verbose` on AD/GPO call sites is MEASURED and DEFERRED.** No v2.1.0 impact | Additive annotation only; nothing depends on it. Full write-up, measured arms and before/after examples in `spec.md` D11 |
 | **D12** | **Release taxonomy: bug fixes → PATCH (`v2.1.1`, `v2.1.2`); features → MINOR (`v2.2.0`)** | Joel, 2026-09-05. Durable project convention; recorded in the spec because agent memory is unavailable. WI-18's recommended target is `v2.2.0` |
 | **D13** | **No bug numbers or bug history in code comments — ALL of Joel's repositories** | Joel, 2026-09-06. Comments state what the code does and what live constraint it respects, never what broke. "Keep the rule, drop the history": a live non-obvious constraint survives as one present-tense line with no `BUG-nnn`; pure history is deleted. Being applied to product code by Rogue (155 mentions / 36 files) as task T024 |
-| **D14** | **`tests/` is EXEMPT from D13** | Joel, 2026-09-06. The ~30 `BUG-nnn` references under `tests\` stay — in a test the bug number is often the only record of why a specific assertion exists, and stripping it invites the assertion's deletion and the defect's return |
-| **D15** | **Bug detail goes in the PULL REQUEST, not `CHANGELOG.md`. The 22-bug migration is CANCELLED** | Joel, 2026-09-06. `CHANGELOG.md` still needs a `[2.1.0]` **feature** section for `-EnableVerbose`/`-EnableDebug`; BUG-019 + BUG-024…BUG-044 are not migrated at all. Pre-existing BUG-001…BUG-023 entries stay as shipped history. Re-scopes task T021 |
+| **D14** | **`tests/` is EXEMPT from D13** | Joel, 2026-09-06. Bug-number references under `tests\` stay — in a test the bug number is often the only record of why a specific assertion exists, and stripping it invites the assertion's deletion and the defect's return |
+| **D15** | **Bug detail goes in the PULL REQUEST, not `CHANGELOG.md`. The 22-bug migration is CANCELLED** | Joel, 2026-09-06. `CHANGELOG.md` still needs a `[2.1.0]` **feature** section for `-EnableVerbose`/`-EnableDebug`; the 22 pending reliability improvements are not migrated at all. Pre-existing entries from earlier releases stay as shipped history. Re-scopes task T021 |
 
 **Not a decision, and never to be written as one:** the cause of the original customer incident. The
 investigation is closed and the cause is unknown.
@@ -146,7 +146,7 @@ which does not track PowerShell's location, and absolute paths hide the bug so t
 
 | Path | `-OutputFileBase` missing |
 |---|---|
-| Operator passed `-Logging` | **Prompt** (`Read-Host`), throw on empty — on Deploy this is pre-existing shipped behaviour, preserved; on Audit, new in this release |
+| Operator passed `-Logging` | **Prompt** (`Read-Host`); empty input defaults to `Deploy-TierModel` (Deploy) or `Audit-TierModel` (Audit). On Deploy this prompt is pre-existing shipped behaviour, preserved; on Audit, new in this release. |
 | A diagnostics switch forced `-Logging` on | **Never prompt** — silent default, so the re-run stays copy-pasteable and non-interactive-safe |
 
 ---

@@ -81,7 +81,11 @@ Describe 'Audit-TierModel reporting path' -Tag 'Unit', 'Audit', 'Reporting' {
             @{ Producer = 'Test-TierModelDmsaAcl';           Finding = [PSCustomObject]@{ Type = 'MissingAcl'; ResourceType = 'ACL'; Identifier = 'dmsa-svc01'; Property = 'PrincipalsAllowed'; ExpectedValue = 'Tier0Admins'; ActualValue = '' } }
             @{ Producer = 'Test-TierModelWinLapsAcl';        Finding = [PSCustomObject]@{ Type = 'MissingAcl'; Identifier = 'OU=Tier1Servers,DC=x,DC=y'; Property = 'LapsPermission'; ExpectedValue = 'ReadLapsPassword'; ActualValue = '' } }
             @{ Producer = 'Test-TierModelAuditRule';         Finding = [PSCustomObject]@{ Type = 'MissingAuditRule'; ResourceType = 'DomainAuditRule'; Identifier = 'DC=x,DC=y'; Details = 'Audit rule not present on domain root' } }
-            @{ Producer = 'Test-TierModelAuditRule (Right)'; Finding = [PSCustomObject]@{ Type = 'AuditRight'; ResourceType = 'DomainAuditRule'; Identifier = 'DC=x,DC=y'; Details = 'WriteProperty not audited' } }
+            # NOT producer coverage. No producer emits Type='AuditRight' any more - the per-right
+            # rows were ruled out of the findings collection. This exemplar exercises the
+            # NORMALISER's AuditRight branch directly, which is deliberately retained for a
+            # producer that does not exist yet, and which nothing else now reaches.
+            @{ Producer = 'AuditRight shape (normaliser branch, no live producer)'; Finding = [PSCustomObject]@{ Type = 'AuditRight'; ResourceType = 'DomainAuditRule'; Identifier = 'DC=x,DC=y'; Details = 'WriteProperty not audited' } }
             @{ Producer = 'Test-TierModelWinLapsDecryptor';  Finding = [PSCustomObject]@{ Status = 'Mismatched'; Name = 'OU=Tier0,DC=x,DC=y'; Reason = 'Decryptor principal differs from configuration' } }
             @{ Producer = 'Test-TierModelAuthPolicy';        Finding = [PSCustomObject]@{ Status = 'Missing'; PolicyName = 'Tier0-AuthPolicy'; Issues = @('Policy does not exist') } }
             @{ Producer = 'Test-TierModelAuthSilo';          Finding = [PSCustomObject]@{ Status = 'NonCompliant'; SiloName = 'Tier0-Silo'; Issues = @('Member list differs', 'Policy not linked') } }
@@ -549,5 +553,692 @@ Describe 'BUG-040 - resolved identifiers on OU ACL findings' -Tag 'Unit', 'Audit
         # is not enough; asserting it here makes the exception discoverable from a failing run.
         $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'modules' 'TierModel' 'public' 'Test-TierModelOuAcl.ps1') -Raw
         $source | Should -Match '\$\(\$acl\.identityreference\) → \$\(\$acl\.targetOUPath\)'
+    }
+}
+
+# =========================================================================================
+# Consolidated audit counters: the section line, the grand total, and the colour of both.
+#
+# The defect these lock in was TYPE-blindness, not name-blindness. Every standalone producer
+# publishes its Summary as a HASHTABLE literal (nine wrap sites in Audit-TierModel.ps1), and
+# a hashtable's PSObject.Properties are Keys/Values/Count/IsReadOnly - never its own keys. So
+# a dotted-path walk over PSObject.Properties.Name falls out at the first segment and returns
+# 0 for every one of them. The producers were publishing Drift/Missing/Mismatched correctly
+# the whole time; the reader could not see them, and the section line printed "Drift: 0,
+# Errors: 0" directly above a list of real drift.
+#
+# The three things asserted here are the three ways that failure can come back:
+#   1. the two Summary representations disagreeing again,
+#   2. the section counter and the grand total being computed twice and drifting apart,
+#   3. one underlying error being counted once per representation that mentions it.
+# =========================================================================================
+Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reporting' {
+
+    BeforeAll {
+        $script:AuditScriptPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Audit-TierModel.ps1')).Path
+
+        $parseErrors = $null
+        $script:CounterAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:AuditScriptPath, [ref]$null, [ref]$parseErrors)
+        $script:CounterParseErrorCount = @($parseErrors).Count
+
+        function Get-CounterFunctionText {
+            param([string]$Name)
+            $found = $script:CounterAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
+            }, $true)
+            if (@($found).Count -ne 1) {
+                throw "Expected exactly one definition of '$Name' in Audit-TierModel.ps1, found $(@($found).Count)"
+            }
+            return $found[0].Extent.Text
+        }
+
+        foreach ($fn in @(
+                'Get-SafePropertyValue'
+                'Test-SummaryKey'
+                'Get-SummaryCount'
+                'Get-EntityDriftTotals'
+                'Get-EntityErrorTotal'
+                'Get-TierModelFindingColor'
+                'ConvertTo-TierModelDriftFinding')) {
+            . ([scriptblock]::Create((Get-CounterFunctionText -Name $fn)))
+        }
+
+        # Every command invocation in the shipping file, for the call-site ratchets below.
+        $script:CounterCommands = $script:CounterAst.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+
+        function Get-CallSiteCount {
+            param([string]$Name)
+            return @($script:CounterCommands | Where-Object { $_.GetCommandName() -eq $Name }).Count
+        }
+
+        # --- A DRIFTED estate, in the exact wrapper shapes Audit-TierModel.ps1 constructs ------
+        # Taken from the nine `Summary = @{ ... }` wrap sites plus the OU/Group hashtable
+        # summaries built inside Test-TierModelOu. A clean estate proves nothing about a
+        # counting bug, so every section here carries drift and one carries an error.
+        $script:DriftedEstate = @(
+            [PSCustomObject]@{
+                EntityType    = 'OU'
+                Summary       = @{ TotalChecked = 10; MissingCount = 2; MismatchCount = 1; UnverifiedCount = 0; DriftCount = 3 }
+                DriftFindings = @(
+                    [PSCustomObject]@{ Type = 'Missing';  Identifier = 'OU=T0,DC=x,DC=y'; Details = 'OU absent' }
+                    [PSCustomObject]@{ Type = 'Missing';  Identifier = 'OU=T1,DC=x,DC=y'; Details = 'OU absent' }
+                    [PSCustomObject]@{ Type = 'Mismatch'; Identifier = 'OU=T2,DC=x,DC=y'; Details = 'Description differs' }
+                )
+            }
+            [PSCustomObject]@{
+                EntityType    = 'Group'
+                Summary       = @{ TotalChecked = 5; MissingCount = 1; MismatchCount = 0; UnverifiedCount = 0; DriftCount = 1 }
+                DriftFindings = @([PSCustomObject]@{ Type = 'Missing'; Identifier = 'Tier0Admins'; Details = 'Group absent' })
+            }
+            [PSCustomObject]@{
+                EntityType = 'OU Canonical ACL'
+                Summary    = @{ TotalAcls = 4; Compliant = 3; Missing = 0; Mismatched = 1; Errors = 0; Drift = 1; Skipped = 0 }
+                Findings   = @([PSCustomObject]@{ Status = 'Mismatched'; DistinguishedName = 'OU=T0,DC=x,DC=y'; Reason = 'Non-canonical ACE ordering' })
+            }
+            [PSCustomObject]@{
+                EntityType = 'MSA ACL'
+                Summary    = @{ TotalAcls = 3; Compliant = 1; Missing = 1; Mismatched = 1; Errors = 0; Drift = 2 }
+                Findings   = @(
+                    [PSCustomObject]@{ Type = 'MissingAcl';    Identifier = 'msa-svc01' }
+                    [PSCustomObject]@{ Type = 'UnexpectedAcl'; Identifier = 'msa-svc02' }
+                )
+            }
+            [PSCustomObject]@{
+                EntityType = 'WinLaps ACL'
+                Summary    = @{ TotalAcls = 2; Compliant = 1; Missing = 1; Mismatched = 0; Errors = 0; Drift = 1 }
+                Findings   = @([PSCustomObject]@{ Type = 'MissingAcl'; Identifier = 'OU=Tier1Servers,DC=x,DC=y' })
+            }
+            [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ TotalAcls = 4; Compliant = 1; Missing = 2; Mismatched = 0; Errors = 1; Drift = 3 }
+                Errors     = 1
+                Findings   = @(
+                    [PSCustomObject]@{ Status = 'Missing'; GpoName = 'T0 LAPS'; Actual = 'No matching GPO' }
+                    [PSCustomObject]@{ Status = 'Missing'; GpoName = 'T1 LAPS'; Actual = '(not set)' }
+                    [PSCustomObject]@{ Status = 'Error';   GpoName = 'T2 LAPS'; Actual = 'Ambiguous matches: A, B' }
+                )
+            }
+            [PSCustomObject]@{
+                EntityType = 'Auth Policies'
+                Summary    = @{ TotalChecked = 3; Compliant = 1; Missing = 1; Mismatched = 1; Errors = 0; Drift = 2 }
+                Findings   = @(
+                    [PSCustomObject]@{ Status = 'Missing';      PolicyName = 'Tier0-AuthPolicy' }
+                    [PSCustomObject]@{ Status = 'NonCompliant'; PolicyName = 'Tier1-AuthPolicy' }
+                )
+            }
+            [PSCustomObject]@{
+                EntityType = 'Auth Silos'
+                Summary    = @{ TotalChecked = 2; Compliant = 1; Missing = 0; Mismatched = 1; Errors = 0; Drift = 1 }
+                Findings   = @([PSCustomObject]@{ Status = 'NonCompliant'; SiloName = 'Tier0-Silo' })
+            }
+        )
+    }
+
+    # =====================================================================================
+    Context 'Harness fidelity (anti-vacuity)' {
+
+        It 'Parses the shipping Audit-TierModel.ps1 with zero errors' {
+            $script:CounterParseErrorCount | Should -Be 0
+        }
+
+        It 'Lifted the real counter helpers, not stubs' {
+            foreach ($fn in 'Get-SafePropertyValue', 'Get-EntityDriftTotals', 'Get-EntityErrorTotal', 'Get-TierModelFindingColor') {
+                $cmd = Get-Command $fn -ErrorAction SilentlyContinue
+                $cmd | Should -Not -BeNullOrEmpty -Because "$fn must be liftable from the shipping file"
+                $cmd.CommandType | Should -Be 'Function'
+            }
+            (Get-Command Get-EntityDriftTotals).Definition   | Should -Match 'Get-SummaryCount'
+            (Get-Command Get-TierModelFindingColor).Definition | Should -Match 'Yellow'
+        }
+
+        It 'Uses a drifted estate, not a clean one' {
+            # A green fixture cannot fail a counting bug. Population stated so a later zero is
+            # falsifiable on sight: 8 sections, every one of them carrying drift.
+            @($script:DriftedEstate).Count | Should -Be 8
+            foreach ($section in $script:DriftedEstate) {
+                (Get-EntityDriftTotals $section).Drift | Should -BeGreaterThan 0 -Because $section.EntityType
+            }
+        }
+    }
+
+    # =====================================================================================
+    Context 'The bug, reduced: a hashtable Summary and a PSCustomObject Summary must agree' {
+
+        It 'Reads identical drift and error totals from both Summary representations' {
+            # This is the whole defect in one assertion. The two objects below carry the same
+            # numbers and differ only in the TYPE of Summary.
+            $asHashtable = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ TotalAcls = 4; Compliant = 1; Missing = 3; Mismatched = 2; Errors = 1; Drift = 6 }
+                Errors     = 1
+                Findings   = @([PSCustomObject]@{ Status = 'Error'; GpoName = 'T0 LAPS' })
+            }
+            $asPsCustom = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = [PSCustomObject]@{ TotalAcls = 4; Compliant = 1; Missing = 3; Mismatched = 2; Errors = 1; Drift = 6 }
+                Errors     = 1
+                Findings   = @([PSCustomObject]@{ Status = 'Error'; GpoName = 'T0 LAPS' })
+            }
+
+            $htTotals = Get-EntityDriftTotals $asHashtable
+            $coTotals = Get-EntityDriftTotals $asPsCustom
+
+            $htTotals.Drift      | Should -Be $coTotals.Drift
+            $htTotals.Missing    | Should -Be $coTotals.Missing
+            $htTotals.Mismatched | Should -Be $coTotals.Mismatched
+
+            # Exact integers, not "greater than 0" - a non-zero assertion sails past a partial sum.
+            $htTotals.Drift      | Should -Be 6
+            $htTotals.Missing    | Should -Be 3
+            $htTotals.Mismatched | Should -Be 2
+
+            (Get-EntityErrorTotal $asHashtable) | Should -Be (Get-EntityErrorTotal $asPsCustom)
+            (Get-EntityErrorTotal $asHashtable) | Should -Be 1
+        }
+
+        It 'Names the mechanism: a hashtable never exposes its own keys as properties' {
+            # A fact about PowerShell, not about our code, so it cannot rot. This is why any
+            # reader that walks PSObject.Properties.Name is blind to a hashtable Summary.
+            $names = @{ Drift = 6; Missing = 3 }.PSObject.Properties.Name
+            $names | Should -Not -Contain 'Drift'
+            $names | Should -Not -Contain 'Missing'
+            $names | Should -Contain 'Keys'
+            $names | Should -Contain 'Count'
+
+            ([PSCustomObject]@{ Drift = 6 }).PSObject.Properties.Name | Should -Contain 'Drift'
+        }
+
+        It 'Documents the live limitation of Get-SafePropertyValue that the shared readers exist to avoid' {
+            # DELIBERATE: Get-SafePropertyValue was NOT made hashtable-aware. The fix routed the
+            # drift and error reads around it instead, which is why the ratchet below matters.
+            # If this helper is ever taught to read a dictionary, this single assertion is the
+            # one to delete - do not delete the ratchet with it.
+            $ht = [PSCustomObject]@{ Summary = @{ Drift = 6; Errors = 1 } }
+            $co = [PSCustomObject]@{ Summary = [PSCustomObject]@{ Drift = 6; Errors = 1 } }
+
+            Get-SafePropertyValue $co 'Summary.Drift' | Should -Be 6
+            Get-SafePropertyValue $ht 'Summary.Drift' | Should -Be 0
+        }
+
+        It 'Keeps every drift and error count off the dotted-path reader' {
+            # The ratchet. Any Summary.Drift / Summary.Missing / Summary.Mismatched /
+            # Summary.Errors argument handed to Get-SafePropertyValue reintroduces the bug for
+            # the eight hashtable-Summary producers, silently and with no error.
+            $offenders = foreach ($call in $script:CounterCommands) {
+                if ($call.GetCommandName() -ne 'Get-SafePropertyValue') { continue }
+                foreach ($element in $call.CommandElements) {
+                    $literal = $element.Extent.Text.Trim("'", '"')
+                    if ($literal -match '^Summary\.(Drift|DriftCount|Missing|MissingCount|Mismatched|MismatchCount|Unverified|UnverifiedCount|Errors)$') {
+                        "L$($call.Extent.StartLineNumber): $($call.Extent.Text)"
+                    }
+                }
+            }
+            # Population: all 7 Get-SafePropertyValue call sites in Audit-TierModel.ps1. The
+            # survivors read Summary.Total* for entity-type detection and a top-level 'Errors'
+            # - neither is a drift or error COUNT off a hashtable Summary.
+            (Get-CallSiteCount 'Get-SafePropertyValue') | Should -Be 7
+            @($offenders) -join '; ' | Should -BeNullOrEmpty
+        }
+    }
+
+    # =====================================================================================
+    Context 'The section line and the grand total must reconcile' {
+
+        It 'Sums every section drift to exactly the grand total' {
+            # Rule 14 as an executable check: the summary must reconcile against the body it
+            # sits above, WITHIN one artifact. Two outputs agreeing proves nothing unless they
+            # were computed independently - so the guard that makes this real is the call-site
+            # ratchet below, which pins both loops to the same helper.
+            $sectionDrift = 0
+            $grandMissing = 0
+            $grandMismatched = 0
+            foreach ($section in $script:DriftedEstate) {
+                $totals = Get-EntityDriftTotals $section
+                $sectionDrift += $totals.Drift
+                $grandMissing += $totals.Missing
+                $grandMismatched += $totals.Mismatched
+            }
+
+            $sectionDrift    | Should -Be 14
+            $grandMissing    | Should -Be 8
+            $grandMismatched | Should -Be 5
+        }
+
+        It 'Sums every section error to exactly the grand total' {
+            $sectionErrors = 0
+            foreach ($section in $script:DriftedEstate) {
+                $sectionErrors += Get-EntityErrorTotal $section
+            }
+            $sectionErrors | Should -Be 1
+        }
+
+        It 'Computes both figures from one shared definition, called exactly twice each' {
+            # Two independent computations are what let the section line and the Overall Summary
+            # disagree in the first place. One call site per loop, and no third copy.
+            (Get-CallSiteCount 'Get-EntityDriftTotals') | Should -Be 2
+            (Get-CallSiteCount 'Get-EntityErrorTotal')  | Should -Be 2
+        }
+
+        It 'Reports drift for a producer whose Summary omits the total entirely' {
+            # Falls back to Missing + Mismatched + Unverified rather than to 0, on both
+            # Summary representations.
+            $noTotal = [PSCustomObject]@{ EntityType = 'Domain Audit Rule'; Summary = @{ Missing = 2; Mismatched = 1 } }
+            (Get-EntityDriftTotals $noTotal).Drift | Should -Be 3
+
+            $noSummary = [PSCustomObject]@{ EntityType = 'Nothing' }
+            (Get-EntityDriftTotals $noSummary).Drift | Should -Be 0
+        }
+
+        It 'Keeps reconciling when an error is reclassified as an absence' {
+            # The estate A/B moved Total Errors 12 -> 0, not 12 -> 6, because the decryptor
+            # findings were RECLASSIFIED Error->Missing rather than merely de-duplicated. So the
+            # invariant is reconciliation, not any particular error literal: whatever the split
+            # between Missing and Errors, the section sums must still equal the grand totals and
+            # the drift total must not move.
+            $before = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ TotalAcls = 8; Compliant = 2; Missing = 0; Mismatched = 0; Errors = 6; Drift = 6 }
+                Errors     = 6
+                Findings   = @(1..6 | ForEach-Object { [PSCustomObject]@{ Status = 'Error'; GpoName = "GPO-$_" } })
+            }
+            $after = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ TotalAcls = 8; Compliant = 2; Missing = 6; Mismatched = 0; Errors = 0; Drift = 6 }
+                Errors     = 0
+                Findings   = @(1..6 | ForEach-Object { [PSCustomObject]@{ Status = 'Missing'; GpoName = "GPO-$_" } })
+            }
+
+            # Drift is the figure that must not move - the row changed counters, not existence.
+            (Get-EntityDriftTotals $before).Drift | Should -Be (Get-EntityDriftTotals $after).Drift
+            (Get-EntityDriftTotals $after).Drift  | Should -Be 6
+
+            # The reclassification is visible exactly where it should be, and nowhere else.
+            (Get-EntityDriftTotals $before).Missing | Should -Be 0
+            (Get-EntityDriftTotals $after).Missing  | Should -Be 6
+            Get-EntityErrorTotal $before | Should -Be 6
+            Get-EntityErrorTotal $after  | Should -Be 0
+
+            # Reconciliation asserted as a relationship, not against a remembered figure.
+            foreach ($section in $before, $after) {
+                $totals = Get-EntityDriftTotals $section
+                ($totals.Missing + $totals.Mismatched + $totals.Unverified + (Get-EntityErrorTotal $section)) |
+                    Should -Be $totals.Drift -Because "the breakdown must account for the whole drift total"
+            }
+        }
+    }
+
+    # =====================================================================================
+    Context 'One underlying error is counted once' {
+
+        It 'Counts a single failure once across all three representations of it' {
+            # Summary.Errors, the top-level Errors collection and a Status='Error' finding are
+            # three renderings of the SAME failure. Adding them printed "Errors: 2" over one
+            # error line.
+            $oneError = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ Drift = 1; Errors = 1 }
+                Errors     = 1
+                Findings   = @([PSCustomObject]@{ Status = 'Error'; GpoName = 'T0 LAPS' })
+            }
+            Get-EntityErrorTotal $oneError | Should -Be 1
+        }
+
+        It 'Counts six decryptor errors as six, not twelve' {
+            # The estate-scale shape: Total Errors read 12 where the sections summed to 6, with
+            # -IncludeWinLaps the only source and its 6 decryptor errors counted exactly twice.
+            $sixErrors = [PSCustomObject]@{
+                EntityType = 'WinLaps Decryptor'
+                Summary    = @{ Drift = 6; Errors = 6 }
+                Errors     = 6
+                Findings   = @(1..6 | ForEach-Object { [PSCustomObject]@{ Status = 'Error'; GpoName = "GPO-$_" } })
+            }
+            Get-EntityErrorTotal $sixErrors | Should -Be 6
+        }
+
+        It 'Still reports a producer that publishes error findings but leaves its count at zero' {
+            # Test-TierModelAdmx does exactly this. Taking the maximum must not under-count.
+            $findingsOnly = [PSCustomObject]@{
+                EntityType = 'ADMX'
+                Summary    = @{ Drift = 2; Errors = 0 }
+                Findings   = @(
+                    [PSCustomObject]@{ Type = 'Error'; FileName = 'LAPS.admx' }
+                    [PSCustomObject]@{ Type = 'Error'; FileName = 'LAPS.adml' }
+                )
+            }
+            Get-EntityErrorTotal $findingsOnly | Should -Be 2
+        }
+
+        It 'Still reports a producer that publishes a count but no findings' {
+            $countOnly = [PSCustomObject]@{ EntityType = 'Group'; Summary = @{ DriftCount = 3; Errors = 3 } }
+            Get-EntityErrorTotal $countOnly | Should -Be 3
+
+            $topLevelOnly = [PSCustomObject]@{ EntityType = 'OU'; Summary = @{ DriftCount = 1 }; Errors = 4 }
+            Get-EntityErrorTotal $topLevelOnly | Should -Be 4
+        }
+
+        It 'Reports zero errors for a clean section without inventing any' {
+            $clean = [PSCustomObject]@{
+                EntityType = 'MSA ACL'
+                Summary    = @{ TotalAcls = 3; Compliant = 3; Missing = 0; Mismatched = 0; Errors = 0; Drift = 0 }
+                Findings   = @([PSCustomObject]@{ Type = 'Compliant'; Identifier = 'msa-svc01' })
+            }
+            Get-EntityErrorTotal $clean | Should -Be 0
+            (Get-EntityDriftTotals $clean).Drift | Should -Be 0
+        }
+    }
+
+    # =====================================================================================
+    Context 'Finding colour is chosen by severity class, not by one string literal' {
+
+        It 'Renders every member of the missing family red, not just the bare literal' {
+            # The rule this replaces matched Type -eq 'Missing' exactly. MissingAcl and
+            # MissingAuditRule are not that literal, so both fell to the else branch.
+            foreach ($type in 'Missing', 'MissingAcl', 'MissingAuditRule', 'NotFound', 'Absent') {
+                Get-TierModelFindingColor $type | Should -Be 'Red' -Because "$type is an absence"
+            }
+        }
+
+        It 'Renders an [Error] finding RED - the one assertion the lab can no longer make' {
+            # STANDALONE AND DELIBERATELY NARROW. Do not fold this into the missing-family or
+            # the undeterminable-synonyms test: 'Error' must be provable on its own line.
+            #
+            # Why it has to live here. The A/B against the real estate found ZERO [Error]
+            # findings across all eight scopes, because the only producer emitting Error in that
+            # estate was the branch relabelled to a missing-state. The colour fix for [Error] is
+            # therefore REAL BUT UNEXERCISED in the lab - an adjacent change removed the only
+            # fixture that could prove it, with no error and no failing test. Nothing outside a
+            # unit test can cover this now.
+            #
+            # And it is not cosmetic. Before the fix this returned 'Yellow': a hard error, the
+            # most severe line the tool can print, displayed with the styling of a warning.
+            Get-TierModelFindingColor 'Error' | Should -Be 'Red'
+            Get-TierModelFindingColor 'Error' | Should -Not -Be 'Yellow'
+
+            # Case is not a producer's contract, so the classifier must not depend on it.
+            foreach ($spelling in 'Error', 'error', 'ERROR') {
+                Get-TierModelFindingColor $spelling | Should -Be 'Red' -Because "'$spelling' is a hard error"
+            }
+        }
+
+        It 'Carries a real producer Error finding all the way to red, not just the classifier' {
+            # The classifier returning 'Red' is only half the chain. This walks the shape an
+            # actual producer emits - Test-TierModelWinLapsDecryptor's five surviving
+            # could-not-determine sites carry Status='Error' and no Type at all - through the
+            # normaliser the report feeds, and colours what comes out.
+            $producerErrors = @(
+                [PSCustomObject]@{ Status = 'Error'; GpoName = 'T0 LAPS'; Expected = 'Exactly one GPO must match'; Actual = 'Ambiguous matches: A, B' }
+                [PSCustomObject]@{ Status = 'Error'; GpoName = 'T1 LAPS'; Expected = 'GPO query must succeed';     Actual = 'Server unavailable' }
+                [PSCustomObject]@{ Status = 'Error'; GpoName = 'N/A';     Expected = 'NETBIOS\sAMAccountName';     Actual = 'Domain resolution failed: unreachable' }
+            )
+
+            $normalised = @($producerErrors | ConvertTo-TierModelDriftFinding -DefaultResourceType 'WinLapsDecryptor')
+
+            # An Error finding is drift and must survive normalisation - it is not compliant.
+            $normalised.Count | Should -Be 3
+            foreach ($finding in $normalised) {
+                $finding.Type | Should -Be 'Error'
+                Get-TierModelFindingColor $finding.Type | Should -Be 'Red' -Because "[$($finding.Type)] $($finding.Identifier) is a hard error"
+            }
+
+            # The rendered marker itself, exactly as the report interpolates it.
+            $rendered = $normalised | ForEach-Object { "[$($_.Type)] $($_.Identifier): $($_.Details)" }
+            @($rendered | Where-Object { $_ -like '`[Error`]*' }).Count | Should -Be 3
+        }
+
+        It 'Renders the other undeterminable verdicts red as well' {
+            foreach ($type in 'Unverified', 'Failed', 'Failure') {
+                Get-TierModelFindingColor $type | Should -Be 'Red' -Because "$type means compliance was not established"
+            }
+        }
+
+        It 'Keeps present-but-wrong findings yellow' {
+            foreach ($type in 'Mismatch', 'Mismatched', 'Unexpected', 'UnexpectedAcl', 'NonCompliant', 'Extra', 'Drift', 'Warning') {
+                Get-TierModelFindingColor $type | Should -Be 'Yellow' -Because "$type is present but wrong"
+            }
+        }
+
+        It 'Hands the classifier result, and the finding type, to every converted render site' {
+            # The classifier can be perfect and a line still print the wrong colour if a render
+            # site keeps its own colour expression. Population stated so the zero below is
+            # falsifiable: there are SIX '[$($_.Type)]' render sites coloured by $color in
+            # Audit-TierModel.ps1, of which FOUR now delegate to the classifier - the OU, Group
+            # and User single-entity reports and the consolidated per-section body.
+            $source = [IO.File]::ReadAllText($script:AuditScriptPath)
+
+            $delegating = @([regex]::Matches($source, '\$color\s*=\s*Get-TierModelFindingColor\s+\$_\.Type'))
+            $delegating.Count | Should -Be 4
+            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be 4
+
+            $allColoured = @([regex]::Matches($source, '\[\$\(\$_\.Type\)\][^\r\n]*-ForegroundColor\s+\$color'))
+            $allColoured.Count | Should -Be 6
+
+            # No render site may reintroduce the exact-literal rule the classifier replaced.
+            [regex]::Matches($source, "-eq\s+'Missing'\s*\)\s*\{\s*'Red'").Count | Should -Be 0
+        }
+
+        It 'Colours [Error] red at the two render sites that do NOT use the classifier' {
+            # The GPO-audit and ADMX-audit findings blocks keep their own `switch ($_.Type)`
+            # maps. Those are the remaining two of the six sites above, and they are the ones a
+            # classifier-only assertion would miss entirely.
+            #
+            # This is the [Error]-is-unverifiable-in-the-lab guard applied to the WHOLE render
+            # surface rather than to one function: whichever of the six sites a hard error
+            # arrives at, it must print red. Asserted against the shipping source because these
+            # two sites are inline switch expressions, not a callable function.
+            $source = [IO.File]::ReadAllText($script:AuditScriptPath)
+
+            $switchMaps = @([regex]::Matches(
+                $source,
+                '\$color\s*=\s*switch\s*\(\$_\.Type\)\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}'))
+            $switchMaps.Count | Should -Be 2
+
+            foreach ($map in $switchMaps) {
+                $body = $map.Groups['body'].Value
+                $body | Should -Match "'Error'\s*\{\s*'Red'\s*\}"   -Because 'a hard error must never be less salient than a mismatch'
+                $body | Should -Match "'Missing'\s*\{\s*'Red'\s*\}" -Because 'an absence is red at every render site'
+            }
+        }
+
+        It 'Escalates an unknown or empty type rather than demoting it' {
+            # Under-stating severity is the failure mode that produced the bug, so a producer
+            # that invents a type name tomorrow must not be silently downgraded.
+            #
+            # 'AuditRight' is deliberately NOT used as the exemplar here. Whether that label
+            # still reaches output at all is under review - the normaliser now derives
+            # 'MissingAuditRule' from it - and pinning it as either present or absent would bake
+            # in a behaviour nobody has chosen yet. The names below are unowned by any producer.
+            foreach ($type in 'SomethingNobodyHasWrittenYet', 'Indeterminate', 'Quarantined', '', '   ') {
+                Get-TierModelFindingColor $type | Should -Be 'Red' -Because "'$type' is unclassified and must escalate"
+            }
+            Get-TierModelFindingColor $null | Should -Be 'Red'
+        }
+
+        It 'Routes every drift-finding render through the classifier, with no literal left behind' {
+            # Kept as the narrow ratchet on the classifier itself; the render-surface census
+            # lives in the two tests above.
+            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be 4
+        }
+
+        It 'Colours the whole drifted estate without leaving a real failure yellow' {
+            # End to end over the fixture: every finding the eight sections publish, coloured.
+            $coloured = foreach ($section in $script:DriftedEstate) {
+                $names = $section.PSObject.Properties.Name
+                $body = if ($names -contains 'DriftFindings') { @($section.DriftFindings) }
+                        elseif ($names -contains 'Findings')  { @($section.Findings) }
+                        else { @() }
+                foreach ($finding in $body) {
+                    $fnames = $finding.PSObject.Properties.Name
+                    $type = if ($fnames -contains 'Type') { $finding.Type } else { $finding.Status }
+                    [PSCustomObject]@{ Type = $type; Color = (Get-TierModelFindingColor $type) }
+                }
+            }
+
+            @($coloured).Count | Should -Be 14
+            @($coloured | Where-Object { $_.Type -eq 'Error' -and $_.Color -ne 'Red' }).Count   | Should -Be 0
+            @($coloured | Where-Object { $_.Type -like 'Missing*' -and $_.Color -ne 'Red' }).Count | Should -Be 0
+            @($coloured | Where-Object { $_.Color -eq 'Red' }).Count    | Should -Be 9
+            @($coloured | Where-Object { $_.Color -eq 'Yellow' }).Count | Should -Be 5
+        }
+    }
+
+    # =====================================================================================
+    Context 'OU ACL findings must not have an Error manufactured for them' {
+        # The OU ACL projection used to read:
+        #     Type = if ($_.Type -eq 'Missing' -or $_.Type -eq 'Mismatch') { $_.Type } else { 'Error' }
+        # An exact-literal whitelist of two, with everything else collapsed to 'Error'. That
+        # INVENTS an error the audit never encountered, and it is the third distinct way this
+        # report has manufactured or mis-rendered the Error class.
+        #
+        # It also matters for what can still be observed: the lab estate now has zero [Error]
+        # findings, so this projection - like the colour fix - is real but unexercised outside a
+        # unit test.
+
+        It 'Keeps a finding that is neither Missing nor Mismatch as its own type' {
+            $findings = @(
+                [PSCustomObject]@{ Type = 'Warning';       ResourceType = 'ACL'; Identifier = 'Tier0Admins -> OU=T0,DC=x,DC=y'; Details = 'Configuration warning' }
+                [PSCustomObject]@{ Type = 'UnexpectedAcl'; ResourceType = 'ACL'; Identifier = 'Tier1Admins -> OU=T1,DC=x,DC=y'; Details = 'Extra ACE present' }
+            )
+            $normalised = @($findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL')
+
+            $normalised.Count | Should -Be 2
+            $normalised[0].Type | Should -Be 'Warning'
+            $normalised[1].Type | Should -Be 'UnexpectedAcl'
+            @($normalised | Where-Object { $_.Type -eq 'Error' }).Count | Should -Be 0 -Because 'neither finding reported an inability to determine compliance'
+
+            # And the consequence the operator sees: a warning is yellow, not red.
+            Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Yellow'
+            Get-TierModelFindingColor $normalised[1].Type | Should -Be 'Yellow'
+        }
+
+        It 'Still carries a genuine OU ACL Error through as an Error, in red' {
+            # The other half. Removing a manufactured error must not remove the real one - that
+            # would be the over-correction this whole family of fixes keeps risking.
+            $real = [PSCustomObject]@{ Type = 'Error'; ResourceType = 'ACL'; Identifier = 'OU=T0,DC=x,DC=y'; Details = 'ACL could not be read' }
+            $normalised = @($real | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL')
+
+            $normalised.Count   | Should -Be 1
+            $normalised[0].Type | Should -Be 'Error'
+            Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Red'
+        }
+
+        It 'Projects OU ACL findings through the shared normaliser, with no local collapse left' {
+            $source = [IO.File]::ReadAllText($script:AuditScriptPath)
+
+            $source | Should -Match "ConvertTo-TierModelDriftFinding\s+-DefaultResourceType\s+'ACL'"
+            # The exact collapse that manufactured the errors, in any spacing.
+            [regex]::Matches($source, "-eq\s+'Missing'\s+-or\s+\`$_\.Type\s+-eq\s+'Mismatch'").Count |
+                Should -Be 0 -Because 'the two-literal whitelist is what forced everything else to Error'
+        }
+    }
+
+    # =====================================================================================
+    Context 'AuditRight is relabelled from its own state, not rewritten wholesale' {
+        # Two INDEPENDENT guards act on these findings, and the distinction matters:
+        #
+        #   1. A pre-existing status guard drops any finding whose Status is Pass/Compliant/
+        #      OK/Success/True, whatever its Type. This is why a passing audit-right never
+        #      reaches the drift report at all.
+        #   2. A second, later rule renames 'AuditRight' to 'MissingAuditRule' ONLY when the
+        #      finding's own state says it is an absence (ActualValue='Missing' or Status='Fail').
+        #
+        # The second is deliberately conditioned on state rather than being a blanket rename, so
+        # an 'AuditRight' raised one day for some non-absent reason cannot be mislabelled as an
+        # absence. These tests pin all three outcomes.
+        #
+        # Deliberately NOT pinned: whether '[AuditRight]' appears in any given estate's output.
+        # It is reachable vocabulary that this estate simply never reaches, and pinning it either
+        # present or absent would bake in a behaviour nobody chose.
+        #
+        # Since the per-right rows were ruled out of the findings collection, NO PRODUCER emits
+        # Type='AuditRight' at all. The branch is retained on purpose - deleting a defensive guard
+        # because today's producer stopped emitting the shape is how this class of bug returns -
+        # so these tests are now the only thing exercising it. If they go, it is dead code that
+        # nothing can prove still works.
+
+        It 'Drops a passing audit-right entirely, so it never reaches the drift report' {
+            $pass = [PSCustomObject]@{
+                Type          = 'AuditRight'
+                ResourceType  = 'DomainAuditRule'
+                Identifier    = 'DomainRoot -> DC=test,DC=local'
+                Property      = 'CreateChild'
+                ExpectedValue = 'Present'
+                ActualValue   = 'Present'
+                Status        = 'Pass'
+            }
+
+            @($pass | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule').Count |
+                Should -Be 0 -Because 'a right that is present is not drift'
+        }
+
+        It 'Relabels a failing audit-right to MissingAuditRule, in red' {
+            $fail = [PSCustomObject]@{
+                Type          = 'AuditRight'
+                ResourceType  = 'DomainAuditRule'
+                Identifier    = 'DomainRoot -> DC=test,DC=local'
+                Property      = 'DeleteChild'
+                ExpectedValue = 'Present'
+                ActualValue   = 'Missing'
+                Status        = 'Fail'
+            }
+
+            $normalised = @($fail | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule')
+            $normalised.Count   | Should -Be 1
+            $normalised[0].Type | Should -Be 'MissingAuditRule'
+            Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Red'
+
+            # The detail the operator needs is not lost in the relabel.
+            $normalised[0].Details | Should -Match 'DeleteChild'
+        }
+
+        It 'Keeps the AuditRight label for any state that is not an absence' {
+            # The load-bearing case. A blanket rename would call this a missing audit rule, which
+            # it is not - the right is present but not in the state we require.
+            $other = [PSCustomObject]@{
+                Type          = 'AuditRight'
+                ResourceType  = 'DomainAuditRule'
+                Identifier    = 'DomainRoot -> DC=test,DC=local'
+                Property      = 'WriteDacl'
+                ExpectedValue = 'Present'
+                ActualValue   = 'Inherited'
+                Status        = 'Warn'
+            }
+
+            $normalised = @($other | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule')
+            $normalised.Count   | Should -Be 1
+            $normalised[0].Type | Should -Be 'AuditRight' -Because 'only an absence may be relabelled as one'
+            $normalised[0].Type | Should -Not -Be 'MissingAuditRule'
+
+            # Still escalated: an unrecognised verdict is red, never a quiet grey or yellow.
+            Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Red'
+        }
+
+        It 'Treats the two guards as independent, so neither alone explains the behaviour' {
+            # If the Pass drop were removed, a passing right would surface as drift.
+            # If the relabel were removed, a failing right would surface as [AuditRight].
+            # Asserting the pair together is what stops one being collapsed into the other.
+            $rows = @(
+                [PSCustomObject]@{ Type='AuditRight'; Identifier='d'; Property='A'; ActualValue='Present'; Status='Pass' }
+                [PSCustomObject]@{ Type='AuditRight'; Identifier='d'; Property='B'; ActualValue='Missing'; Status='Fail' }
+                [PSCustomObject]@{ Type='AuditRight'; Identifier='d'; Property='C'; ActualValue='Inherited'; Status='Warn' }
+            )
+
+            $normalised = @($rows | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule')
+
+            @($normalised).Count | Should -Be 2 -Because 'exactly the Pass row is dropped'
+            @($normalised | Where-Object { $_.Type -eq 'MissingAuditRule' }).Count | Should -Be 1
+            @($normalised | Where-Object { $_.Type -eq 'AuditRight' }).Count       | Should -Be 1
+            @($normalised | Where-Object { (Get-TierModelFindingColor $_.Type) -ne 'Red' }).Count | Should -Be 0
+        }
+
+        It 'Never treats NonCompliant as compliant' {
+            # The compliant checks match exactly rather than by wildcard. A substring match here
+            # would silently discard real drift.
+            $nc = [PSCustomObject]@{ Type = 'NonCompliant'; Identifier = 'd'; Details = 'still drift' }
+            @($nc | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule').Count |
+                Should -Be 1 -Because 'NonCompliant is drift, and only exact matching keeps it'
+        }
     }
 }

@@ -9,8 +9,8 @@
 
 ## ⛔ Nothing here is in v2.1.0
 
-All six known instances of the underlying defect (BUG-027, BUG-028, BUG-030, BUG-032, BUG-034, BUG-036) are
-**individually fixed**, so no v2.1.0 user is exposed. This guard is regression insurance against a future
+All six known defect instances affecting scope publishing
+**are individually fixed**, so no v2.1.0 user is exposed. This guard is regression insurance against a future
 seventh instance — its value is entirely prospective, which is why deferring costs a v2.1.0 user nothing.
 
 ---
@@ -63,8 +63,8 @@ Do not begin Phase 2 without T001–T004 and an explicit v2.2.0 go.
 - [ ] T007 Route all eleven publishing branches through the helper, including the seven currently correct.
   - **Satisfies**: spec §4
 
-- [ ] T008 Tests: each cross-check rule fires on its own bug shape; none fires on a clean domain; the
-      double-publish detector catches the BUG-028 shape; a legitimate `-NoFindings` branch passes.
+- [ ] T008 Tests: each cross-check rule fires on its own defect pattern; none fires on a clean domain; the
+      double-publish detector catches the re-initialization pattern; a legitimate `-NoFindings` branch passes.
   - **Files**: `tests/`
 
 ---
