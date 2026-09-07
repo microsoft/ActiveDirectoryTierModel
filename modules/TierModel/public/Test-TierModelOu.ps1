@@ -51,6 +51,10 @@ function Test-TierModelOu {
     $totalChecked = 0
     $missingCount = 0
     $mismatchCount = 0
+    # OUs whose state could NOT be determined. A read failure is neither "missing" nor a
+    # "mismatch", so without this counter an unreadable Tier 0 OU would render as
+    # "All OUs are compliant". Unverified OUs feed $driftCount.
+    $unverifiedCount = 0
     
     try {
         # Resolve domain DN
@@ -120,7 +124,32 @@ function Test-TierModelOu {
                     } | Out-Null
                     
                     # Get the OU object for further checks
-                    $adOU = Get-ADOrganizationalUnit -Identity $ouDistinguishedName -Server $DomainController -Properties ProtectedFromAccidentalDeletion
+                    # Existence was already confirmed immediately above, so a failure here is a
+                    # genuine read failure, not absence. Audit is read-only and must keep going,
+                    # so this records a real finding and continues rather than throwing.
+                    $adOU = $null
+                    try {
+                        $adOU = Get-ADOrganizationalUnit -Identity $ouDistinguishedName -Server $DomainController -Properties ProtectedFromAccidentalDeletion -ErrorAction Stop
+                    } catch {
+                        Write-Host "  ❌ OU Read: FAILED - $($_.Exception.Message)" -ForegroundColor Red
+                        $driftFindings += [PSCustomObject]@{
+                            Type = 'Error'
+                            ResourceType = 'OrganizationalUnit'
+                            Identifier = "$($ou.name)/ReadFailure"
+                            ExpectedValue = 'OU readable'
+                            ActualValue = 'Read failed'
+                            Details = "OU '$($ou.name)' exists but could not be read from '$DomainController' - its properties could NOT be verified: $($_.Exception.Message)"
+                        }
+                        Write-TierModelLog -Level Error -Message "OuAuditReadFailed" -Data @{
+                            Name = $ou.name
+                            DistinguishedName = $ouDistinguishedName
+                            Error = $_.Exception.Message
+                            CorrelationId = $CorrelationId
+                        } | Out-Null
+                        # BLOCKING-2: "could not verify" must never render as "compliant".
+                        $unverifiedCount++
+                        continue
+                    }
                     
                     # Check accidental deletion protection if configured
                     if ($ou.PSObject.Properties.Name -contains 'protectFromAccidentalDeletion' -and $ou.protectFromAccidentalDeletion -eq $true) {
@@ -174,7 +203,7 @@ function Test-TierModelOu {
                     # Check GPO inheritance blocking if configured
                     if ($ou.PSObject.Properties.Name -contains 'blockGpoInheritance' -and $ou.blockGpoInheritance -eq $true) {
                         try {
-                            $gpoInheritance = Get-GPInheritance -Target $ouDistinguishedName -Server $DomainController
+                            $gpoInheritance = Get-GPInheritance -Target $ouDistinguishedName -Server $DomainController -ErrorAction Stop
                             if ($gpoInheritance.GpoInheritanceBlocked -eq $true) {
                                 Write-Host "  ✅ GPO Inheritance: Blocked" -ForegroundColor Green
                             } else {
@@ -296,15 +325,20 @@ function Test-TierModelOu {
                         Exception = $_.Exception.Message
                         CorrelationId = $CorrelationId
                     }
+                    # BLOCKING-2: same class as the read-failure catch above — an OU whose audit
+                    # threw was counted nowhere, so a wholly failed per-OU audit still reported
+                    # "All OUs are compliant". It is unverified, not compliant.
+                    $unverifiedCount++
                 }
             }
         }
         
-        $driftCount = $missingCount + $mismatchCount
+        $driftCount = $missingCount + $mismatchCount + $unverifiedCount
         $summary = @{
             TotalChecked = $totalChecked
             MissingCount = $missingCount
             MismatchCount = $mismatchCount
+            UnverifiedCount = $unverifiedCount
             DriftCount = $driftCount
         }
         
@@ -321,6 +355,12 @@ function Test-TierModelOu {
             Write-Host "Configuration Mismatches: $mismatchCount ✅" -ForegroundColor Green
         } else {
             Write-Host "Configuration Mismatches: $mismatchCount ❌" -ForegroundColor Red
+        }
+        # BLOCKING-2: surfaced explicitly. An OU we could not read is not a pass.
+        if ($unverifiedCount -eq 0) {
+            Write-Host "Unverified OUs (read failures): $unverifiedCount ✅" -ForegroundColor Green
+        } else {
+            Write-Host "Unverified OUs (read failures): $unverifiedCount ⚠️  - state could NOT be determined" -ForegroundColor Red
         }
         if ($driftCount -eq 0) {
             Write-Host "Overall Status: All OUs are compliant ✅" -ForegroundColor Green
@@ -368,7 +408,7 @@ function Test-TierModelOu {
         
         return [PSCustomObject]@{
             DriftFindings = $driftFindings
-            Summary = @{ TotalChecked = $totalChecked; MissingCount = $missingCount; MismatchCount = $mismatchCount; DriftCount = $missingCount + $mismatchCount }
+            Summary = @{ TotalChecked = $totalChecked; MissingCount = $missingCount; MismatchCount = $mismatchCount; UnverifiedCount = $unverifiedCount; DriftCount = $missingCount + $mismatchCount + $unverifiedCount }
             Warnings = $warnings
             Errors = $errors
             CorrelationId = $CorrelationId

@@ -1532,8 +1532,9 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
         }
 
         It "Should accumulate errors from multiple mixed-outcome actions" {
-            # First call succeeds (default Test-Path returns $true), second throws
-            $callCount = 0
+            # Must be $script: — the mock body below increments $script:callCount, and under
+            # Set-StrictMode -Version Latest an uninitialised $script:callCount throws.
+            $script:callCount = 0
             Mock Import-GPO -ModuleName TierModel {
                 $script:callCount++
                 if ($script:callCount -eq 2) { throw "Second GPO failed" }
@@ -1579,8 +1580,11 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        Mock Set-ADObject  -ModuleName TierModel { return $null }
-        Mock Write-Host    -ModuleName TierModel { return $null }
+        # The real Set-ADObject/Write-Host emit nothing. `return $null` would push a literal
+        # $null into the caller's output stream, making $result a 2-element array; that only
+        # looks harmless because non-strict member enumeration skips the $null.
+        Mock Set-ADObject  -ModuleName TierModel { }
+        Mock Write-Host    -ModuleName TierModel { }
 
         # Helper: build a minimal valid plan with CreateGPO actions
         function New-GpoPlan {
@@ -2136,15 +2140,38 @@ Describe "Get-TierModelGpoFd – extended coverage" -Tag "Unit", "GPO", "FullDep
             @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -Be 0
         }
 
-        It "Adds LinkGPO fallback when Get-GPInheritance throws for domain root" {
+        It "Plans no LinkGPO action, and warns, when the link state cannot be read (BUG-037)" {
             Mock Get-GPO -ModuleName TierModel {
                 param([string]$Name, [string]$Server, [switch]$All, $ErrorAction)
                 if ($All) { return @() }
                 return [PSCustomObject]@{ DisplayName = $Name; Id = [Guid]::NewGuid() }
             }
+            # A TERMINATING `throw` is deliberate here and must NOT be changed to Write-Error,
+            # despite the house rule. The read under test is intentionally
+            # -ErrorAction SilentlyContinue (see the BUG-019 note in Get-TierModelGpoFd), so a
+            # NON-terminating error is swallowed and arrives as an empty result — which is the
+            # ordinary "not linked" case, handled by the branch above, and it still plans the
+            # link. Only a genuine terminating failure can reach the catch this test covers.
             Mock Get-GPInheritance -ModuleName TierModel { throw "Access denied" }
+            Mock Write-Warning -ModuleName TierModel {}
+
             $result = Get-TierModelGpoFd -Config $script:CfgDomainRoot -DomainController "DC01" -Silent
-            @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -BeGreaterOrEqual 1
+
+            # BUG-037: an unreadable link state is not evidence that a link is missing. This
+            # previously fabricated a Risk=High LinkGPO action against a Tier 0 container on the
+            # strength of a read that had failed.
+            @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -Be 0
+
+            # The count alone is not enough: it would pass equally against a bare `catch {}`,
+            # which is the very defect this replaced. The warning is what separates "declined to
+            # plan, and said so" from "silently dropped it". The message is matched specifically
+            # so the outer catch's "Error analyzing GPO ..." warning cannot satisfy this test in
+            # its place, and so this test cannot pass for the same reason as the sibling above
+            # (which reads the link state successfully and warns not at all).
+            Should -Invoke Write-Warning -ModuleName TierModel -Times 1 -Exactly -ParameterFilter {
+                $Message -match "Could not determine whether GPO '.+' is linked to" -and
+                $Message -match 'No link action was planned'
+            }
         }
     }
 

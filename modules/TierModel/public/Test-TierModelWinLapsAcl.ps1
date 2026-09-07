@@ -104,6 +104,10 @@ function Test-TierModelWinLapsAcl {
                 'msLAPS-PasswordExpirationTime', 'msLAPS-EncryptedDSRMPassword', 'msLAPS-EncryptedDSRMPasswordHistory'
             )
             foreach ($attrName in $lapsAttrNames) {
+                # SilentlyContinue is INTENTIONAL here. This loop counts which Windows
+                # LAPS attributes are present; a missing attribute is the measurement being taken,
+                # not a failure. The Get-ADRootDSE above already uses -ErrorAction Stop, so a
+                # genuine connectivity failure is still caught. Do not change to Stop.
                 $attrObj = Get-ADObject -Filter "lDAPDisplayName -eq '$attrName'" -SearchBase $schemaDN `
                                -Server $DomainController -Properties schemaIDGUID -ErrorAction SilentlyContinue
                 if ($attrObj -and $attrObj.schemaIDGUID) {
@@ -187,7 +191,7 @@ function Test-TierModelWinLapsAcl {
                 })
                 if ($selfAces.Count -ge 1) { $selfOk = $true }
 
-                # BUG-009: Collect principals that hold GenericAll (full control) on the OU.
+                # Collect principals that hold GenericAll (full control) on the OU.
                 # Their effective LAPS read is an artifact of the Tier Model's OU-management
                 # delegation (audited separately by the OU ACL audit) - NOT an explicit LAPS
                 # delegation - so they must not be flagged as unexpected LAPS holders here.
@@ -240,7 +244,7 @@ function Test-TierModelWinLapsAcl {
                                     $holder -like '*\Administrators') {
                                     continue
                                 }
-                                # BUG-009: Skip principals whose LAPS access derives from a GenericAll
+                                # Skip principals whose LAPS access derives from a GenericAll
                                 # (full control) grant on the OU. That is an OU-management delegation,
                                 # out of scope for the LAPS-delegation audit and covered by the OU ACL audit.
                                 $holderShort = ($holder -split '\\')[-1]

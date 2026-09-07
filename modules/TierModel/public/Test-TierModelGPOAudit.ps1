@@ -144,7 +144,16 @@ function Test-TierModelGPOAudit {
     
     try {
         # Get current domain DN for placeholder resolution
-        $domain = Get-ADDomain -Server $DomainController
+        try {
+            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
+        } catch {
+            Write-TierModelLog -Level Error -Message "Failed to read domain information" -Data @{
+                DomainController = $DomainController
+                Error            = $_.Exception.Message
+                CorrelationId    = $CorrelationId
+            } | Out-Null
+            throw "Failed to read domain information from '$DomainController': $($_.Exception.Message)"
+        }
         $domainDN = $domain.DistinguishedName
         
         $auditResults = @()
@@ -528,12 +537,30 @@ function Test-TierModelGPOAudit {
         
         return [PSCustomObject]@{
             Results = @()
-            Summary = @{
+            # The failure shape mirrors the success shape key-for-key so consumers never
+            # have to defend against two different contracts. The original four keys are
+            # retained (something may already consume them) - this adds, it does not replace.
+            Summary = [PSCustomObject]@{
+                # Mirrored from the success shape
+                TotalGpos = 0
+                Compliant = 0
+                Drift = 0
+                MissingGpos = 0
+                NotDeliveringSettings = 0
+                ConfigurationMismatches = 0
+                Errors = 1
+                AuditErrors = 1
+                TotalIssues = 1
+                # Nothing was checked, so compliance was not determined. Never 100.
+                CompliancePercentage = 0
+                # Original keys, preserved for existing consumers
                 TotalChecked = 0
                 TotalPassed = 0
                 TotalFailed = 1
                 PassRate = 0
             }
+            # Present and empty so callers can read .Findings without throwing under StrictMode
+            Findings = @()
             Errors = @(@{
                 Timestamp = Get-Date
                 Category = 'Critical'

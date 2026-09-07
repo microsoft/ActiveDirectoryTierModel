@@ -97,7 +97,7 @@ function Get-TierModelGPOLink {
                 
                 try {
                     # Get existing GPO inheritance for this OU
-                    $inheritance = Get-GPInheritance -Target $targetOUPath -Server $DomainController
+                    $inheritance = Get-GPInheritance -Target $targetOUPath -Server $DomainController -ErrorAction Stop
                     
                     # Find our GPO in the inheritance list
                     $existingLink = $inheritance.GpoLinks | Where-Object { $_.DisplayName -eq $gpoName }

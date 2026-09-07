@@ -27,6 +27,41 @@ BeforeAll {
     
     # Create test output directory
     New-Item -Path $script:TestOutputDir -ItemType Directory -Force | Out-Null
+
+    # --- CWD sandbox helpers -------------------------------------------------
+    # Several Describes deliberately invoke Deploy-TierModel with -Logging but WITHOUT
+    # -LogPath, because the CWD-relative log path is itself the behaviour under test.
+    # Passing -LogPath would make them green while silently testing nothing. Instead the
+    # tests run from a throwaway temp directory, so the TestLog-*.log artifact lands there
+    # and never in the repository root.
+    #
+    # These are called from BeforeEach/AfterEach, never inline inside an It: an inline
+    # Pop-Location is skipped when an assertion fails mid-test, which would strand every
+    # subsequent test in the wrong directory and cascade unrelated failures.
+    function Enter-CwdSandbox {
+        $script:CwdSandboxPushed = $false
+        $script:CwdSandboxPath   = Join-Path $env:TEMP "TierModel-Deploy-Cwd-$(Get-Random)"
+        New-Item -Path $script:CwdSandboxPath -ItemType Directory -Force | Out-Null
+        Push-Location -Path $script:CwdSandboxPath
+        $script:CwdSandboxPushed = $true
+    }
+
+    function Exit-CwdSandbox {
+        try {
+            if ($script:CwdSandboxPushed) {
+                Pop-Location
+                $script:CwdSandboxPushed = $false
+            }
+        }
+        finally {
+            if ($script:CwdSandboxPath -and (Test-Path $script:CwdSandboxPath)) {
+                Remove-Item -Path $script:CwdSandboxPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    $script:CwdSandboxPushed = $false
+    $script:CwdSandboxPath   = $null
     
     # CRITICAL: Mock Read-Host FIRST to prevent interactive prompts during discovery
     Mock -CommandName Read-Host -MockWith { return 'N' } -ModuleName $null
@@ -691,9 +726,13 @@ Describe 'Deploy-TierModel - Parameter Validation' {
 }
 
 Describe 'Deploy-TierModel - Logging Configuration' {
+    # Runs from a temp CWD: these tests exercise the CWD-relative log path on purpose.
     BeforeEach {
         Mock Read-Host { return 'N' }  # Cancel deployment
+        Enter-CwdSandbox
     }
+
+    AfterEach { Exit-CwdSandbox }
     
     It 'Should prompt for OutputFileBase when Logging enabled without OutputFileBase' {
         Mock Read-Host { 
@@ -1706,9 +1745,13 @@ Describe 'Deploy-TierModel - Error Handling' {
 }
 
 Describe 'Deploy-TierModel - Logging Integration' {
+    # Runs from a temp CWD: these tests log without -LogPath by design.
     BeforeEach {
         Mock Read-Host { return 'N' }
+        Enter-CwdSandbox
     }
+
+    AfterEach { Exit-CwdSandbox }
     
     It 'Should log OU deployment start and completion' {
         Mock Read-Host { return 'Y' }
@@ -1765,31 +1808,95 @@ Describe 'Deploy-TierModel - Logging Integration' {
 # =============================================================================
 
 Describe 'Deploy-TierModel - Logging Edge Cases' {
-    It 'Should throw when OutputFileBase is empty string while Logging enabled' {
+    # Runs from a temp CWD: these tests log without -LogPath by design.
+    BeforeEach { Enter-CwdSandbox }
+
+    AfterEach { Exit-CwdSandbox }
+
+    # CONTRACT CHANGE: these two used to assert the run THREW '*OutputFileBase cannot be empty*'.
+    # Joel's instruction after the lab run was the opposite: pressing Enter at the prompt must
+    # not error and must not stop the script. Empty input now falls back to 'Deploy-TierModel'.
+    #
+    # Empty and whitespace-only are kept as SEPARATE cases on purpose. They are equivalent only
+    # because the product uses [string]::IsNullOrWhiteSpace; a regression to IsNullOrEmpty (or a
+    # bare -not $x test, which treats '   ' as truthy) would leave the empty case green and break
+    # the whitespace case. Deleting either case would hide that entire failure mode.
+    It 'Should fall back to the default OutputFileBase when the prompt returns an empty string while Logging enabled' {
         Mock Read-Host {
             param($Prompt)
             if ($Prompt -like '*base filename*') { return '' }
             return 'N'
         }
-        { & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop } |
-            Should -Throw -ExpectedMessage '*OutputFileBase cannot be empty*'
+        # A throw here IS the regression Joel reported, so it is captured rather than allowed to
+        # abort the test: the assertion below names the contract instead of surfacing as noise.
+        $failure = $null
+        $consoleOutput = ''
+        try {
+            $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop 6>&1 | Out-String
+        }
+        catch { $failure = $_ }
+
+        $failure | Should -BeNullOrEmpty -Because 'pressing Enter at the base-filename prompt must not error or stop the script'
+
+        # The resolved base name is what builds the log file name, and the script echoes that
+        # path, so the console line is direct evidence of the fallback VALUE - not merely
+        # evidence that nothing threw. Write-TierModelLog is mocked, so no file reaches disk.
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Deploy-TierModel-\d{6}-\d{4}\.log'
     }
 
-    It 'Should throw when OutputFileBase is whitespace-only while Logging enabled' {
+    It 'Should fall back to the default OutputFileBase when the prompt returns whitespace only while Logging enabled' {
         Mock Read-Host {
             param($Prompt)
             if ($Prompt -like '*base filename*') { return '   ' }
             return 'N'
         }
-        { & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop } |
-            Should -Throw -ExpectedMessage '*OutputFileBase cannot be empty*'
+        $failure = $null
+        $consoleOutput = ''
+        try {
+            $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop 6>&1 | Out-String
+        }
+        catch { $failure = $_ }
+
+        $failure | Should -BeNullOrEmpty -Because 'a whitespace-only reply is the same input class as Enter and must not stop the script'
+
+        # Asserting the SAME literal default as the empty-string case is the equivalence claim:
+        # IsNullOrWhiteSpace is what makes these two inputs interchangeable.
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Deploy-TierModel-\d{6}-\d{4}\.log'
+
+        # And the whitespace must not be taken literally. '   -<stamp>.log' is a legal NTFS name,
+        # so it would satisfy a loose 'a log path was printed' check; this rules it out.
+        $consoleOutput | Should -Not -Match 'Logging enabled: .+[\\/] +-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should show the default in the prompt text so the operator knows what Enter accepts' {
+        # The recorder is captured by CLOSURE, not via $script:. A mock body runs in its own
+        # scope, so a $script: assignment made inside one is NOT visible to the It that reads it
+        # back - verified the hard way; the naive version silently asserted against $null.
+        $seenPrompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host {
+            param($Prompt)
+            $seenPrompts.Add([string]$Prompt)
+            if ($Prompt -like '*base filename*') { return '' }
+            return 'N'
+        }.GetNewClosure()
+
+        & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop 6>&1 | Out-Null
+
+        @($seenPrompts | Where-Object { $_ -like '*base filename*' }) |
+            Should -Not -BeNullOrEmpty -Because 'the explicit -Logging path is still expected to prompt'
+        @($seenPrompts | Where-Object { $_ -like '*base filename*' })[0] |
+            Should -BeLike '*[[]Deploy-TierModel]*'
     }
 }
 
 Describe 'Deploy-TierModel - Error Path Logging' {
+    # Runs from a temp CWD: these tests log without -LogPath by design.
     BeforeEach {
         Mock Read-Host { return 'N' }
+        Enter-CwdSandbox
     }
+
+    AfterEach { Exit-CwdSandbox }
 
     It 'Should log error message when prerequisites check throws with Logging enabled' {
         Mock Test-TierModelPrerequisites { throw 'Simulated prereq failure' }
@@ -2644,9 +2751,13 @@ Describe 'Deploy-TierModel - Include ACL Display and Planning' {
 }
 
 Describe 'Deploy-TierModel - Coverage Gap Closing Round 2' {
+    # Runs from a temp CWD: several tests here log without -LogPath by design.
     BeforeEach {
         Mock Read-Host { return 'N' }
+        Enter-CwdSandbox
     }
+
+    AfterEach { Exit-CwdSandbox }
 
     # -------------------------------------------------------------------------
     # Logging dispatch entries (covers logging lines in single-entity dispatches)
@@ -3299,5 +3410,105 @@ Describe 'Deploy-TierModel - EnableAuditing (Domain Audit Rule)' -Tag 'Integrati
 
             Should -Invoke Get-TierModelAuditRuleFd -Times 0
         }
+    }
+}
+
+# =============================================================================
+# D8 / FR-007 - the never-prompt guarantee for diagnostics-auto-enabled logging
+# =============================================================================
+# -EnableVerbose / -EnableDebug auto-enable -Logging. When they do, a missing -OutputFileBase
+# must resolve SILENTLY; when the operator passed -Logging themselves it must still prompt.
+# Both branches now end in the same literal default ('Deploy-TierModel'), which makes them look
+# redundant to a maintainer reading only the code. They are not: a diagnostics re-run has to stay
+# copy-pasteable and runnable in a NON-INTERACTIVE host, where any Read-Host is fatal. These
+# tests exist so that collapsing the two branches into one fails the suite.
+#
+# Technique: Read-Host is replaced by a RECORDER that captures every prompt string it is asked
+# and answers empty. That is strictly stronger than Should -Invoke Read-Host -Times 0 - it proves
+# the prompt was never REACHED, and when the guarantee breaks it names the prompt that appeared.
+# The recorder is held by CLOSURE, never in a $script: variable: a $script: assignment made
+# inside a mock body is NOT visible to the It that reads it back.
+Describe 'Deploy-TierModel - Diagnostics never-prompt guarantee (D8 / FR-007)' {
+    # A diagnostics run creates a log file and a Debug\ folder relative to the CWD, so the
+    # sandbox is what keeps both out of the repository root. Never substitute -LogPath here:
+    # the CWD-relative resolution is part of what is under test.
+    BeforeEach { Enter-CwdSandbox }
+
+    AfterEach { Exit-CwdSandbox }
+
+    It 'Should NEVER prompt when -EnableVerbose auto-enables Logging without -OutputFileBase' {
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableVerbose -ErrorAction Stop 6>&1 | Out-String
+
+        ($prompts -join ' | ') | Should -BeNullOrEmpty -Because 'a diagnostics re-run must be runnable in a non-interactive host, where any Read-Host is fatal'
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Deploy-TierModel-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should NEVER prompt when -EnableDebug auto-enables Logging without -OutputFileBase' {
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableDebug -ErrorAction Stop 6>&1 | Out-String
+
+        ($prompts -join ' | ') | Should -BeNullOrEmpty -Because '-EnableDebug takes the identical auto-enable path and must not prompt either'
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Deploy-TierModel-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should still prompt exactly once when the operator passed -Logging explicitly' {
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $failure = $null
+        $consoleOutput = ''
+        try {
+            $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop 6>&1 | Out-String
+        }
+        catch { $failure = $_ }
+
+        $failure | Should -BeNullOrEmpty -Because 'the recorder answers empty, which is the operator pressing Enter'
+        $prompts.Count | Should -BeExactly 1
+        $prompts[0] | Should -BeLike '*base filename*'
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Deploy-TierModel-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should keep the explicit-Logging and diagnostics-auto-enabled paths distinguishable (anti-collapse)' {
+        # The two invocations differ in EXACTLY one thing: which mechanism turned -Logging on.
+        # Both are missing -OutputFileBase and both resolve to the same default, so the only
+        # observable that separates them is whether a prompt happened. Asserting the two counts
+        # against each other - rather than each in isolation - is what makes a maintainer's
+        # "these branches are identical, merge them" edit fail here.
+        $explicitPrompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $explicitPrompts.Add([string]$Prompt); return '' }.GetNewClosure()
+        & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction Stop 6>&1 | Out-Null
+
+        $autoPrompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $autoPrompts.Add([string]$Prompt); return '' }.GetNewClosure()
+        & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableVerbose -ErrorAction Stop 6>&1 | Out-Null
+
+        $explicitPrompts.Count | Should -BeExactly 1 -Because 'explicit -Logging keeps its pre-existing prompt'
+        $autoPrompts.Count     | Should -BeExactly 0 -Because 'D8: a diagnostics switch auto-enabling -Logging must never prompt'
+        $autoPrompts.Count     | Should -Not -Be $explicitPrompts.Count -Because 'the two branches are not interchangeable and must not be collapsed'
+    }
+
+    It 'Should replay the RESOLVED OutputFileBase in the diagnostics hint, not a bare -Logging' {
+        # NON-BLOCKING-3 (Deploy-TierModel.ps1:533-542). When -OutputFileBase came from a prompt
+        # it is absent from $PSBoundParameters, so a verbatim replay would emit -Logging with no
+        # base name. On the re-run -Logging is already set, LoggingAutoEnabled stays $false, the
+        # silent-default branch is NOT taken - and the pasted command dies on Read-Host in a
+        # non-interactive host. The hint must therefore carry the resolved value.
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        # The tail hint is only offered when the run did not fully succeed; a failed config load
+        # is the cheapest reachable hint site (Deploy-TierModel.ps1:916) and it fires AFTER the
+        # prompt block has already resolved -OutputFileBase.
+        Mock Get-TierModelConfig { throw 'Simulated config load failure' }
+
+        $consoleOutput = & $script:DeployScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging -ErrorAction SilentlyContinue 6>&1 | Out-String
+
+        $consoleOutput | Should -Match 'Re-run with the following for full diagnostics'
+        $consoleOutput | Should -Match "-OutputFileBase 'Deploy-TierModel'"
     }
 }

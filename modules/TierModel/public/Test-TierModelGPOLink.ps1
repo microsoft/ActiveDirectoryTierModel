@@ -99,7 +99,7 @@ function Test-TierModelGPOLink {
                 try {
                     # Extract the rename pattern by removing [Provider] [Version] and everything after
                     $renamePattern = ($GPOName -replace ' \\[Provider\\] \\[Version\\].*$', '') + '*'
-                    $matchingGPOs = Get-GPO -All -Server $DomainController | Where-Object { $_.DisplayName -like $renamePattern }
+                    $matchingGPOs = Get-GPO -All -Server $DomainController -ErrorAction Stop | Where-Object { $_.DisplayName -like $renamePattern }
                     if ($matchingGPOs -and $matchingGPOs.Count -eq 1) {
                         $gpo = $matchingGPOs[0]
                         $actualGpoName = $gpo.DisplayName
@@ -161,7 +161,7 @@ function Test-TierModelGPOLink {
         # Check 2: Link Existence and Properties
         if ($gpoExists) {
             try {
-                $inheritance = Get-GPInheritance -Target $TargetOU -Server $DomainController
+                $inheritance = Get-GPInheritance -Target $TargetOU -Server $DomainController -ErrorAction Stop
                 $gpoLink = $inheritance.GpoLinks | Where-Object { $_.DisplayName -eq $actualGpoName }
                 
                 if ($gpoLink) {

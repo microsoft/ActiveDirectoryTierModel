@@ -109,6 +109,9 @@ function Get-TierModelUser {
                     # Check if user already exists
                     $existingUser = $null
                     try {
+                        # SilentlyContinue is INTENTIONAL here. "User does not exist" is the
+                        # expected planning outcome and is exactly what drives the create plan below.
+                        # Do not change to Stop.
                         $existingUser = Get-ADUser -Identity $userSamAccountName -Server $DomainController -ErrorAction SilentlyContinue
                     } catch {
                         # User doesn't exist, which is fine - we'll create it

@@ -181,7 +181,7 @@ function New-TierModelGpo {
                         }
 
                         try {
-                            $domain = Get-ADDomain -Server $DomainController
+                            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                             $domainDN = $domain.DistinguishedName
                             
                             # Map gpoStatus names to AD 'flags' attribute values.
@@ -200,8 +200,7 @@ function New-TierModelGpo {
                             # audits as a different value — unresolvable drift because re-running
                             # deploy keeps writing the wrong flags value.
                             #
-                            # Exactly 4 real .NET GpoStatus members (BUG-016: AllEnabled and
-                            # BothSettingsDisabled were invented and have been removed).
+                            # Exactly 4 real .NET GpoStatus members.
                             $flagValue = switch ($gpoData.gpoStatus) {
                                 'AllSettingsEnabled'       { 0 }
                                 'UserSettingsDisabled'     { 1 }
@@ -234,7 +233,7 @@ function New-TierModelGpo {
                             try {
                                 
                                 # Get domain info for building ADSI path
-                                $domain = Get-ADDomain -Server $DomainController
+                                $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                                 $domainDN = $domain.DistinguishedName
                                 $domainNetbios = $domain.NetBIOSName
                                 

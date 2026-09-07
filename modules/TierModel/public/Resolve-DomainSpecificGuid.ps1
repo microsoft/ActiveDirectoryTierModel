@@ -68,8 +68,10 @@ function Resolve-DomainSpecificGuid {
         }
         
         # Connect to the schema naming context
-        $schemaDN = "CN=Schema,CN=Configuration," + (Get-ADDomain -Server $DomainController).DistinguishedName -replace '^DC=', '' -replace ',DC=', ',DC='
-        $schemaDN = (Get-ADRootDSE -Server $DomainController).schemaNamingContext
+        # NOTE: the first assignment is immediately overwritten by the second (pre-existing
+        # dead assignment, left as-is).
+        $schemaDN = "CN=Schema,CN=Configuration," + (Get-ADDomain -Server $DomainController -ErrorAction Stop).DistinguishedName -replace '^DC=', '' -replace ',DC=', ',DC='
+        $schemaDN = (Get-ADRootDSE -Server $DomainController -ErrorAction Stop).schemaNamingContext
         
         # Query for the specific attribute
         Write-TierModelLog -Level Debug -Message "Resolving domain-specific GUID" -Data @{

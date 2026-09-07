@@ -207,6 +207,10 @@ function Get-TierModelOuAcl {
                     
                     # Resolve inheritedObjectType if present
                     $inheritedObjectTypeGuid = [Guid]::Empty
+                    # Guid.Empty is ambiguous - it is both "no class restriction, by design"
+                    # and "resolution failed". Tracked separately so a failure can never be read as
+                    # a deliberate wildcard.
+                    $inheritedObjectTypeUnresolved = $false
                     if ($acl.PSObject.Properties['inheritedObjectType'] -and -not [string]::IsNullOrEmpty($acl.inheritedObjectType)) {
                         try {
                             if (-not [System.Guid]::TryParse($acl.inheritedObjectType, [ref][System.Guid]::Empty)) {
@@ -219,6 +223,15 @@ function Get-TierModelOuAcl {
                             }
                         } catch {
                             $inheritedObjectTypeGuid = [Guid]::Empty
+                            $inheritedObjectTypeUnresolved = $true
+                            # The sibling objectType path already logs on resolution failure; this one did not.
+                            Write-TierModelLog -Level Warning -Message "inheritedObjectType GUID resolution failed - ACE scope cannot be verified" -Data @{
+                                OriginalValue     = $acl.inheritedObjectType
+                                TargetOUPath      = $targetOUPath
+                                IdentityReference = $identityReference
+                                Error             = $_.Exception.Message
+                                CorrelationId     = $CorrelationId
+                            } | Out-Null
                         }
                     }
                     
@@ -241,7 +254,12 @@ function Get-TierModelOuAcl {
                             $rightsMatches = $_.ActiveDirectoryRights -eq $expectedRights
                             
                             # Check inherited object type GUID if present
-                            $inheritedObjectTypeMatches = if ($inheritedObjectTypeGuid -ne [Guid]::Empty) {
+                            # Fail closed: an unresolved expectation must never be satisfied. Guid.Empty
+                            # matches precisely the WIDE ACEs that a failed resolution itself produces, so
+                            # falling back to it would report an over-scoped delegation as already present.
+                            $inheritedObjectTypeMatches = if ($inheritedObjectTypeUnresolved) {
+                                $false
+                            } elseif ($inheritedObjectTypeGuid -ne [Guid]::Empty) {
                                 $_.InheritedObjectType -eq $inheritedObjectTypeGuid
                             } else {
                                 $_.InheritedObjectType -eq [Guid]::Empty -or $null -eq $_.InheritedObjectType

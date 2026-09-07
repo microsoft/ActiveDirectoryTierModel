@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Modular TierModel audit using dedicated cmdlets per entity type.
 
@@ -82,16 +82,63 @@ Specifies the format for audit report output. Valid options:
 .PARAMETER OutputFileBase
 Base filename for generated audit reports (without extension or timestamp).
 The actual filename will include a timestamp and appropriate extension.
-Required when OutputFormat is specified.
+When -OutputFormat is specified without it you are prompted for one; pressing Enter accepts
+the default 'Audit-TierModel' rather than stopping the run.
 
 .PARAMETER AdmlLanguage
 Language code for ADMX template processing in format 'xx-XX' (e.g., 'en-US').
 Used when auditing ADMX configurations to match appropriate language templates.
 
+.PARAMETER Logging
+Enable structured logging to a timestamped file. When specified, audit operations and
+results are written to a log file in the directory specified by -LogPath (or the current
+working directory if -LogPath is omitted). This also enables module-scope logging, so
+entries raised inside the TierModel module itself - including every -Level Error - reach
+the file rather than the console alone. You are prompted for -OutputFileBase if it is
+omitted; pressing Enter accepts the default 'Audit-TierModel'.
+
 .PARAMETER LogPath
-Directory path where output files will be created when OutputFormat is specified.
+Directory path with three jobs: it is where -OutputFormat report files are created, where
+the -Logging log file is created, and the parent of the 'Debug' folder used for the
+diagnostics transcript. All three are derived from the same resolved path, so a relative
+-LogPath can never split them across directories.
 If not provided, files are created in the current directory. Directory will be
 created automatically if it doesn't exist.
+
+.PARAMETER EnableVerbose
+Enable verbose diagnostic output for troubleshooting. Console output becomes considerably
+more detailed and interleaves with the normal progress output - that is expected, and is the
+point of the switch. This switch also enables -Logging automatically, so a diagnostic run
+always leaves a log file behind; if -OutputFileBase is omitted it defaults to
+'Audit-TierModel' without prompting, keeping a re-run copy-pasteable.
+Diagnostic switches change only what is recorded, never what is decided or read from
+Active Directory.
+
+.PARAMETER EnableDebug
+Enable debug diagnostic output for troubleshooting. As with -EnableVerbose, this also
+enables -Logging automatically and makes console output substantially more detailed.
+When -EnableVerbose and -EnableDebug are supplied together, a PowerShell transcript is
+also started in a 'Debug' folder beneath the resolved log directory, capturing the full
+console session.
+WARNING: the transcript is NOT redacted. It may contain distinguished names, SIDs, SDDL,
+group memberships and other sensitive Tier 0 detail. Review it before sharing it with
+anyone, including support.
+If a run is interrupted with Ctrl-C the transcript is left open and continues capturing
+until the console exits; run Stop-Transcript manually if that happens.
+Diagnostic switches change only what is recorded, never what is decided or read from
+Active Directory.
+
+.EXAMPLE
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -GposOnly -EnableVerbose
+Audit GPOs with verbose diagnostics. Logging is enabled automatically and written to
+'Audit-TierModel-<timestamp>.log' in the current directory. No transcript is started,
+because only one diagnostics switch was supplied.
+
+.EXAMPLE
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -EnableVerbose -EnableDebug -LogPath "C:\Reports"
+Full audit with both diagnostics switches. Writes C:\Reports\Audit-TierModel-<timestamp>.log
+and an UNREDACTED console transcript under C:\Reports\Debug\. Review the transcript for
+sensitive environment detail before sharing it.
 
 .EXAMPLE
 .\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly
@@ -120,8 +167,10 @@ when -EnableAuditing has been applied via Deploy-TierModel.ps1.
 Full TierModel audit including Windows LAPS ACL delegations and decryptor GPO settings.
 
 .NOTES
-Version: 2.0
-Requires: TierModel PowerShell module, appropriate Active Directory permissions
+Version: 2.1.0
+Requires: TierModel PowerShell module (v2.1.0+), PowerShell 7.0+, appropriate Active Directory
+permissions. SeSecurityPrivilege required to read the domain-root SACL with -EnableAuditing
+(Domain Admin qualifies).
 #>
 [CmdletBinding()]
 param(
@@ -155,7 +204,17 @@ param(
     [string]$AdmlLanguage = 'en-US',
     
     [Parameter()]
-    [string]$LogPath
+    [switch]$Logging,
+    
+    [Parameter()]
+    [string]$LogPath,
+    
+    # --- Diagnostics ---
+    [Parameter()]
+    [switch]$EnableVerbose,
+    
+    [Parameter()]
+    [switch]$EnableDebug
 )
 
 Set-StrictMode -Version Latest
@@ -204,9 +263,332 @@ function Write-TierModelFailFast {
     }
     Write-Host ""
     Write-Host "Audit script completed." -ForegroundColor Green
+
+    try {
+        # StrictMode: $script:LogFilePath is not yet DECLARED at the PowerShell-version gate, so
+        # it must be probed rather than read. Get-Variable avoids the strict-mode throw.
+        $ffLogPath = $null
+        $ffLogVar = Get-Variable -Name 'LogFilePath' -Scope Script -ErrorAction SilentlyContinue
+        if ($ffLogVar) { $ffLogPath = $ffLogVar.Value }
+
+        if ($ffLogPath) {
+            $ffMessage = 'FAIL-FAST (terminal): ' + ((@($Message) | Where-Object { $_ }) -join ' ')
+            $ffData = @{
+                FailFast       = $true
+                Terminal       = $true
+                Script         = 'Audit-TierModel.ps1'
+                ConsoleMessage = @($Message)
+                Remediation    = @($Remediation)
+            }
+
+            if (Get-Command -Name 'Write-TierModelLog' -ErrorAction SilentlyContinue) {
+                Write-TierModelLog -LogPath $ffLogPath -Level 'Error' -Message $ffMessage -Data $ffData
+            }
+            else {
+                # The PowerShell-version gate fires BEFORE Import-Module, so the logger does not
+                # exist yet. Emit the identical JSON record directly rather than lose the failure.
+                $ffEntry = [PSCustomObject]@{
+                    Timestamp     = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss.fffZ')
+                    Level         = 'Error'
+                    Message       = $ffMessage
+                    Data          = $ffData
+                    CorrelationId = [Guid]::NewGuid().ToString()
+                }
+                $ffDir = Split-Path -Path $ffLogPath -Parent
+                if ($ffDir -and -not (Test-Path -LiteralPath $ffDir)) {
+                    New-Item -Path $ffDir -ItemType Directory -Force -WhatIf:$false | Out-Null
+                }
+                Add-Content -Path $ffLogPath -Value ($ffEntry | ConvertTo-Json -Compress -Depth 5) -Encoding UTF8 -WhatIf:$false
+            }
+        }
+    }
+    catch {
+        # A failure while REPORTING a failure must never become the operator's error.
+        Write-Warning "Fail-fast details could not be written to the log: $($_.Exception.Message)"
+    }
 }
 
-# Check PowerShell version before importing the module
+function ConvertTo-TierModelDriftFinding {
+    <#
+    .SYNOPSIS
+    Normalises an audit finding into the shape the Text/Json/Html reports render.
+    .DESCRIPTION
+    The audit functions do not agree on a finding shape: Test-TierModelAdmx emits FileName/Message,
+    the standalone ACL audits emit Property/ExpectedValue/ActualValue and carry no Details. The
+    report interpolates Type/ResourceType/Identifier/Details, so a raw finding throws under
+    Set-StrictMode -Version Latest. This guarantees all four exist. Compliant findings are dropped -
+    they are not drift.
+    #>
+    param(
+        [Parameter(ValueFromPipeline)]$Finding,
+        # The audit functions do not all carry a ResourceType. Callers that know the resource
+        # class they are normalising supply it here so the report renders 'GPO/<name>' rather
+        # than 'Unknown/<name>'. Defaults to 'Unknown' so existing callers are unaffected.
+        [string]$DefaultResourceType = 'Unknown'
+    )
+    process {
+        if (-not $Finding) { return }
+        $names = @($Finding.PSObject.Properties.Name)
+
+        $findingType = if (($names -contains 'Type') -and $Finding.Type) { [string]$Finding.Type } else { 'Drift' }
+
+        # Two verdict conventions exist. Most producers carry 'Type'; AuthPolicy, AuthSilo and
+        # WinLapsDecryptor carry only 'Status'; AuditRule carries both, with a descriptive Type and the
+        # real verdict in Status. Type wins whenever it is present and Status is consulted only as a
+        # fallback, so every Type-bearing shape passes through unchanged.
+        $findingStatus = if ($names -contains 'Status') { [string]$Finding.Status } else { $null }
+        if ($findingStatus -and -not (($names -contains 'Type') -and $Finding.Type)) {
+            $findingType = $findingStatus
+        }
+
+        # A compliant item is not drift, whichever convention reported it. Without this, an
+        # audit-right that PASSED was rendered into the drift report as '[AuditRight] ...'
+        # because 'AuditRight' is not the literal 'Compliant'. Matched exactly, never by
+        # wildcard: 'NonCompliant' must NOT be treated as compliant.
+        if ($findingType -eq 'Compliant') { return }
+        if ($findingStatus -and $findingStatus -in @('Pass', 'Compliant', 'OK', 'Success', 'True')) { return }
+
+        $identifier = 'Unknown'
+        foreach ($key in @('Identifier', 'FileName', 'GpoName', 'PolicyName', 'SiloName', 'Name', 'DistinguishedName')) {
+            if (($names -contains $key) -and $Finding.$key) { $identifier = [string]$Finding.$key; break }
+        }
+
+        $details = $null
+        foreach ($key in @('Details', 'Message', 'Reason')) {
+            if (($names -contains $key) -and $Finding.$key) { $details = [string]$Finding.$key; break }
+        }
+        if (-not $details -and ($names -contains 'Issues') -and $Finding.Issues) {
+            # Auth policy/silo findings carry a collection of issue strings rather than prose.
+            # Checked AFTER Details/Message/Reason so their precedence is unchanged.
+            $details = ((@($Finding.Issues) | Where-Object { $_ }) -join '; ')
+        }
+        if (-not $details) {
+            # The standalone ACL audits describe drift as a property triple rather than prose.
+            # ExpectedValue/ActualValue are tested FIRST so shapes that carry them render
+            # exactly as before; Expected/Actual are the WinLapsDecryptor spelling.
+            $parts = @()
+            if (($names -contains 'Property') -and $Finding.Property) { $parts += "Property=$($Finding.Property)" }
+            if ($names -contains 'ExpectedValue')  { $parts += "Expected=$($Finding.ExpectedValue)" }
+            elseif ($names -contains 'Expected')   { $parts += "Expected=$($Finding.Expected)" }
+            if ($names -contains 'ActualValue')    { $parts += "Actual=$($Finding.ActualValue)" }
+            elseif ($names -contains 'Actual')     { $parts += "Actual=$($Finding.Actual)" }
+            $details = if ($parts.Count -gt 0) { $parts -join '; ' } else { 'No further detail reported.' }
+        }
+
+        $resourceType = if (($names -contains 'ResourceType') -and $Finding.ResourceType) { [string]$Finding.ResourceType } else { $DefaultResourceType }
+
+        [PSCustomObject]@{
+            Type         = $findingType
+            ResourceType = $resourceType
+            Identifier   = $identifier
+            Details      = $details
+        }
+    }
+}
+
+function Stop-TierModelDiagnosticsTranscript {
+    <#
+    .SYNOPSIS
+    Stops the diagnostics transcript, but ONLY if this script started it (WI-16).
+    .DESCRIPTION
+    Identical to the helper in Deploy-TierModel.ps1 — kept character-for-character equivalent so
+    the two scripts behave the same way.
+
+    ⛔ NEVER call Stop-Transcript unguarded. POC-3 inverted our original assumption: a *nested*
+    Start-Transcript is harmless, but an unpaired Stop is not. If our Start-Transcript failed
+    while the OPERATOR'S OWN transcript is running, a bare Stop-Transcript SUCCEEDS and stops
+    theirs — silently destroying their session record. Nothing throws, so a try/catch cannot
+    save you.
+
+    $script:TranscriptStarted is therefore load-bearing: it is set only after Test-Path has
+    CONFIRMED our transcript file exists, and it is the sole authority for whether we may stop
+    anything. It is cleared afterwards so a second exit path cannot stop a transcript we no
+    longer own.
+
+    ⚠️ KNOWN GAP (Ctrl-C): after a genuine Ctrl-C the transcript is left open and keeps
+    capturing until the console exits. Closing that gap needs a try/finally around the whole
+    script body; the trade is with Joel. If that option is ever chosen, the only change needed
+    is to wrap the body and call this function from the finally — every call site stays as-is.
+    #>
+    if (-not $script:TranscriptStarted) { return }
+    $script:TranscriptStarted = $false
+    try {
+        Stop-Transcript | Out-Null
+    }
+    catch {
+        # Stop-Transcript throws when no transcript is running. Nothing actionable — we are on
+        # an exit path and the transcript content is already on disk.
+    }
+    if ($script:TranscriptPath) {
+        Write-Host "Diagnostics transcript written: $script:TranscriptPath" -ForegroundColor Gray
+    }
+}
+
+function Write-TierModelDiagnosticsHint {
+    <#
+    .SYNOPSIS
+    Prints a copy-pasteable re-run line that adds -EnableVerbose -EnableDebug (WI-16).
+    .DESCRIPTION
+    Identical in shape to the Deploy helper. Reconstructs the operator's actual invocation from
+    the bound parameters captured at script start, then appends the two diagnostics switches.
+    The result must be literally pasteable and non-interactive — which is exactly why the
+    auto-enable path never prompts for -OutputFileBase.
+
+    Deliberately worded "for full diagnostics" rather than anything implying the switches will
+    reveal the cause: they may not, and promising a cause is how an operator ends up running the
+    same failure twice and losing confidence in the tooling.
+
+    Suppressed when both switches are already active — there is nothing left to suggest.
+    #>
+    if ($EnableVerbose -and $EnableDebug) { return }
+
+    $parts = @()
+    foreach ($name in $script:InvocationBoundParameters.Keys) {
+        if ($name -in @('EnableVerbose', 'EnableDebug')) { continue }
+        $value = $script:InvocationBoundParameters[$name]
+        if ($value -is [System.Management.Automation.SwitchParameter]) {
+            if ($value.IsPresent) { $parts += "-$name" }
+            else { $parts += "-${name}:`$false" }
+        }
+        elseif ($value -is [bool]) {
+            $parts += "-${name}:`$$($value.ToString().ToLowerInvariant())"
+        }
+        elseif ($value -is [System.Array]) {
+            $parts += "-$name $((@($value) | ForEach-Object { "'$_'" }) -join ',')"
+        }
+        else {
+            $parts += "-$name '$value'"
+        }
+    }
+    # NON-BLOCKING-3: -OutputFileBase may have been supplied by a Read-Host PROMPT rather than on
+    # the command line — Audit prompts for it both when -OutputFormat is given without one (L241)
+    # and when -Logging is given without one — in which case it is absent from $PSBoundParameters.
+    # Replaying the invocation verbatim would emit -Logging/-OutputFormat with no base name; on the
+    # re-run $Logging is already $true, so $script:LoggingAutoEnabled stays $false, the
+    # silent-default branch is NOT taken, and the script hits Read-Host again — dying outright in a
+    # non-interactive host. Emit the RESOLVED value instead.
+    if (-not $script:InvocationBoundParameters.ContainsKey('OutputFileBase') -and
+        -not [string]::IsNullOrWhiteSpace($OutputFileBase)) {
+        $parts += "-OutputFileBase '$OutputFileBase'"
+    }
+
+    $parts += '-EnableVerbose'
+    $parts += '-EnableDebug'
+
+    $scriptRef = if ($PSCommandPath) { $PSCommandPath } else { '.\Audit-TierModel.ps1' }
+
+    Write-Host ""
+    Write-Host "Re-run with the following for full diagnostics:" -ForegroundColor Yellow
+    Write-Host "  & '$scriptRef' $($parts -join ' ')" -ForegroundColor Yellow
+    Write-Host "  (writes a log file, and — with both switches — an UNREDACTED transcript under Debug\)" -ForegroundColor DarkYellow
+}
+
+
+# Validate output file requirements and prompt if needed
+if ($OutputFormat -and -not $OutputFileBase) {
+    # Empty input falls back to the default; an operator pressing Enter must not stop the run.
+    $defaultOutputFileBase = 'Audit-TierModel'
+    $OutputFileBase = Read-Host "Enter base filename for output (timestamp and extension will be added automatically) [$defaultOutputFileBase]"
+    if ([string]::IsNullOrWhiteSpace($OutputFileBase)) {
+        $OutputFileBase = $defaultOutputFileBase
+        Write-Host "Using default base filename for output: $OutputFileBase" -ForegroundColor DarkGray
+    }
+}
+
+# --- Logging enablement -------------------------------------------------------------------
+# $script:LoggingAutoEnabled distinguishes the two ways -Logging can become active, because
+# they have different rules about prompting:
+#   explicit — the operator passed -Logging          -> prompt for a missing -OutputFileBase,
+#                                                       exactly like the -OutputFormat prompt
+#                                                       above and like Deploy-TierModel.ps1.
+#   implicit — a diagnostics switch forced it on     -> never prompt (D8); a diagnostics
+#                                                       re-run must stay copy-pasteable and
+#                                                       runnable in a non-interactive host.
+$script:LoggingAutoEnabled = $false
+
+# --- Diagnostics resolution (WI-13) ---------------------------------------------------------
+# Mirrors Deploy-TierModel.ps1 exactly. D8: the diagnostics switches auto-enable -Logging, so a
+# diagnostic run always leaves a log file behind. The auto-enabled path must NEVER prompt — a
+# diagnostics re-run has to stay copy-pasteable and runnable in a non-interactive host — so it
+# sets $script:LoggingAutoEnabled and the validation block below takes the silent-default branch.
+$script:DiagnosticsEnabled = $EnableVerbose -or $EnableDebug
+# Captured while still at script scope: $PSBoundParameters is per-scope, so inside a function it
+# would be that function's own bound parameters, not the operator's invocation.
+$script:InvocationBoundParameters = $PSBoundParameters
+if ($script:DiagnosticsEnabled -and -not $Logging) {
+    $Logging = $true
+    $script:LoggingAutoEnabled = $true
+}
+
+# Validate logging parameters and prompt if needed
+if ($Logging -and -not $OutputFileBase) {
+    if ($script:LoggingAutoEnabled) {
+        $OutputFileBase = 'Audit-TierModel'
+    }
+    else {
+        # Empty input falls back to the default; an operator pressing Enter must not stop the run.
+        $defaultLogFileBase = 'Audit-TierModel'
+        $OutputFileBase = Read-Host "Enter base filename for logs (timestamp and extension will be added automatically) [$defaultLogFileBase]"
+        if ([string]::IsNullOrWhiteSpace($OutputFileBase)) {
+            $OutputFileBase = $defaultLogFileBase
+            Write-Host "Using default base filename for logs: $OutputFileBase" -ForegroundColor DarkGray
+        }
+    }
+}
+
+# Initialize logging if requested - same file naming/location convention as Deploy-TierModel.ps1
+$script:LogFilePath = $null
+$script:LogDirectory = $null
+if ($Logging) {
+    $logTimestamp = Get-Date -Format 'MMddyy-HHmm'
+    $logFileName = "$OutputFileBase-$logTimestamp.log"
+
+    # Resolve the log DIRECTORY exactly once, then derive both the log file and the Debug\
+    # folder from that single absolutised base so the two can never end up in different places.
+    #
+    # POC-6: GetUnresolvedProviderPathFromPSPath is the only correct idiom here.
+    #   Resolve-Path / Convert-Path  -> throw on a path that does not exist yet.
+    #   [System.IO.Path]::GetFullPath() -> BANNED. It resolves against the .NET process current
+    #     directory, which does NOT track PowerShell's location, so a *relative* -LogPath would
+    #     put the log file and the Debug\ folder in different directories. Absolute paths hide
+    #     the bug, so a test that only uses absolute paths will not catch it.
+    if ($LogPath) {
+        $script:LogDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
+    } else {
+        # No -LogPath: use the current working directory.
+        $script:LogDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Get-Location).Path)
+    }
+
+    # Audit is plain [CmdletBinding()] with no -WhatIf, so these New-Item calls need no
+    # -WhatIf:$false as Deploy's do. The asymmetry is deliberate. The Test-Path confirmation is
+    # not optional - success must be confirmed, never announced.
+    if (-not (Test-Path -LiteralPath $script:LogDirectory)) {
+        try {
+            New-Item -Path $script:LogDirectory -ItemType Directory -Force | Out-Null
+        }
+        catch {
+            Write-Warning "Could not create log directory '$script:LogDirectory': $($_.Exception.Message)"
+        }
+        if (Test-Path -LiteralPath $script:LogDirectory) {
+            Write-Host "Created log directory: $script:LogDirectory" -ForegroundColor Gray
+        }
+        else {
+            Write-Warning "Log directory '$script:LogDirectory' does not exist and could not be created; log entries may not reach disk."
+        }
+    }
+
+    $script:LogFilePath = Join-Path $script:LogDirectory $logFileName
+
+    Write-Host "Logging enabled: $script:LogFilePath" -ForegroundColor Gray
+
+    if ($script:LoggingAutoEnabled) {
+        Write-Host "-EnableVerbose/-EnableDebug also enabled -Logging. Log file: $script:LogFilePath" -ForegroundColor Gray
+    }
+}
+
+# Check PowerShell version before importing the module. Placed immediately after log-path
+# resolution so a version fail-fast can still be written to the log, and before the
+# diagnostics/transcript block and Import-Module so no unnecessary work runs first.
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     Write-TierModelFailFast -Message @(
         "Deploying and Auditing of the Tier Model requires PowerShell 7.x or later.",
@@ -217,23 +599,135 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     return
 }
 
-# Validate output file requirements and prompt if needed
-if ($OutputFormat -and -not $OutputFileBase) {
-    $OutputFileBase = Read-Host "Enter base filename for output (timestamp and extension will be added automatically)"
-    if ([string]::IsNullOrWhiteSpace($OutputFileBase)) {
-        throw "OutputFileBase cannot be empty when OutputFormat is specified"
+# --- Diagnostics folder (WI-13) -------------------------------------------------------------
+# Debug\ lives beside the resolved log file, derived from the SAME absolutised base above so a
+# relative -LogPath cannot split them. Failure to create it is never fatal: diagnostics are
+# best-effort and must not abort an audit.
+$script:DebugFolderPath   = $null
+$script:TranscriptPath    = $null
+$script:TranscriptStarted = $false
+if ($script:DiagnosticsEnabled -and $script:LogDirectory) {
+    $candidateDebugFolder = Join-Path $script:LogDirectory 'Debug'
+    try {
+        if (-not (Test-Path -LiteralPath $candidateDebugFolder)) {
+            New-Item -Path $candidateDebugFolder -ItemType Directory -Force | Out-Null
+        }
+    }
+    catch {
+        Write-Warning "Could not create diagnostics folder '$candidateDebugFolder': $($_.Exception.Message)"
+    }
+    if (Test-Path -LiteralPath $candidateDebugFolder) {
+        $script:DebugFolderPath = $candidateDebugFolder
+        Write-Host "Diagnostics folder: $script:DebugFolderPath" -ForegroundColor Gray
+    }
+    else {
+        Write-Warning "Diagnostics folder '$candidateDebugFolder' is unavailable; continuing without a transcript."
     }
 }
 
 # Import TierModel module with all public functions
-Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false
+# -Verbose:$false is load-bearing (suppresses module-load narration); -PassThru is required
+# so the module-scope logging initialisation below has a module object to run inside.
+$script:TierModelModule = Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false -PassThru
 
 Write-Host "TierModel module loaded successfully." -ForegroundColor Green
+
+# Enable module-scope file logging so Write-TierModelLog calls made *inside* the module
+# also reach disk. Audit has no call sites of its own that pass -LogPath, so without this
+# every module-level entry (including -Level Error) is console-only and the log file comes
+# out effectively empty. Opt-in only: this runs solely when the operator supplied -Logging.
+if ($Logging -and $script:LogFilePath) {
+    & $script:TierModelModule {
+        param($TargetLogFilePath)
+        Initialize-TierModelLogging -LogFilePath $TargetLogFilePath | Out-Null
+    } $script:LogFilePath
+    
+    Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "TierModel audit started" -Data @{
+        PreferredDc  = $PreferredDc
+        OutputFormat = if ($OutputFormat) { $OutputFormat } else { 'None' }
+        AdmlLanguage = $AdmlLanguage
+    }
+    Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "TierModel module loaded successfully"
+}
+
+# --- Diagnostics preferences (WI-14) --------------------------------------------------------
+# Identical to Deploy-TierModel.ps1. ORDERING IS LOAD-BEARING: these are set AFTER
+# Import-Module, never before.
+#   POC-8: TierModel.psm1 emits Write-Verbose "Loading: <file>" per public file from inside the
+#   module body. -Verbose:$false on the import does NOT suppress those (163 records survive);
+#   only importing first, while VerbosePreference is still SilentlyContinue, gets it to 0.
+# Both mechanisms are required. -Verbose:$false must stay on the import above, because it is
+# what covers the bare ActiveDirectory/GroupPolicy imports that run AFTER preferences go live,
+# which ordering alone cannot protect.
+#
+# POC-9: $script: alone reaches 0 records — module functions resolve preference variables
+# function-local -> module scope -> global, and never see the caller's script scope. The
+# module-scope assignment via & $module { ... } is therefore genuinely required. It reproduces
+# $global: output exactly and, unlike $global:, cannot leak into the operator's session on
+# Ctrl-C, so there is no restore/finally and no $Original*Preference capture. The module-scope
+# value persists for the rest of the session, but Import-Module -Force above resets module
+# scope on every run, so it self-heals.
+#
+# NOTE: -Debug is NEVER forwarded as an explicit parameter to an AD or GroupPolicy cmdlet.
+# Lab-proven to throw "Object reference not set to an instance of an object" in a
+# non-interactive host. Setting the preference variable is the safe mechanism.
+if ($script:DiagnosticsEnabled) {
+    if ($EnableVerbose) { $script:VerbosePreference = 'Continue' }
+    if ($EnableDebug) { $script:DebugPreference = 'Continue' }
+
+    & $script:TierModelModule {
+        param($WantVerbose, $WantDebug)
+        if ($WantVerbose) { $script:VerbosePreference = 'Continue' }
+        if ($WantDebug) { $script:DebugPreference = 'Continue' }
+    } $EnableVerbose.IsPresent $EnableDebug.IsPresent
+
+    $enabledSwitches = @()
+    if ($EnableVerbose) { $enabledSwitches += '-EnableVerbose' }
+    if ($EnableDebug) { $enabledSwitches += '-EnableDebug' }
+    Write-Host "Diagnostics enabled: $($enabledSwitches -join ' ')" -ForegroundColor Gray
+}
+
+# --- Transcript (WI-15) ---------------------------------------------------------------------
+# A transcript is started ONLY when BOTH switches are supplied — identical rule to Deploy.
+# -EnableVerbose alone is the routine "show me more" case and must not produce an unredacted
+# console capture; requiring both makes the transcript a deliberate act.
+#
+# Audit has no -WhatIf (plain [CmdletBinding()]), so unlike Deploy it does not need
+# -WhatIf:$false here. The Test-Path confirmation still applies and is NOT optional: success
+# must never be inferred from the absence of an exception.
+#
+# POC-3: a nested Start-Transcript is harmless, so there is deliberately no "is a transcript
+# already running" pre-check.
+if ($script:DiagnosticsEnabled -and $EnableVerbose -and $EnableDebug -and $script:DebugFolderPath) {
+    $transcriptStamp = Get-Date -Format 'MMddyy-HHmmss'
+    $candidateTranscript = Join-Path $script:DebugFolderPath "Audit-TierModel.transcript.$transcriptStamp.log"
+    try {
+        Start-Transcript -Path $candidateTranscript -Force -ErrorAction Stop | Out-Null
+    }
+    catch {
+        Write-Warning "Could not start diagnostics transcript: $($_.Exception.Message)"
+    }
+    if (Test-Path -LiteralPath $candidateTranscript) {
+        $script:TranscriptPath = $candidateTranscript
+        $script:TranscriptStarted = $true
+        Write-Host "Diagnostics transcript: $script:TranscriptPath" -ForegroundColor Gray
+        Write-Host "  WARNING: the transcript is an UNREDACTED capture of this console session." -ForegroundColor Yellow
+        Write-Host "  Review it for host names, account names and other environment detail before sharing it." -ForegroundColor Yellow
+        Write-Host "  If this run is interrupted with Ctrl-C the transcript is left open and keeps capturing" -ForegroundColor Yellow
+        Write-Host "  until the console exits; close it with Stop-Transcript if that happens." -ForegroundColor Yellow
+    }
+    else {
+        # Diagnostics are best-effort: warn and carry on, never abort the audit.
+        Write-Warning "Diagnostics transcript was not created; continuing without one."
+    }
+}
 
 # Validate prerequisites
 Write-Host "Validating prerequisites..." -ForegroundColor Cyan
 try {
-    $prereqResult = Test-TierModelPrerequisites -PreferredDc $PreferredDc -SkipRootCanonicalCheck
+    # DependenciesPath must be absolute: the module default is CWD-relative, so the audit would
+    # otherwise fail to start whenever it is launched from any directory but its own.
+    $prereqResult = Test-TierModelPrerequisites -PreferredDc $PreferredDc -SkipRootCanonicalCheck -DependenciesPath (Join-Path $PSScriptRoot 'config\dependencies.json')
     
     # Handle array results
     if ($prereqResult -is [array] -and $prereqResult.Count -gt 0) {
@@ -247,6 +741,9 @@ try {
         $ffRemediation = @()
         if ($prereqResult -and $prereqResult.Remediation) { $ffRemediation = @($prereqResult.Remediation) }
         Write-TierModelFailFast -Message $ffMessages -Remediation $ffRemediation
+        # WI-16: offer the diagnostics re-run, then stop the transcript ONLY if we started it.
+        Write-TierModelDiagnosticsHint
+        Stop-TierModelDiagnosticsTranscript
         exit 1
     }
     
@@ -254,6 +751,9 @@ try {
 }
 catch {
     Write-Host "Error running prerequisites check: $($_.Exception.Message)" -ForegroundColor Red
+    # WI-16: offer the diagnostics re-run, then stop the transcript ONLY if we started it.
+    Write-TierModelDiagnosticsHint
+    Stop-TierModelDiagnosticsTranscript
     exit 1
 }
 
@@ -267,6 +767,10 @@ $auditSummary = @{
     OrphanedGpoLinkCount = 0
     SecurityDeltaCount = 0
     ErrorCount = 0
+    # Every key consumed by the report/XML/log MUST be initialized here. Under
+    # Set-StrictMode -Version Latest a missing hashtable key throws on read, so an
+    # uninitialized key would take down report generation on the scopes that never set it.
+    UnverifiedCount = 0
 }
 $driftFindings = @()
 $selectedScope = if ($OuOnly) { 'OuOnly' } elseif ($GroupOnly) { 'GroupOnly' } elseif ($UserOnly) { 'UserOnly' } elseif ($GposOnly) { 'GposOnly' } elseif ($OuAclsOnly) { 'OuAclsOnly' } elseif ($AdmxOnly) { 'AdmxOnly' } else { 'FullDeployment' }
@@ -278,6 +782,9 @@ try {
     Write-Host "Configuration loaded successfully." -ForegroundColor Green
 } catch {
     Write-Host "Failed to load configuration: $($_.Exception.Message)" -ForegroundColor Red
+    # WI-16: offer the diagnostics re-run, then stop the transcript ONLY if we started it.
+    Write-TierModelDiagnosticsHint
+    Stop-TierModelDiagnosticsTranscript
     exit 1
 }
 
@@ -349,15 +856,31 @@ function Invoke-OuAudit {
         Write-Host "  Total Checked: $($audit.Summary.TotalChecked)" -ForegroundColor Gray
         Write-Host "  Missing: $($audit.Summary.MissingCount)" -ForegroundColor Red
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
+        # FINAL-3: surface the unverified count here too. Without it the operator sees
+        # Missing 0 / Mismatched 0 / Total Drift 1 and has no way to reconcile the numbers.
+        # Read defensively: Summary is a hashtable from Test-TierModelOu but callers may
+        # supply a PSCustomObject, and Set-StrictMode -Version Latest throws on a missing
+        # property. An absent count means "not reported", which is 0 unverified.
+        $unverifiedCount = 0
+        if ($audit.Summary -is [System.Collections.IDictionary]) {
+            if ($audit.Summary.Contains('UnverifiedCount')) { $unverifiedCount = [int]$audit.Summary['UnverifiedCount'] }
+        } elseif ($audit.Summary.PSObject.Properties.Name -contains 'UnverifiedCount') {
+            $unverifiedCount = [int]$audit.Summary.UnverifiedCount
+        }
+        Write-Host "  Unverified (read failures): $unverifiedCount" -ForegroundColor $(if ($unverifiedCount -eq 0) { 'Gray' } else { 'Red' })
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage
-        $compliancePercentage = if ($audit.Summary.TotalChecked -gt 0) {
-            [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+        # Calculate and display compliance percentage.
+        # FINAL-1: zero checks is NOT 100% compliant - it is unknown. Likewise, if the audit
+        # raised errors then the checks that did run are not a complete picture, so a
+        # percentage over them would overstate what we actually know. Both cases print N/A.
+        $complianceUnknown = ($audit.Summary.TotalChecked -le 0) -or ($audit.Errors.Count -gt 0)
+        if ($complianceUnknown) {
+            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
         } else {
-            100
+            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         }
-        Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -378,7 +901,13 @@ function Invoke-OuAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            Write-Host "  ✅ All OUs match configuration expectations." -ForegroundColor Green
+            # FINAL-2: no drift findings is only good news if the audit actually completed.
+            # A total failure produces zero findings because nothing ever ran.
+            if ($audit.Errors.Count -gt 0) {
+                Write-Host "  ⚠️  OU compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
+            } else {
+                Write-Host "  ✅ All OUs match configuration expectations." -ForegroundColor Green
+            }
         }
         Write-Host "" # Blank line before script completion message
     }
@@ -412,13 +941,13 @@ function Invoke-GroupAudit {
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage
-        $compliancePercentage = if ($audit.Summary.TotalChecked -gt 0) {
-            [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+        # Calculate and display compliance percentage (same rule as Invoke-OuAudit)
+        if ($audit.Summary.TotalChecked -le 0 -or $audit.Errors.Count -gt 0) {
+            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
         } else {
-            100
+            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         }
-        Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -439,7 +968,12 @@ function Invoke-GroupAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            Write-Host "  ✅ All Groups match configuration expectations." -ForegroundColor Green
+            # Zero findings is only good news if the audit completed (see FINAL-2).
+            if ($audit.Errors.Count -gt 0) {
+                Write-Host "  ⚠️  Group compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
+            } else {
+                Write-Host "  ✅ All Groups match configuration expectations." -ForegroundColor Green
+            }
         }
         Write-Host "" # Blank line before script completion message
     }
@@ -473,13 +1007,13 @@ function Invoke-UserAudit {
         Write-Host "  Mismatched: $($audit.Summary.MismatchCount)" -ForegroundColor Yellow
         Write-Host "  Total Drift: $($audit.Summary.DriftCount)" -ForegroundColor $(if ($audit.Summary.DriftCount -eq 0) { 'Green' } else { 'Red' })
         
-        # Calculate and display compliance percentage
-        $compliancePercentage = if ($audit.Summary.TotalChecked -gt 0) {
-            [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+        # Calculate and display compliance percentage (same rule as Invoke-OuAudit)
+        if ($audit.Summary.TotalChecked -le 0 -or $audit.Errors.Count -gt 0) {
+            Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
         } else {
-            100
+            $compliancePercentage = [math]::Round((($audit.Summary.TotalChecked - $audit.Summary.DriftCount) / $audit.Summary.TotalChecked) * 100, 2)
+            Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         }
-        Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
         Write-Host "" # Blank line for spacing
         
         if ($audit.Warnings.Count -gt 0) {
@@ -500,7 +1034,12 @@ function Invoke-UserAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            Write-Host "  ✅ All Users match configuration expectations." -ForegroundColor Green
+            # Zero findings is only good news if the audit completed (see FINAL-2).
+            if ($audit.Errors.Count -gt 0) {
+                Write-Host "  ⚠️  User compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
+            } else {
+                Write-Host "  ✅ All Users match configuration expectations." -ForegroundColor Green
+            }
         }
         Write-Host "" # Blank line before script completion message
     }
@@ -532,7 +1071,20 @@ function Invoke-OuAclAudit {
     
     # Add entity type to audit result for consolidated reporting
     $audit | Add-Member -NotePropertyName 'EntityType' -NotePropertyValue 'OU ACL' -Force
-    
+
+    $ouAclDriftFindings = @()
+    if (($audit.PSObject.Properties.Name -contains 'Findings') -and $audit.Findings) {
+        $ouAclDriftFindings = @($audit.Findings | ForEach-Object {
+            [PSCustomObject]@{
+                Type         = if ($_.Type -eq 'Missing' -or $_.Type -eq 'Mismatch') { $_.Type } else { 'Error' }
+                ResourceType = $_.ResourceType
+                Identifier   = $_.Identifier
+                Details      = $_.Details
+            }
+        })
+    }
+    $audit | Add-Member -NotePropertyName 'DriftFindings' -NotePropertyValue $ouAclDriftFindings -Force
+
     return $audit
 }
 
@@ -568,8 +1120,19 @@ function Invoke-GpoAudit {
         )
         Write-Host "" # Blank line for spacing
         
-        # Display findings if any
-        if ($audit.Findings.Count -gt 0) {
+        # Display findings if any.
+        # Read defensively: the wholesale-failure shape returned by Test-TierModelGPOAudit
+        # has no Findings property at all, and Set-StrictMode -Version Latest throws on a
+        # missing property.
+        $gpoErrorCount = 0
+        if (($audit.PSObject.Properties.Name -contains 'Errors') -and $audit.Errors) {
+            $gpoErrorCount = @($audit.Errors).Count
+        }
+        $gpoFindingCount = 0
+        if (($audit.PSObject.Properties.Name -contains 'Findings') -and $audit.Findings) {
+            $gpoFindingCount = @($audit.Findings).Count
+        }
+        if ($gpoFindingCount -gt 0) {
             Write-Host "GPO Audit Findings:" -ForegroundColor Yellow
             $audit.Findings | ForEach-Object {
                 $color = switch ($_.Type) {
@@ -581,7 +1144,12 @@ function Invoke-GpoAudit {
                 Write-Host "  [$($_.Type)] $($_.GpoName): $($_.Message)" -ForegroundColor $color
             }
         } else {
-            Write-Host "  ✅ All GPOs match configuration expectations." -ForegroundColor Green
+            # Zero findings is only good news if the audit completed (see FINAL-2).
+            if ($gpoErrorCount -gt 0) {
+                Write-Host "  ⚠️  GPO compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
+            } else {
+                Write-Host "  ✅ All GPOs match configuration expectations." -ForegroundColor Green
+            }
         }
         Write-Host "" # Blank line before script completion message
     }
@@ -616,8 +1184,29 @@ function Invoke-CanonicalAclAudit {
     $ouPresent          = 0   # Tier OUs that were found in AD and had their DACL checked
     $totalOuConfigured  = $Config.organizationUnits.Count
 
-    # Resolve domain DN once for placeholder substitution
-    $domainDn = (Get-ADDomain -Server $DomainController).DistinguishedName
+    # Resolve domain DN once for placeholder substitution.
+    # There is no legitimate "not found" case and no graceful fallback: a $null domain DN would turn
+    # every downstream placeholder substitution into a garbage DN and the audit would report a
+    # confident, wrong verdict. Both callers wrap this in try/catch, so later phases still run.
+    try {
+        $domainDn = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DistinguishedName
+    }
+    catch {
+        $message = "Failed to resolve the domain distinguished name from '$DomainController': $($_.Exception.Message)"
+        Write-TierModelLog -Level 'Error' -Message $message -Data @{
+            LogCode          = 'AuditDomainDnResolutionFailed'
+            DomainController = $DomainController
+        }
+        throw $message
+    }
+    if ([string]::IsNullOrWhiteSpace($domainDn)) {
+        $message = "Resolved an empty domain distinguished name from '$DomainController'. Cannot substitute OU placeholders."
+        Write-TierModelLog -Level 'Error' -Message $message -Data @{
+            LogCode          = 'AuditDomainDnResolutionFailed'
+            DomainController = $DomainController
+        }
+        throw $message
+    }
 
     # --- Domain root check (Case 1) ---
     try {
@@ -682,10 +1271,12 @@ function Invoke-CanonicalAclAudit {
 
     $durationMs = [long](New-TimeSpan -Start $startTime -End (Get-Date)).TotalMilliseconds
 
-    # Console summary — explicit breakdown so "Total Checked" is never ambiguous
-    $compliancePct = if ($totalChecked -gt 0) {
-        [math]::Round(($compliant / $totalChecked) * 100, 2)
-    } else { 100 }
+    # Console summary — explicit breakdown so "Total Checked" is never ambiguous.
+    # Same rule as Invoke-OuAudit: zero checks or any error means compliance is unknown,
+    # not 100%. (This site uses $compliancePct, which is why it was missed in the first
+    # catalogue of the 'else { 100 }' pattern.)
+    $complianceUnknown = ($totalChecked -le 0) -or ($errors -gt 0)
+    $compliancePct = if ($complianceUnknown) { 0 } else { [math]::Round(($compliant / $totalChecked) * 100, 2) }
 
     Write-Host ""
     Write-Host "Canonical ACL Audit Summary:" -ForegroundColor White
@@ -694,7 +1285,11 @@ function Invoke-CanonicalAclAudit {
     Write-Host "  Compliant: $compliant" -ForegroundColor Gray
     Write-Host "  Non-Canonical (Drift): $mismatched" -ForegroundColor $(if ($mismatched -eq 0) { 'Green' } else { 'Yellow' })
     Write-Host "  Errors: $errors" -ForegroundColor $(if ($errors -eq 0) { 'Gray' } else { 'Red' })
-    Write-Host "  Compliance: $compliancePct% (of checked objects)" -ForegroundColor $(if ($compliancePct -ge 90) { 'Green' } elseif ($compliancePct -ge 70) { 'Yellow' } else { 'Red' })
+    if ($complianceUnknown) {
+        Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
+    } else {
+        Write-Host "  Compliance: $compliancePct% (of checked objects)" -ForegroundColor $(if ($compliancePct -ge 90) { 'Green' } elseif ($compliancePct -ge 70) { 'Yellow' } else { 'Red' })
+    }
     Write-Host ""
 
     foreach ($f in $findings) {
@@ -763,7 +1358,13 @@ if ($FullDeployment) {
             $auditResults += $canonicalWrapped
         }
     } catch {
+        # NON-BLOCKING-5: the hard-stop inside Invoke-CanonicalAclAudit is correct — the phase
+        # must fail loudly rather than return a partial verdict — but catching it here without
+        # touching the verdict made the whole canonical-ACL phase silently vanish from the
+        # summary. A phase that did not run is not a phase that passed.
+        $auditSummary.ErrorCount++
         Write-Host "  Warning: Canonical ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  The canonical ACL phase did NOT complete - its compliance is UNKNOWN, not compliant." -ForegroundColor Yellow
     }
 
     # Phase 2: Groups
@@ -1035,11 +1636,31 @@ if ($FullDeployment) {
         try { return [int]$current } catch { return 0 }
     }
     
+    # Presence and value readers that work for BOTH Summary representations
+    # (hashtable from Test-TierModelOu/Group/User, PSCustomObject from the ACL family).
+    # Presence must be distinguishable from a zero VALUE: "this producer publishes no drift
+    # total at all" and "this producer published a drift total of 0" require opposite
+    # treatment below, and Get-SafePropertyValue collapses them both to 0.
+    function Test-SummaryKey($summary, [string]$key) {
+        if ($null -eq $summary) { return $false }
+        if ($summary -is [System.Collections.IDictionary]) { return $summary.Contains($key) }
+        return ($summary.PSObject.Properties.Name -contains $key)
+    }
+
+    function Get-SummaryCount($summary, [string]$key) {
+        if (-not (Test-SummaryKey $summary $key)) { return 0 }
+        $raw = if ($summary -is [System.Collections.IDictionary]) { $summary[$key] } else { $summary.$key }
+        if ($null -eq $raw) { return 0 }
+        if ($raw -is [array] -or $raw -is [System.Collections.ICollection]) { return $raw.Count }
+        try { return [int]$raw } catch { return 0 }
+    }
+
     # Calculate totals handling different property names across entity types
     $totalChecked = 0
     $totalDrift = 0
     $totalMissing = 0
     $totalMismatched = 0
+    $totalUnverified = 0
     $totalErrors = 0
     
     foreach ($result in $auditResults) {
@@ -1091,25 +1712,38 @@ if ($FullDeployment) {
         }
         
         # Handle different drift property names - use safe property access for both hashtables and PSObjects
-        if ($result.Summary -is [hashtable]) {
-            $totalDrift += if ($result.Summary.ContainsKey('Drift')) { $result.Summary['Drift'] } else { 0 }
-            $totalDrift += if ($result.Summary.ContainsKey('DriftCount')) { $result.Summary['DriftCount'] } else { 0 }
-            $totalMissing += if ($result.Summary.ContainsKey('Missing')) { $result.Summary['Missing'] } else { 0 }
-            $totalMismatched += if ($result.Summary.ContainsKey('Mismatched')) { $result.Summary['Mismatched'] } else { 0 }
-        } else {
-            $totalDrift += Get-SafePropertyValue $result 'Summary.Drift'
-            $totalDrift += Get-SafePropertyValue $result 'Summary.DriftCount'
-            $totalMissing += Get-SafePropertyValue $result 'Summary.Missing'
-            $totalMismatched += Get-SafePropertyValue $result 'Summary.Mismatched'
+        $entityMissing    = (Get-SummaryCount $result.Summary 'Missing')    + (Get-SummaryCount $result.Summary 'MissingCount')
+        $entityMismatched = (Get-SummaryCount $result.Summary 'Mismatched') + (Get-SummaryCount $result.Summary 'MismatchCount')
+        $entityUnverified = Get-SummaryCount $result.Summary 'UnverifiedCount'
+
+        $totalMissing    += $entityMissing
+        $totalMismatched += $entityMismatched
+        $totalUnverified += $entityUnverified
+
+        # No producer publishes both spellings of the drift total (AST-verified), so preferring
+        # 'Drift' over 'DriftCount' matches today's behaviour and cannot double-count if a
+        # future shape carries both.
+        if (Test-SummaryKey $result.Summary 'Drift') {
+            $totalDrift += Get-SummaryCount $result.Summary 'Drift'
+        }
+        elseif (Test-SummaryKey $result.Summary 'DriftCount') {
+            $totalDrift += Get-SummaryCount $result.Summary 'DriftCount'
+        }
+        else {
+            $totalDrift += $entityMissing + $entityMismatched + $entityUnverified
         }
         
-        # Handle different error property names - use safe property access for both hashtables and PSObjects
-        if ($result.Summary -is [hashtable]) {
-            $totalErrors += if ($result.Summary.ContainsKey('Errors')) { $result.Summary['Errors'] } else { 0 }
+        # Handle different error property names - use safe property access for both hashtables and PSObjects.
+        # Summary.Errors (a count) and the top-level Errors collection are two representations
+        # of the SAME error set - several entity types emit both. Summing them double-counts,
+        # so take whichever reports more rather than adding them together.
+        $summaryErrorCount = if ($result.Summary -is [hashtable]) {
+            if ($result.Summary.ContainsKey('Errors')) { [int]$result.Summary['Errors'] } else { 0 }
         } else {
-            $totalErrors += Get-SafePropertyValue $result 'Summary.Errors'
+            [int](Get-SafePropertyValue $result 'Summary.Errors')
         }
-        $totalErrors += Get-SafePropertyValue $result 'Errors'
+        $topLevelErrorCount = [int](Get-SafePropertyValue $result 'Errors')
+        $totalErrors += [Math]::Max($summaryErrorCount, $topLevelErrorCount)
         
         # Handle findings-based errors
         if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
@@ -1123,29 +1757,46 @@ if ($FullDeployment) {
         }
     }
     
-    # Calculate total drift from missing + mismatched (prioritize new structure)
-    if ($totalMissing -gt 0 -or $totalMismatched -gt 0) {
-        $totalDrift = $totalMissing + $totalMismatched
+    # $totalDrift is accumulated per result in the loop above, honouring each producer's own drift
+    # total when it publishes one. Do NOT recompute it globally from Missing/Mismatched/Unverified:
+    # the producers fall into two disjoint families and any single formula silently drops one of
+    # them. If a producer's own drift total is wrong, fix the producer.
+
+    # $auditSummary.ErrorCount holds increments from phases that THREW and therefore never reached
+    # $auditResults, so $totalErrors cannot see them. Folded into $totalErrors itself, not into a
+    # display-only variable, so the verdict and the compliance line below both consult it. A run
+    # whose phase died has not established compliance and must never render green.
+    $totalErrors += $auditSummary.ErrorCount
+
+    # TRUE-FINAL-2: the headline verdict must consult $totalErrors. A run that errored has
+    # not established compliance - "could not determine" is a third state, distinct from
+    # both COMPLIANT and DRIFT, and must never render green.
+    if ($totalErrors -gt 0) {
+        Write-Host "Overall Audit Status: ⚠️  COMPLIANCE COULD NOT BE FULLY DETERMINED ($totalErrors error(s))" -ForegroundColor Red
+    } else {
+        Write-Host "Overall Audit Status: $(if ($totalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $totalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($totalDrift -eq 0) { 'Green' } else { 'Red' })
     }
-    
-    Write-Host "Overall Audit Status: $(if ($totalDrift -eq 0) { '✅ COMPLIANT' } else { "❌ $totalDrift DRIFT ITEMS" })" -ForegroundColor $(if ($totalDrift -eq 0) { 'Green' } else { 'Red' })
     Write-Host "Overall Summary:" -ForegroundColor White
     Write-Host "  Total Checked: $totalChecked" -ForegroundColor Gray
     Write-Host "  Missing: $totalMissing" -ForegroundColor Red
     Write-Host "  Mismatched: $totalMismatched" -ForegroundColor Yellow
+    Write-Host "  Unverified (read failures): $totalUnverified" -ForegroundColor $(if ($totalUnverified -eq 0) { 'Gray' } else { 'Red' })
     Write-Host "  Total Drift: $totalDrift" -ForegroundColor $(if ($totalDrift -eq 0) { 'Green' } else { 'Red' })
     Write-Host "  Total Errors: $totalErrors" -ForegroundColor Red
     
-    # Calculate and display compliance percentage
-    $compliancePercentage = if ($totalChecked -gt 0) {
-        [math]::Round((($totalChecked - $totalDrift) / $totalChecked) * 100, 2)
+    # Calculate and display compliance percentage (see FINAL-1 in Invoke-OuAudit)
+    if ($totalChecked -le 0 -or $totalErrors -gt 0) {
+        Write-Host "  Compliance: N/A (could not be determined)" -ForegroundColor Red
     } else {
-        100
+        $compliancePercentage = [math]::Round((($totalChecked - $totalDrift) / $totalChecked) * 100, 2)
+        Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
     }
-    Write-Host "  Compliance: $compliancePercentage%" -ForegroundColor $(if ($compliancePercentage -ge 90) { 'Green' } elseif ($compliancePercentage -ge 70) { 'Yellow' } else { 'Red' })
     Write-Host "" # Blank line after compliance
     
     # Show per-entity breakdown
+    # Accumulator for the report/Json/Html consumers. It MUST live outside the loop -
+    # the per-entity scratch list below is reset on every iteration.
+    $consolidatedDriftFindings = @()
     foreach ($result in $auditResults) {
         # Skip results that lack a Summary property (defensive guard under StrictMode)
         if (-not ($result.PSObject.Properties.Name -contains 'Summary')) {
@@ -1254,22 +1905,43 @@ if ($FullDeployment) {
         Write-Host "  Checked: $entityChecked, Drift: $entityDrift, Errors: $entityErrors" -ForegroundColor Gray
         
         # Show drift findings safely
-        $driftFindings = @()
-        if ($result.PSObject.Properties.Name -contains 'DriftFindings' -and $result.DriftFindings) {
-            $driftCount = Get-SafePropertyValue $result 'DriftFindings'
-            if ($driftCount -gt 0) { 
-                $driftFindings += $result.DriftFindings 
-            }
+        # Branch, never accumulate both: Invoke-OuAclAudit publishes DriftFindings AND the raw Findings
+        # that projection was built from, so normalising both would itemise every OU ACL finding twice.
+        # Test for the property being PRESENT, not non-empty: a compliant result publishes an EMPTY
+        # DriftFindings and must stay empty rather than falling through.
+        # Everything else is routed through ConvertTo-TierModelDriftFinding rather than a wider
+        # Where-clause: it drops the compliant shapes by EXACT match and guarantees the
+        # Type/ResourceType/Identifier/Details the console block below interpolates.
+        $entityDriftFindings = @()
+        if ($result.PSObject.Properties.Name -contains 'DriftFindings') {
+            if ($result.DriftFindings) { $entityDriftFindings += @($result.DriftFindings) }
         }
-        if ($result.PSObject.Properties.Name -contains 'Findings' -and $result.Findings) {
-            $driftFromFindings = $result.Findings | Where-Object {
-                ($_.PSObject.Properties.Name -contains 'Type') -and $_.Type -eq 'Drift'
+        elseif (($result.PSObject.Properties.Name -contains 'Findings') -and $result.Findings) {
+            # The SAME -DefaultResourceType values the standalone branches pass, so the two
+            # paths cannot describe one finding differently. Inert for producers whose findings
+            # already carry a ResourceType of their own (ADMX, OU Canonical ACL) because the
+            # normaliser prefers the finding's own value; load-bearing for the rest.
+            $entityResourceType = switch ($entityType) {
+                'GPO'               { 'GPO' }
+                'MSA ACL'           { 'ACL' }
+                'gMSA ACL'          { 'ACL' }
+                'dMSA ACL'          { 'ACL' }
+                'WinLaps ACL'       { 'LapsPermission' }
+                'WinLaps Decryptor' { 'LapsDecryptor' }
+                'Domain Audit Rule' { 'DomainAuditRule' }
+                'Auth Policies'     { 'AuthPolicy' }
+                'Auth Silos'        { 'AuthSilo' }
+                'OU Canonical ACL'  { 'CanonicalAcl' }
+                default             { 'Unknown' }
             }
-            if ($driftFromFindings) { $driftFindings += $driftFromFindings }
+            $entityDriftFindings += @($result.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType $entityResourceType)
         }
-        
-        if ($driftFindings.Count -gt 0) {
-            $driftFindings | ForEach-Object {
+
+        # Carry this entity's findings out of the loop for the report consumers.
+        $consolidatedDriftFindings += $entityDriftFindings
+
+        if ($entityDriftFindings.Count -gt 0) {
+            $entityDriftFindings | ForEach-Object {
                 $color = if ($_.Type -eq 'Missing') { 'Red' } else { 'Yellow' }
                 Write-Host "    [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
@@ -1283,6 +1955,22 @@ if ($FullDeployment) {
             }
         }
     }
+
+    # Publish the accumulated findings. The five single-entity branches below assign
+    # $driftFindings with '=' from their own result and are unaffected by this.
+    $driftFindings = $consolidatedDriftFindings
+
+    # Publish the consolidated totals into $auditSummary: the report body, the NUnit XML, the log
+    # record and the drift-triggered diagnostics hint all read it, and everything above accumulated
+    # into locals only. This must stay at the END of the consolidated block, before those consumers.
+    # ErrorCount uses '=' and NOT '+=': $totalErrors already had $auditSummary.ErrorCount folded
+    # into it above, so '+=' here would double-count every phase-level throw.
+    $auditSummary.TotalChecked    = $totalChecked
+    $auditSummary.DriftCount      = $totalDrift
+    $auditSummary.MissingCount    = $totalMissing
+    $auditSummary.MismatchCount   = $totalMismatched
+    $auditSummary.UnverifiedCount = $totalUnverified
+    $auditSummary.ErrorCount      = $totalErrors
 }
 else {
     # Single-entity operations show immediate reports
@@ -1317,7 +2005,11 @@ else {
             }
             $auditSummary.TotalChecked += $canonicalResult.TotalChecked
         } catch {
+            # NON-BLOCKING-5: see the companion catch in the full-audit path. The phase failing
+            # loudly is correct; letting it disappear from the verdict is not.
+            $auditSummary.ErrorCount++
             Write-Host "  Warning: Canonical ACL audit failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  The canonical ACL phase did NOT complete - its compliance is UNKNOWN, not compliant." -ForegroundColor Yellow
         }
     }
     if ($GroupOnly) {
@@ -1358,27 +2050,13 @@ else {
         if ($ouAclResult -and $ouAclResult.Summary) {
             $auditSummary.TotalChecked = $ouAclResult.Summary.TotalAcls
             $auditSummary.DriftCount = ($ouAclResult.Summary.Missing + $ouAclResult.Summary.Mismatched)
+            $auditSummary.MissingCount = $ouAclResult.Summary.Missing
+            $auditSummary.MismatchCount = $ouAclResult.Summary.Mismatched
             $auditSummary.ErrorCount = $ouAclResult.Summary.Errors
             $auditSummary.CompliantCount = $ouAclResult.Summary.Compliant
         }
-        if ($ouAclResult -and $ouAclResult.Findings) {
-            # Convert OU ACL findings to match expected drift findings format
-            $driftFindings = @($ouAclResult.Findings | ForEach-Object {
-                [PSCustomObject]@{
-                    Type = if ($_.Type -eq 'Drift') { 
-                        if ($_.ActualValue -eq 'Missing' -or $_.Details -like "*missing*" -or $_.Details -like "*No Access Control Entry*") { 
-                            'Missing' 
-                        } else { 
-                            'Mismatch' 
-                        }
-                    } else { 
-                        'Error' 
-                    }
-                    ResourceType = $_.ResourceType
-                    Identifier = $_.Identifier
-                    Details = $_.Details
-                }
-            })
+        if ($ouAclResult -and $ouAclResult.DriftFindings) {
+            $driftFindings = @($ouAclResult.DriftFindings)
         }
     }
     if ($GposOnly) { 
@@ -1389,18 +2067,25 @@ else {
         if ($gpoResult -and $gpoResult.Summary) {
             $auditSummary.TotalChecked = $gpoResult.Summary.TotalGpos
             $auditSummary.DriftCount = $gpoResult.Summary.Drift
+            # Test-TierModelGPOAudit names these MissingGpos/ConfigurationMismatches; they are its own
+            # mutually-exclusive failure buckets, not derived by subtraction. Summary.Drift additionally
+            # counts GPOs whose audit ERRORED, so Missing + Mismatch is legitimately LESS than Drift
+            # Findings by that error count. Do NOT close the gap - the errored GPOs are already reported in
+            # ErrorCount, and UnverifiedCount means "read failures".
+            # Both reads stay GUARDED: these keys are optional across the Summary shapes this branch must
+            # accept, and an unguarded read throws under StrictMode at report time, so a drifted run would
+            # produce no report at all.
+            $auditSummary.MissingCount = if ($gpoResult.Summary.PSObject.Properties.Name -contains 'MissingGpos') { [int]$gpoResult.Summary.MissingGpos } else { 0 }
+            $auditSummary.MismatchCount = if ($gpoResult.Summary.PSObject.Properties.Name -contains 'ConfigurationMismatches') { [int]$gpoResult.Summary.ConfigurationMismatches } else { 0 }
             $auditSummary.ErrorCount = $gpoResult.Summary.Errors
             $auditSummary.CompliantCount = $gpoResult.Summary.Compliant
         }
         if ($gpoResult -and $gpoResult.Findings) {
-            # Convert GPO findings to match expected drift findings format
-            $driftFindings = @($gpoResult.Findings | ForEach-Object {
-                [PSCustomObject]@{
-                    Type = $_.Type
-                    Identifier = $_.GpoName
-                    Details = $_.Message
-                }
-            })
+            # Routed through the shared normaliser rather than hand-building the shape.
+            # Test-TierModelGPOAudit emits Type/GpoName/Message only, which the normaliser maps
+            # to Type/Identifier/Details; -DefaultResourceType supplies the ResourceType the
+            # report requires. Using the normaliser removes the last hand-built findings shape in this file.
+            $driftFindings = @($gpoResult.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'GPO')
         }
     }
     if ($AdmxOnly) {
@@ -1410,6 +2095,20 @@ else {
         
         # Add entity type to audit result for consolidated reporting
         $admxAudit | Add-Member -NotePropertyName 'EntityType' -NotePropertyValue 'ADMX' -Force
+        
+        if ($admxAudit -and ($admxAudit.PSObject.Properties.Name -contains 'Summary') -and $admxAudit.Summary) {
+            $auditSummary.TotalChecked  = [int]$admxAudit.Summary.TotalFiles
+            $auditSummary.DriftCount    = [int]$admxAudit.Summary.Drift
+            # The console reports ADMX drift as "Mismatched" with Missing pinned at 0.
+            $auditSummary.MismatchCount = [int]$admxAudit.Summary.Drift
+            if ($admxAudit.Summary.PSObject.Properties.Name -contains 'Errors') {
+                $auditSummary.ErrorCount += [int]$admxAudit.Summary.Errors
+            }
+        }
+
+        if ($admxAudit -and ($admxAudit.PSObject.Properties.Name -contains 'Findings') -and $admxAudit.Findings) {
+            $driftFindings = @($admxAudit.Findings | ConvertTo-TierModelDriftFinding)
+        }
         
         Write-Host "" # Blank line for spacing
         # Display audit summary with consistent format
@@ -1438,7 +2137,17 @@ else {
                 Write-Host "  [$($_.Type)] $($_.ResourceType)/$($_.FileName): $($_.Message)" -ForegroundColor $color
             }
         } else {
-            Write-Host "  ✅ All ADMX/ADML files match configuration expectations." -ForegroundColor Green
+            # Zero findings is only good news if the audit completed (see FINAL-2).
+            # Test-TierModelAdmx reports failure as Summary.Errors, an int on both shapes.
+            $admxErrorCount = 0
+            if ($admxAudit.Summary.PSObject.Properties.Name -contains 'Errors') {
+                $admxErrorCount = [int]$admxAudit.Summary.Errors
+            }
+            if ($admxErrorCount -gt 0) {
+                Write-Host "  ⚠️  ADMX/ADML compliance could NOT be determined - the audit reported errors." -ForegroundColor Red
+            } else {
+                Write-Host "  ✅ All ADMX/ADML files match configuration expectations." -ForegroundColor Green
+            }
         }
         Write-Host "" # Blank line before script completion message
     }
@@ -1476,7 +2185,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     
     # Run prerequisites with Include switches
     Write-Host "Validating prerequisites..." -ForegroundColor Yellow
-    $prereqSplat = @{ PreferredDc = $PreferredDc }
+    # DependenciesPath must be absolute: the module default is CWD-relative, so the audit would
+    # otherwise fail to start whenever it is launched from any directory but its own.
+    $prereqSplat = @{
+        PreferredDc      = $PreferredDc
+        DependenciesPath = (Join-Path $PSScriptRoot 'config\dependencies.json')
+    }
     if ($IncludeMsa) { $prereqSplat['IncludeMsa'] = $true }
     if ($IncludeGmsa) { $prereqSplat['IncludeGmsa'] = $true }
     if ($IncludeDmsa) { $prereqSplat['IncludeDmsa'] = $true }
@@ -1494,6 +2208,30 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     $standaloneTotalChecked = 0
     $standaloneTotalDrift = 0
     $standaloneTotalErrors = 0
+    # Every producer on this path publishes the breakdown - Missing plus either Mismatched or
+    # NonCompliant - accumulated in step with $standaloneTotalDrift so the two cannot drift apart.
+    # Test-TierModelWinLapsDecryptor is the exception: it defines Drift as Missing + Mismatched +
+    # Errors, so when it errors Missing + Mismatch is legitimately LESS than Drift Findings by that
+    # error count. Do NOT close the gap - those errors are already carried in ErrorCount, and
+    # UnverifiedCount means "read failures".
+    $standaloneTotalMissing = 0
+    $standaloneTotalMismatched = 0
+    # Guarded reader: these are flat result objects under Set-StrictMode -Version Latest, and
+    # two of the eight (AuthPolicy/AuthSilo) name the mismatch bucket 'NonCompliant'. Returns a
+    # value rather than mutating an outer variable - a '+=' inside a nested function writes a
+    # NEW LOCAL and silently discards the result.
+    function Get-StandaloneBreakdownCount($auditObject, [string[]]$names) {
+        if ($null -eq $auditObject) { return 0 }
+        foreach ($n in $names) {
+            if ($auditObject.PSObject.Properties.Name -contains $n) {
+                $raw = $auditObject.$n
+                if ($null -eq $raw) { return 0 }
+                try { return [int]$raw } catch { return 0 }
+            }
+        }
+        return 0
+    }
+    $standaloneFindings = @()
     
     if ($IncludeMsa) {
         try {
@@ -1501,7 +2239,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($msaAudit) {
                 $standaloneTotalChecked += $msaAudit.TotalChecked
                 $standaloneTotalDrift += $msaAudit.Drift
+                # Accumulate the breakdown in step with the total.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $msaAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $msaAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors += $msaAudit.Errors
+                # Capture findings, not just counts.
+                if (($msaAudit.PSObject.Properties.Name -contains 'Findings') -and $msaAudit.Findings) { $standaloneFindings += @($msaAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL') }
             }
         } catch {
             Write-Host "  ❌ MSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1514,7 +2257,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($gmsaAudit) {
                 $standaloneTotalChecked += $gmsaAudit.TotalChecked
                 $standaloneTotalDrift += $gmsaAudit.Drift
+                # Accumulate the breakdown in step with the total.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $gmsaAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $gmsaAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors += $gmsaAudit.Errors
+                # Capture findings, not just counts.
+                if (($gmsaAudit.PSObject.Properties.Name -contains 'Findings') -and $gmsaAudit.Findings) { $standaloneFindings += @($gmsaAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL') }
             }
         } catch {
             Write-Host "  ❌ gMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1527,7 +2275,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($dmsaAudit) {
                 $standaloneTotalChecked += $dmsaAudit.TotalChecked
                 $standaloneTotalDrift += $dmsaAudit.Drift
+                # Accumulate the breakdown in step with the total.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $dmsaAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $dmsaAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors += $dmsaAudit.Errors
+                # Capture findings, not just counts.
+                if (($dmsaAudit.PSObject.Properties.Name -contains 'Findings') -and $dmsaAudit.Findings) { $standaloneFindings += @($dmsaAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'ACL') }
             }
         } catch {
             Write-Host "  ❌ dMSA ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1540,7 +2293,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($winLapsAclAudit) {
                 $standaloneTotalChecked += $winLapsAclAudit.TotalChecked
                 $standaloneTotalDrift   += $winLapsAclAudit.Drift
+                # Accumulate the breakdown in step with the total.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $winLapsAclAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $winLapsAclAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors  += $winLapsAclAudit.Errors
+                # Capture findings, not just counts.
+                if (($winLapsAclAudit.PSObject.Properties.Name -contains 'Findings') -and $winLapsAclAudit.Findings) { $standaloneFindings += @($winLapsAclAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'LapsPermission') }
             }
         } catch {
             Write-Host "  ❌ WinLaps ACL audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1550,7 +2308,14 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($winLapsDecryptorAudit) {
                 $standaloneTotalChecked += $winLapsDecryptorAudit.TotalChecked
                 $standaloneTotalDrift   += $winLapsDecryptorAudit.Drift
+                # Accumulate the breakdown in step with the total. This is the one
+                # producer whose Drift also includes its error count, so Missing + Mismatch can
+                # be less than Drift here by exactly that many - see the note at the declaration.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $winLapsDecryptorAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $winLapsDecryptorAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors  += $winLapsDecryptorAudit.Errors
+                # Capture findings, not just counts.
+                if (($winLapsDecryptorAudit.PSObject.Properties.Name -contains 'Findings') -and $winLapsDecryptorAudit.Findings) { $standaloneFindings += @($winLapsDecryptorAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'LapsDecryptor') }
             }
         } catch {
             Write-Host "  ❌ WinLaps Decryptor audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1563,7 +2328,12 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($auditRuleAudit) {
                 $standaloneTotalChecked += $auditRuleAudit.TotalChecked
                 $standaloneTotalDrift   += $auditRuleAudit.Drift
+                # Accumulate the breakdown in step with the total.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $auditRuleAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $auditRuleAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors  += $auditRuleAudit.Errors
+                # Capture findings, not just counts.
+                if (($auditRuleAudit.PSObject.Properties.Name -contains 'Findings') -and $auditRuleAudit.Findings) { $standaloneFindings += @($auditRuleAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'DomainAuditRule') }
             }
         } catch {
             Write-Host "  ❌ Domain Audit Rule audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1577,7 +2347,13 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($authPoliciesStandaloneAudit) {
                 $standaloneTotalChecked += $authPoliciesStandaloneAudit.TotalChecked
                 $standaloneTotalDrift   += $authPoliciesStandaloneAudit.Drift
+                # Accumulate the breakdown in step with the total. This producer names
+                # its mismatch bucket 'NonCompliant'.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $authPoliciesStandaloneAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $authPoliciesStandaloneAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors  += $authPoliciesStandaloneAudit.Errors
+                # Capture findings, not just counts.
+                if (($authPoliciesStandaloneAudit.PSObject.Properties.Name -contains 'Findings') -and $authPoliciesStandaloneAudit.Findings) { $standaloneFindings += @($authPoliciesStandaloneAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'AuthPolicy') }
             }
         } catch {
             Write-Host "  ❌ Auth Policy audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1587,7 +2363,13 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
             if ($authSilosStandaloneAudit) {
                 $standaloneTotalChecked += $authSilosStandaloneAudit.TotalChecked
                 $standaloneTotalDrift   += $authSilosStandaloneAudit.Drift
+                # Accumulate the breakdown in step with the total. This producer names
+                # its mismatch bucket 'NonCompliant'.
+                $standaloneTotalMissing += Get-StandaloneBreakdownCount $authSilosStandaloneAudit @('Missing')
+                $standaloneTotalMismatched += Get-StandaloneBreakdownCount $authSilosStandaloneAudit @('Mismatched','NonCompliant')
                 $standaloneTotalErrors  += $authSilosStandaloneAudit.Errors
+                # Capture findings, not just counts.
+                if (($authSilosStandaloneAudit.PSObject.Properties.Name -contains 'Findings') -and $authSilosStandaloneAudit.Findings) { $standaloneFindings += @($authSilosStandaloneAudit.Findings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'AuthSilo') }
             }
         } catch {
             Write-Host "  ❌ Auth Silo audit failed: $($_.Exception.Message)" -ForegroundColor Red
@@ -1599,6 +2381,20 @@ if ($activeScopeCount -eq 0 -and $activeIncludeCount -gt 0) {
     Write-Host "  Total Checked: $standaloneTotalChecked" -ForegroundColor White
     Write-Host "  Total Drift: $standaloneTotalDrift" -ForegroundColor $(if ($standaloneTotalDrift -gt 0) { 'Red' } else { 'Green' })
     Write-Host "  Total Errors: $standaloneTotalErrors" -ForegroundColor $(if ($standaloneTotalErrors -gt 0) { 'Red' } else { 'Green' })
+
+    $auditSummary.TotalChecked = $standaloneTotalChecked
+    $auditSummary.DriftCount   = $standaloneTotalDrift
+    $auditSummary.MissingCount  = $standaloneTotalMissing
+    $auditSummary.MismatchCount = $standaloneTotalMismatched
+    $auditSummary.ErrorCount  += $standaloneTotalErrors
+
+    # Already normalised at the eight append sites above, where each producer supplies its own
+    # -DefaultResourceType. Normalising once here could only pass a single default, so the three
+    # producers that emit no ResourceType would all render as 'Unknown/<name>'. Plain assignment -
+    # do not re-pipe it through the normaliser.
+    if ($standaloneFindings.Count -gt 0) {
+        $driftFindings = @($standaloneFindings)
+    }
 }
 
 # Generate output file if requested
@@ -1612,21 +2408,44 @@ if ($OutputFormat -and $OutputFileBase) {
         'NUnitXml' { '.xml' }
     }
     
-    # Use LogPath directory if provided, otherwise use current directory
+    # NON-BLOCKING-6: derive the report path from the SAME resolved base as the log file and the
+    # Debug\ folder, so the .PARAMETER LogPath promise that all three land together actually holds
+    # for a relative -LogPath. And confirm the directory with Test-Path instead of announcing it
+    # for a relative -LogPath. And confirm the directory with Test-Path instead of announcing it
+    # unconditionally. Audit has no -WhatIf (plain [CmdletBinding()]), so unlike Deploy this
+    # New-Item needs no -WhatIf:$false; the confirmation is still required.
     $outputFileName = "$OutputFileBase-$timestamp$extension"
     if ($LogPath) {
-        # Ensure the directory exists
-        if (-not (Test-Path $LogPath)) {
-            New-Item -Path $LogPath -ItemType Directory -Force | Out-Null
-            Write-Host "Created output directory: $LogPath" -ForegroundColor Gray
+        $outputDirectory = if ($script:LogDirectory) {
+            $script:LogDirectory
+        } else {
+            $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
         }
-        $outputPath = Join-Path $LogPath $outputFileName
+        if (-not (Test-Path -LiteralPath $outputDirectory)) {
+            try {
+                New-Item -Path $outputDirectory -ItemType Directory -Force | Out-Null
+            }
+            catch {
+                Write-Warning "Could not create output directory '$outputDirectory': $($_.Exception.Message)"
+            }
+            if (Test-Path -LiteralPath $outputDirectory) {
+                Write-Host "Created output directory: $outputDirectory" -ForegroundColor Gray
+            }
+            else {
+                Write-Warning "Output directory '$outputDirectory' does not exist and could not be created; the report may fail to save."
+            }
+        }
+        $outputPath = Join-Path $outputDirectory $outputFileName
     } else {
         $outputPath = $outputFileName
     }
     
     Write-Host "Generating audit report: $outputPath" -ForegroundColor Cyan
     
+    # The FINDINGS list below MUST be joined explicitly. A subexpression that yields an array
+    # inside an expandable string is flattened using $OFS, which defaults to a single SPACE, so
+    # every finding lands on ONE physical line that no line-based tool can parse. Do not
+    # "simplify" the -join away.
     $reportContent = switch ($OutputFormat) {
         'Text' {
             @"
@@ -1641,11 +2460,13 @@ Drift Findings: $($auditSummary.DriftCount)
 - Missing: $($auditSummary.MissingCount)
 - Unexpected: $($auditSummary.UnexpectedCount)
 - Mismatch: $($auditSummary.MismatchCount)
+- Unverified (read failures): $($auditSummary.UnverifiedCount)
 - Orphaned GPO Links: $($auditSummary.OrphanedGpoLinkCount)
 - Security Deltas: $($auditSummary.SecurityDeltaCount)
+Errors: $($auditSummary.ErrorCount)
 
 === FINDINGS ===
-$(if ($driftFindings.Count -eq 0) { "No drift detected - configuration matches AD state" } else { $driftFindings | ForEach-Object { "[$($_.Type)] $($_.ResourceType)/$($_.Identifier): $($_.Details)" } })
+$(if ($driftFindings.Count -eq 0) { "No drift detected - configuration matches AD state" } else { ($driftFindings | ForEach-Object { "[$($_.Type)] $($_.ResourceType)/$($_.Identifier): $($_.Details)" }) -join [Environment]::NewLine })
 "@
         }
         'Json' {
@@ -1674,5 +2495,29 @@ $(if ($driftFindings.Count -eq 0) { "No drift detected - configuration matches A
     Write-Host "Report saved: $outputResult" -ForegroundColor Cyan
 }
 
+if ($Logging -and $script:LogFilePath) {
+    Write-TierModelLog -LogPath $script:LogFilePath -Level 'Info' -Message "TierModel audit completed" -Data @{
+        TotalChecked = $auditSummary.TotalChecked
+        DriftCount   = $auditSummary.DriftCount
+        # An operator's log that omits errors and unverified reads loses exactly the
+        # signal that distinguishes "compliant" from "could not be determined".
+        ErrorCount      = $auditSummary.ErrorCount
+        UnverifiedCount = $auditSummary.UnverifiedCount
+    }
+    Write-Host "Log file saved: $script:LogFilePath" -ForegroundColor Gray
+}
+
 Write-Host "" # Blank line before completion message
 Write-Host "Audit script completed." -ForegroundColor Green
+
+# NON-BLOCKING-4: mirror Deploy's tail hint. An audit that finishes with drift or with phase
+# errors is exactly when the operator wants the diagnostics re-run line; previously Audit's tail
+# offered none, so only Deploy did. Self-suppressing when both switches are already on.
+if ($auditSummary.DriftCount -gt 0 -or $auditSummary.ErrorCount -gt 0) {
+    Write-TierModelDiagnosticsHint
+}
+
+# WI-16: final guarded stop. Printed last so the transcript path is the last thing the operator
+# sees. Guarded by $script:TranscriptStarted, which whichever exit path ran first has already
+# cleared, so this can never stop a transcript we do not own.
+Stop-TierModelDiagnosticsTranscript

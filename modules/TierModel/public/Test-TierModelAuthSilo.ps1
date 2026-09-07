@@ -177,6 +177,9 @@ function Test-TierModelAuthSilo {
                     # Attempt a friendly display name lookup
                     $sam = $null
                     try {
+                        # SilentlyContinue is INTENTIONAL here. This lookup is cosmetic only - it
+                        # resolves a friendly display name for an issue message and falls back to the raw
+                        # DN. It never affects the audit verdict. Do not change to Stop.
                         $obj = Get-ADObject -Identity $dn -Properties SamAccountName -Server $DomainController -ErrorAction SilentlyContinue
                         $sam = $obj.SamAccountName
                     } catch {}
@@ -195,6 +198,9 @@ function Test-TierModelAuthSilo {
                 foreach ($dn in $extraMembers) {
                     $sam = $null
                     try {
+                        # SilentlyContinue is INTENTIONAL here. This lookup is cosmetic only - it
+                        # resolves a friendly display name for an issue message and falls back to the raw
+                        # DN. It never affects the audit verdict. Do not change to Stop.
                         $obj = Get-ADObject -Identity $dn -Properties SamAccountName -Server $DomainController -ErrorAction SilentlyContinue
                         $sam = $obj.SamAccountName
                     } catch {}

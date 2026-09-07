@@ -49,7 +49,16 @@ function Get-TierModelAdmx {
     
     try {
         # Get domain information for SYSVOL path resolution
-        $domain = (Get-ADDomain -Server $DomainController).DNSRoot
+        try {
+            $domain = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DNSRoot
+        } catch {
+            Write-TierModelLog -Level Error -Message "Failed to read domain information" -Data @{
+                DomainController = $DomainController
+                Error            = $_.Exception.Message
+                CorrelationId    = $CorrelationId
+            } | Out-Null
+            throw "Failed to read domain information from '$DomainController': $($_.Exception.Message)"
+        }
         Write-TierModelLog -Level Info -Message "Domain information retrieved" -Data @{ Domain = $domain; DomainController = $DomainController } | Out-Null
         
         # Load ADMX and ADML configurations

@@ -81,7 +81,7 @@ function Resolve-TierModelPrincipalSid {
         if ($Principal -ieq "Administrator") {
             try {
                 # Get the domain SID from specified domain controller
-                $domainSid = ConvertTo-TierModelSidString -InputSid (Get-ADDomain -Server $DomainController).DomainSID -Context "the domain SID of '$DomainController'"
+                $domainSid = ConvertTo-TierModelSidString -InputSid (Get-ADDomain -Server $DomainController -ErrorAction Stop).DomainSID -Context "the domain SID of '$DomainController'"
                 
                 # Build the Administrator SID (RID 500)
                 $adminSid = "$domainSid-500"
@@ -466,11 +466,15 @@ function Resolve-ADPrincipalSid {
         # Try generic AD object search
         $adObject = $null
         try {
-            $adObject = Get-ADObject -Filter "Name -eq '$Principal' -or SamAccountName -eq '$Principal'" -Properties objectSid -Server $DomainController | Select-Object -First 1
+            $adObject = Get-ADObject -Filter "Name -eq '$Principal' -or SamAccountName -eq '$Principal'" -Properties objectSid -Server $DomainController -ErrorAction Stop | Select-Object -First 1
         }
         catch {
-            # Generic search also failed
-            $adObject = $null
+            # Do NOT add a not-found heuristic here. Get-ADObject -Filter has no not-found
+            # case - a filter that matches nothing returns an EMPTY RESULT SET, never an
+            # exception - so every exception reaching this catch is a genuine read failure.
+            # Re-throw to the outer handler, which returns Source='ADError'. The real
+            # not-found path still falls through to Source='NotFound'.
+            throw
         }
 
         if ($adObject -and $adObject.objectSid) {

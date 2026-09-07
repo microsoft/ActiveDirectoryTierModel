@@ -95,7 +95,11 @@ function Get-TierModelGpo {
         }
         
         # Get domain DN for placeholder replacement
-        $domainDN = (Get-ADDomain -Server $DomainController).DistinguishedName
+        try {
+            $domainDN = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DistinguishedName
+        } catch {
+            throw "Failed to resolve domain DN from '$DomainController' - GPO plan cannot be generated: $($_.Exception.Message)"
+        }
         
         # Check if GPOs are configured
         if ($Config.PSObject.Properties['gpos']) {
@@ -183,6 +187,10 @@ function Get-TierModelGpo {
                             
                             # First try direct name lookup
                             try {
+                                # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                                # case for a direct-name lookup during planning, and it is not the final word: the
+                                # rename-key wildcard search below re-checks with -ErrorAction Stop and records a
+                                # real plan error if the domain cannot be enumerated. Do not change to Stop.
                                 $existingGPO = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                             } catch {
                                 # GPO doesn't exist with direct name, try rename key if present
@@ -192,7 +200,7 @@ function Get-TierModelGpo {
                             if (-not $existingGPO -and $gpo.PSObject.Properties.Name -contains 'rename') {
                                 try {
                                     $renamePattern = $gpo.rename
-                                    $allGPOs = @(Get-GPO -All -Server $DomainController)
+                                    $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                                     
                                     # Try direct pattern match first
                                     $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })
@@ -209,7 +217,20 @@ function Get-TierModelGpo {
                                         $actualGpoName = $existingGPO.DisplayName
                                     }
                                 } catch {
-                                    # Wildcard search failed, GPO doesn't exist
+                                    # A genuine enumeration failure is NOT "the GPO does not exist". Get-GPO -All
+                                    # has no not-found case - an empty domain returns an EMPTY COLLECTION, never an
+                                    # exception - so every exception reaching this catch is a genuine read failure
+                                    # and must be logged and warned. Do NOT add a not-found heuristic here: Get-GPO
+                                    # throws ArgumentException for an unreachable or invalid -Server, so classifying
+                                    # ArgumentException as "not found" would silently plan a create for a GPO that
+                                    # already exists. Log-then-continue is deliberate and has a regression test;
+                                    # converting it to a throw would break deployment planning.
+                                    Write-TierModelLog -Level Error -Message "GPO rename search failed - existence could not be determined" -Data @{
+                                        GPOName          = $gpoName
+                                        DomainController = $DomainController
+                                        Error            = $_.Exception.Message
+                                    } | Out-Null
+                                    Write-Warning "Could not enumerate GPOs on '$DomainController' while checking whether GPO '$gpoName' already exists - existence could NOT be determined: $($_.Exception.Message). Planning will continue and may plan a create for a GPO that already exists."
                                 }
                             }
                             
@@ -354,6 +375,9 @@ function Get-TierModelGpo {
                                 $gpoLinked = $false
                                 try {
                                     # Check if GPO is linked to this OU
+                                    # SilentlyContinue is INTENTIONAL here. The target OU may not exist yet -
+                                    # it is created in an earlier deployment phase - so an unreadable inheritance state
+                                    # must not block planning the link. Deliberately permissive. Do not change to Stop.
                                     $links = Get-GPInheritance -Target $resolvedOUPath -Server $DomainController -ErrorAction SilentlyContinue
                                     if ($links -and $links.GpoLinks) {
                                         $gpoLinked = $links.GpoLinks | Where-Object { $_.DisplayName -eq $actualGpoName } | Select-Object -First 1
@@ -422,6 +446,10 @@ function Get-TierModelGpo {
                             
                             # First try direct name lookup
                             try {
+                                # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                                # case for a direct-name lookup during planning, and it is not the final word: the
+                                # rename-key wildcard search below re-checks with -ErrorAction Stop and records a
+                                # real plan error if the domain cannot be enumerated. Do not change to Stop.
                                 $existingGPO = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                             } catch {
                                 # GPO doesn't exist with direct name, try rename key if present
@@ -431,7 +459,7 @@ function Get-TierModelGpo {
                             if (-not $existingGPO -and $gpo.PSObject.Properties.Name -contains 'rename') {
                                 try {
                                     $renamePattern = $gpo.rename
-                                    $allGPOs = @(Get-GPO -All -Server $DomainController)
+                                    $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                                     
                                     # Try direct pattern match first
                                     $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })
@@ -448,7 +476,20 @@ function Get-TierModelGpo {
                                         $actualGpoName = $existingGPO.DisplayName
                                     }
                                 } catch {
-                                    # Wildcard search failed, GPO doesn't exist
+                                    # A genuine enumeration failure is NOT "the GPO does not exist". Get-GPO -All
+                                    # has no not-found case - an empty domain returns an EMPTY COLLECTION, never an
+                                    # exception - so every exception reaching this catch is a genuine read failure
+                                    # and must be logged and warned. Do NOT add a not-found heuristic here: Get-GPO
+                                    # throws ArgumentException for an unreachable or invalid -Server, so classifying
+                                    # ArgumentException as "not found" would silently plan a create for a GPO that
+                                    # already exists. Log-then-continue is deliberate and has a regression test;
+                                    # converting it to a throw would break deployment planning.
+                                    Write-TierModelLog -Level Error -Message "GPO rename search failed - existence could not be determined" -Data @{
+                                        GPOName          = $gpoName
+                                        DomainController = $DomainController
+                                        Error            = $_.Exception.Message
+                                    } | Out-Null
+                                    Write-Warning "Could not enumerate GPOs on '$DomainController' while checking whether GPO '$gpoName' already exists - existence could NOT be determined: $($_.Exception.Message). Planning will continue and may plan a create for a GPO that already exists."
                                 }
                             }
                             
@@ -606,6 +647,9 @@ function Get-TierModelGpo {
                                 $gpoLinked = $false
                                 try {
                                     # Check if GPO is linked to this OU
+                                    # SilentlyContinue is INTENTIONAL here. The target OU may not exist yet -
+                                    # it is created in an earlier deployment phase - so an unreadable inheritance state
+                                    # must not block planning the link. Deliberately permissive. Do not change to Stop.
                                     $links = Get-GPInheritance -Target $resolvedOUPath -Server $DomainController -ErrorAction SilentlyContinue
                                     if ($links -and $links.GpoLinks) {
                                         $gpoLinked = $links.GpoLinks | Where-Object { $_.DisplayName -eq $actualGpoName } | Select-Object -First 1

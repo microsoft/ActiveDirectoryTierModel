@@ -144,8 +144,20 @@ function New-TierModelOuAcl {
                                     $inheritedObjectTypeGuid = [Guid]$aclData.inheritedObjectType
                                 }
                             } catch {
-                                Write-Warning "Error resolving inheritedObjectType '$($aclData.inheritedObjectType)': $($_.Exception.Message). Using empty GUID."
-                                $inheritedObjectTypeGuid = [Guid]::Empty
+                                # Fail closed rather than falling back to [Guid]::Empty. On an
+                                # ActiveDirectoryAccessRule, an inheritedObjectType of Guid.Empty clears the
+                                # InheritedObjectAceTypePresent flag entirely, so the ACE stops being restricted to
+                                # one object class and applies to ALL of them - silently WIDENING the delegation.
+                                # Matches the established New-TierModelMsa/Gmsa/DmsaAcl behaviour.
+                                throw "Resolved inheritedObjectType GUID for '$($aclData.inheritedObjectType)' could not be determined ($($_.Exception.Message)). Aborting ACL application to prevent an over-scoped ACE."
+                            }
+
+                            # A resolution that succeeds but yields nothing widens the ACE just as surely as
+                            # one that throws - and it is not an error, so no catch can see it. 'AllObjectClasses'
+                            # resolves to an empty string by design and is rejected here for the same reason the
+                            # MSA/gMSA/dMSA paths reject it: it is not expressible as a restricted ACE.
+                            if ($inheritedObjectTypeGuid -eq [Guid]::Empty) {
+                                throw "Resolved inheritedObjectType GUID for '$($aclData.inheritedObjectType)' is null, empty, or Guid.Empty. Aborting ACL application to prevent an over-scoped ACE."
                             }
                         }
                         

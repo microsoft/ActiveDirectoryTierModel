@@ -177,7 +177,7 @@ function Test-TierModelConfig {
         }
     } else {
         $config = $Config
-        # BUG-023: Load schema for FromConfig so validation is not silently skipped.
+        # Load schema for FromConfig so validation is not silently skipped.
         # $SchemaPath is only bound for FromPath, so resolve the path explicitly here.
         $schemaPathForConfig = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config' 'tiermodel.schema.json'
         if (!(Test-Path -LiteralPath $schemaPathForConfig)) {
@@ -207,7 +207,7 @@ function Test-TierModelConfig {
         InvalidAdmxPaths = 0
     }
     
-    # Schema validation — runs for both FromPath and FromConfig (BUG-023 fix)
+    # Schema validation — runs for both FromPath and FromConfig
     if ($schema) {
         foreach ($req in $schema.required) {
             if (-not ($config.PSObject.Properties.Name -contains $req)) {

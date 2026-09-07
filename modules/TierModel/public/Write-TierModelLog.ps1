@@ -104,15 +104,29 @@ function Write-TierModelLog {
         
         if ($logFile) {
             try {
-                # Ensure directory exists
+                # Ensure directory exists.
+                # -WhatIf:$false is load-bearing, for the same reason as the Add-Content below:
+                # this is log apparatus, not a previewed change. Without it, a -WhatIf run whose
+                # log directory does not already exist has this New-Item suppressed and the
+                # Add-Content below throws. This creates a LOG directory only - it is not, and
+                # must never become, a write to Active Directory.
                 $logDir = Split-Path $logFile -Parent
                 if (-not (Test-Path $logDir)) {
-                    New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+                    New-Item -Path $logDir -ItemType Directory -Force -WhatIf:$false | Out-Null
                 }
                 
-                # Append JSON log entry
+                # Append JSON log entry.
+                # -WhatIf:$false is load-bearing here. Callers such as Deploy-TierModel.ps1 are
+                # [CmdletBinding(SupportsShouldProcess)], so under -WhatIf the inherited
+                # $WhatIfPreference suppresses this Add-Content - the ONLY write in this function -
+                # and suppression does not throw, so the catch below never fires. The log is the
+                # apparatus that RECORDS the preview, not part of the change being previewed.
+                #
+                # Scope is deliberately this call only. Do NOT set $WhatIfPreference here and do
+                # NOT put -WhatIf:$false anywhere near an AD or GroupPolicy cmdlet - that would
+                # make -WhatIf perform real directory writes.
                 $jsonEntry = $logEntry | ConvertTo-Json -Compress
-                Add-Content -Path $logFile -Value $jsonEntry -Encoding UTF8
+                Add-Content -Path $logFile -Value $jsonEntry -Encoding UTF8 -WhatIf:$false
             } catch {
                 Write-Warning "Failed to write to log file '$logFile': $($_.Exception.Message)"
             }

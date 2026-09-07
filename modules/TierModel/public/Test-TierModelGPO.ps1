@@ -84,7 +84,7 @@ function Test-TierModelGpo {
             if ($GPOConfig -and $GPOConfig.PSObject.Properties.Name -contains 'rename') {
                 try {
                     $renamePattern = "$($GPOConfig.rename)*"
-                    $allGPOs = Get-GPO -All -Server $DomainController
+                    $allGPOs = Get-GPO -All -Server $DomainController -ErrorAction Stop
                     $matchingGPOs = $allGPOs | Where-Object { $_.DisplayName -like $renamePattern }
                     if ($matchingGPOs -and @($matchingGPOs).Count -eq 1) {
                         $gpoObject = $matchingGPOs[0]
@@ -157,9 +157,9 @@ function Test-TierModelGpo {
             # Check 2: GPO Status Configuration (if provided)
             if ($GPOConfig.PSObject.Properties.Name -contains 'gpoStatus') {
                 try {
-                    $domain = Get-ADDomain -Server $DomainController
+                    $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                     $domainDN = $domain.DistinguishedName
-                    $gpoADObject = Get-ADObject -Identity "CN={$($gpoObject.Id)},CN=Policies,CN=System,$domainDN" -Properties flags -Server $DomainController
+                    $gpoADObject = Get-ADObject -Identity "CN={$($gpoObject.Id)},CN=Policies,CN=System,$domainDN" -Properties flags -Server $DomainController -ErrorAction Stop
                     $currentFlags = $gpoADObject.flags
                     $observedGpoFlags = $currentFlags
                     
@@ -179,8 +179,7 @@ function Test-TierModelGpo {
                     # flags=X will audit as a different value — unresolvable drift because
                     # re-running deploy keeps writing the wrong flags value.
                     #
-                    # Exactly 4 real .NET GpoStatus members (BUG-016: AllEnabled and
-                    # BothSettingsDisabled were invented and have been removed).
+                    # Exactly 4 real .NET GpoStatus members.
                     $validGpoStatus = [ordered]@{
                         'AllSettingsEnabled'       = 0
                         'UserSettingsDisabled'     = 1

@@ -83,6 +83,9 @@ function Get-TierModelGroupFd {
                     # Only check if group already exists in AD
                     $existingGroup = $null
                     try {
+                        # SilentlyContinue is INTENTIONAL here. "Group does not exist" is the
+                        # expected planning outcome and is exactly what drives the create plan below.
+                        # Do not change to Stop.
                         $existingGroup = Get-ADGroup -Identity $groupSamAccountName -Server $DomainController -ErrorAction SilentlyContinue
                     } catch {
                         # Group doesn't exist, which is expected for planning

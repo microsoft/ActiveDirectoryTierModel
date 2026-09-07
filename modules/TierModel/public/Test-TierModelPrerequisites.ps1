@@ -312,9 +312,9 @@ function Test-TierModelPrerequisites {
         # Authoritative membership verdict is taken from the caller's own logon token:
         # derive the Domain Admins SID from the account domain SID (RID 512) and test the
         # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
-        # immune to the class of SID-deserialization defect documented in BUG-011, where a
-        # directory-module returning string-typed SIDs caused object comparisons to fail
-        # silently. (BUG-011 is platform-dependent; not reproduced on WS2025/PS7.5.1.)
+        # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
+        # immune to the SID-deserialization defects that make object comparisons fail silently
+        # when a directory module returns string-typed SIDs.
         # It also reflects effective nested membership without a -Recursive AD query.
         # The AD-module block below still runs, but only to classify the ENVIRONMENT and to
         # select the correct remediation text - it no longer decides membership.
@@ -375,6 +375,9 @@ function Test-TierModelPrerequisites {
                     $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later).")
                 }
                 elseif (Get-Module ActiveDirectory) {
+                    # SilentlyContinue is INTENTIONAL here. The result is explicitly
+                    # null-guarded by the if below, which degrades to a warning rather than a hard
+                    # prerequisite failure. Do not change to Stop.
                     $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
 
                     if ($domainAdmins) {
@@ -399,9 +402,8 @@ function Test-TierModelPrerequisites {
                 }
             }
             catch {
-                # Surface the ACTUAL fault. Previously any exception here was relabelled as
-                # "Domain Admin membership required", so an operator saw a membership problem
-                # when the real cause was network, permissions or module load (BUG-011).
+                # Surface the ACTUAL fault. The real cause may be network, permissions or module
+                # load, and must not be relabelled as "Domain Admin membership required".
                 $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
                 $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
                 $result.Valid = $false
@@ -430,12 +432,17 @@ function Test-TierModelPrerequisites {
         # Test DNS groups presence & domain type detection
         if (Get-Module ActiveDirectory -ErrorAction SilentlyContinue) {
             try {
+                # SilentlyContinue is INTENTIONAL here. This populates a best-effort
+                # environment snapshot for diagnostics; it is null-guarded below and must never
+                # fail the prerequisite check on its own. Do not change to Stop.
                 $domain = Get-ADDomain -Server $PreferredDc -ErrorAction SilentlyContinue
                 if ($domain) {
                     $result.EnvironmentSnapshot.DomainName = $domain.DNSRoot
                     $result.EnvironmentSnapshot.DomainNetBIOSName = $domain.NetBIOSName
                     
                     # Check if this is a child domain
+                    # SilentlyContinue is INTENTIONAL here. Forest lookup is best-effort for
+                    # the diagnostic snapshot and is null-guarded below. Do not change to Stop.
                     $forest = Get-ADForest -Server $PreferredDc -ErrorAction SilentlyContinue
                     if ($forest) {
                         $isChildDomain = $domain.DNSRoot -ne $forest.RootDomain
@@ -444,6 +451,9 @@ function Test-TierModelPrerequisites {
                         
                         # Check for Enterprise Admins group (may not exist in child domains)
                         try {
+                            # SilentlyContinue is INTENTIONAL here. Enterprise Admins legitimately
+                            # does not exist in a child domain, so absence is a supported configuration, not
+                            # an error. Do not change to Stop.
                             $enterpriseAdmins = Get-ADGroup -Identity "Enterprise Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
                             $result.EnvironmentSnapshot.HasEnterpriseAdmins = [bool]$enterpriseAdmins
                         }
@@ -457,6 +467,9 @@ function Test-TierModelPrerequisites {
                         
                         # Check for DnsAdmins group (can be present in both parent and child domains or not present in either)
                         try {
+                            # SilentlyContinue is INTENTIONAL here. DnsAdmins may legitimately be
+                            # absent in either a parent or a child domain; absence is recorded as a note, not
+                            # an error. Do not change to Stop.
                             $dnsAdmins = Get-ADGroup -Identity "DnsAdmins" -Server $PreferredDc -ErrorAction SilentlyContinue
                             $result.EnvironmentSnapshot.HasDnsAdmins = [bool]$dnsAdmins
                             if ($dnsAdmins) {
@@ -722,6 +735,9 @@ function Test-TierModelPrerequisites {
                     $lapsAttributes = @('msLAPS-PasswordExpirationTime', 'msLAPS-Password', 'msLAPS-EncryptedPassword', 'msLAPS-EncryptedPasswordHistory', 'msLAPS-EncryptedDSRMPassword', 'msLAPS-EncryptedDSRMPasswordHistory')
                     $foundAttributes = @()
                     foreach ($attrName in $lapsAttributes) {
+                        # SilentlyContinue is INTENTIONAL here. This loop counts which Windows
+                        # LAPS attributes are present; a missing attribute is the measurement being taken,
+                        # not a failure. Do not change to Stop.
                         $attrObj = Get-ADObject -Filter "lDAPDisplayName -eq '$attrName'" -SearchBase $schemaDN -Server $PreferredDc -ErrorAction SilentlyContinue
                         if ($attrObj) { $foundAttributes += $attrName }
                     }

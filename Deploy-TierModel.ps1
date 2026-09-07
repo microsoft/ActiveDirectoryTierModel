@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
 Modular TierModel deployment using dedicated cmdlets per entity type.
 
@@ -135,7 +135,41 @@ If not provided, the log file is created in the current working directory.
 .PARAMETER OutputFileBase
 Base filename for generated log files (without extension or timestamp).
 The actual filename will include a timestamp suffix and appropriate extension.
-Required when -Logging is specified and no default base name has been configured.
+When -Logging is specified without it you are prompted for one; pressing Enter accepts the
+default 'Deploy-TierModel' rather than stopping the run.
+
+.PARAMETER EnableVerbose
+Enable verbose diagnostic output for troubleshooting. Console output becomes considerably
+more detailed and interleaves with the normal progress output - that is expected, and is the
+point of the switch. This switch also enables -Logging automatically, so a diagnostic run
+always leaves a log file behind; if -OutputFileBase is omitted it defaults to
+'Deploy-TierModel' without prompting, keeping a re-run copy-pasteable.
+Diagnostic switches change only what is recorded, never what is decided or written to
+Active Directory.
+
+.PARAMETER EnableDebug
+Enable debug diagnostic output for troubleshooting. As with -EnableVerbose, this also
+enables -Logging automatically and makes console output substantially more detailed.
+When -EnableVerbose and -EnableDebug are supplied together, a PowerShell transcript is
+also started in a 'Debug' folder beneath the resolved log directory, capturing the full
+console session.
+WARNING: the transcript is NOT redacted. It may contain distinguished names, SIDs, SDDL,
+group memberships and other sensitive Tier 0 detail. Review it before sharing it with
+anyone, including support.
+If a run is interrupted with Ctrl-C the transcript is left open and continues capturing
+until the console exits; run Stop-Transcript manually if that happens.
+Diagnostic switches change only what is recorded, never what is decided or written to
+Active Directory.
+
+.EXAMPLE
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly -EnableVerbose
+Plan mode with verbose diagnostics. Logging is enabled automatically and written to
+Deploy-TierModel-<timestamp>.log in the current directory.
+
+.EXAMPLE
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -EnableVerbose -EnableDebug -LogPath "C:\Logs"
+Full diagnostic escalation: verbose and debug output, automatic logging to C:\Logs, plus an
+unredacted transcript in C:\Logs\Debug. Review the transcript before sharing it.
 
 .EXAMPLE
 .\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly
@@ -164,8 +198,8 @@ Full deployment including the domain-root audit SACL. Same two-prompt confirmati
 auditing warning (Prompt 1), then deployment confirmation (Prompt 2).
 
 .NOTES
-Version: 1.3.0
-Requires: TierModel PowerShell module (v1.3.0+), PowerShell 7.0+, appropriate Active Directory
+Version: 2.1.0
+Requires: TierModel PowerShell module (v2.1.0+), PowerShell 7.0+, appropriate Active Directory
 permissions. SeSecurityPrivilege required for -EnableAuditing (Domain Admin qualifies).
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -199,7 +233,14 @@ param(
     [string]$LogPath,
     
     [Parameter()]
-    [string]$OutputFileBase
+    [string]$OutputFileBase,
+    
+    # --- Diagnostics ---
+    [Parameter()]
+    [switch]$EnableVerbose,
+    
+    [Parameter()]
+    [switch]$EnableDebug
 )
 
 Set-StrictMode -Version Latest
@@ -229,39 +270,124 @@ Write-Host "Preferred DC: $PreferredDc" -ForegroundColor DarkCyan
 # active (Include-only run) — that string never reaches Test-TierModelConfig's ValidateSet.
 $selectedScope = if ($FullDeployment) { 'FullDeployment' } elseif ($OuOnly) { 'OuOnly' } elseif ($GroupOnly) { 'GroupOnly' } elseif ($UserOnly) { 'UserOnly' } elseif ($GposOnly) { 'GposOnly' } elseif ($OuAclsOnly) { 'OuAclsOnly' } elseif ($AdmxOnly) { 'AdmxOnly' } else { $null }
 
+# --- Logging enablement -------------------------------------------------------------------
+# $script:LoggingAutoEnabled distinguishes the two ways -Logging can become active, because
+# they have different rules about prompting:
+#   explicit — the operator passed -Logging          -> prompt for a missing -OutputFileBase.
+#                                                       This is pre-existing shipped behaviour
+#                                                       and is preserved unchanged below.
+#   implicit — a diagnostics switch forced it on     -> never prompt (D8); a diagnostics
+#                                                       re-run must stay copy-pasteable and
+#                                                       runnable in a non-interactive host.
+# Mirrors the identical seam in Audit-TierModel.ps1 so that -OutputFileBase behaves the same
+# way in both scripts and an operator never has to remember which is which.
+$script:LoggingAutoEnabled = $false
+
+# --- Diagnostics resolution (WI-05) ---------------------------------------------------------
+# D8: the diagnostics switches auto-enable -Logging, so a diagnostic run always leaves a log
+# file behind. The auto-enabled path must NEVER prompt -- a diagnostics re-run has to stay
+# copy-pasteable and runnable in a non-interactive host -- so it sets $script:LoggingAutoEnabled
+# and the validation block below takes the silent-default branch instead of Read-Host.
+$script:DiagnosticsEnabled = $EnableVerbose -or $EnableDebug
+# Captured here so Write-TierModelDiagnosticsHint can rebuild the operator's exact invocation.
+# $PSBoundParameters is per-scope: inside a function it is that function's own bound parameters,
+# so the script-level set has to be stashed while we are still at script scope.
+$script:InvocationBoundParameters = $PSBoundParameters
+if ($script:DiagnosticsEnabled -and -not $Logging) {
+    $Logging = $true
+    $script:LoggingAutoEnabled = $true
+}
+
 # Validate logging parameters and prompt if needed
 if ($Logging -and -not $OutputFileBase) {
-    $OutputFileBase = Read-Host "Enter base filename for logs (timestamp and extension will be added automatically)"
-    if ([string]::IsNullOrWhiteSpace($OutputFileBase)) {
-        throw "OutputFileBase cannot be empty when Logging is enabled"
+    if ($script:LoggingAutoEnabled) {
+        $OutputFileBase = 'Deploy-TierModel'
+    }
+    else {
+        # Empty input falls back to the default; an operator pressing Enter must not stop the run.
+        $defaultOutputFileBase = 'Deploy-TierModel'
+        $OutputFileBase = Read-Host "Enter base filename for logs (timestamp and extension will be added automatically) [$defaultOutputFileBase]"
+        if ([string]::IsNullOrWhiteSpace($OutputFileBase)) {
+            $OutputFileBase = $defaultOutputFileBase
+            Write-Host "Using default base filename for logs: $OutputFileBase" -ForegroundColor DarkGray
+        }
     }
 }
 
 # Initialize logging if requested
+$script:LogDirectory = $null
 if ($Logging) {
     $timestamp = Get-Date -Format 'MMddyy-HHmm'
     $logFileName = "$OutputFileBase-$timestamp.log"
-    
-    # Use LogPath directory if provided, otherwise use current directory
+
+    # Resolve the log DIRECTORY exactly once, then derive both the log file and the Debug\
+    # folder from that single absolutised base so the two can never end up in different places.
+    #
+    # POC-6: GetUnresolvedProviderPathFromPSPath is the only correct idiom here.
+    #   Resolve-Path / Convert-Path  -> throw on a path that does not exist yet.
+    #   [System.IO.Path]::GetFullPath() -> BANNED. It resolves against the .NET process current
+    #     directory, which does NOT track PowerShell's location. With a *relative* -LogPath it
+    #     silently resolves to a different directory than PowerShell would, so the log file and
+    #     the Debug\ folder land apart. Absolute paths hide the bug, so tests miss it.
     if ($LogPath) {
-        # Ensure the directory exists
-        if (-not (Test-Path $LogPath)) {
-            New-Item -Path $LogPath -ItemType Directory -Force | Out-Null
-            Write-Host "Created log directory: $LogPath" -ForegroundColor Gray
-        }
-        $script:LogFilePath = Join-Path $LogPath $logFileName
+        $script:LogDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogPath)
     } else {
-        # Use current working directory
-        $script:LogFilePath = Join-Path (Get-Location) $logFileName
+        # No -LogPath: use the current working directory.
+        $script:LogDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath((Get-Location).Path)
     }
-    
+
+    # Deploy is [CmdletBinding(SupportsShouldProcess)], so -WhatIf suppresses New-Item. The
+    # logging/diagnostics apparatus is NOT part of the change being previewed - it is what RECORDS
+    # the preview - so it must be created for real even under -WhatIf. Success must be CONFIRMED
+    # with Test-Path, never announced unconditionally.
+    if (-not (Test-Path -LiteralPath $script:LogDirectory)) {
+        try {
+            New-Item -Path $script:LogDirectory -ItemType Directory -Force -WhatIf:$false | Out-Null
+        }
+        catch {
+            Write-Warning "Could not create log directory '$script:LogDirectory': $($_.Exception.Message)"
+        }
+        if (Test-Path -LiteralPath $script:LogDirectory) {
+            Write-Host "Created log directory: $script:LogDirectory" -ForegroundColor Gray
+        }
+        else {
+            Write-Warning "Log directory '$script:LogDirectory' does not exist and could not be created; log entries may not reach disk."
+        }
+    }
+
+    $script:LogFilePath = Join-Path $script:LogDirectory $logFileName
+
     Write-Host "Logging enabled: $script:LogFilePath" -ForegroundColor Gray
-    
-    # Initialize log file with header - Write-TierModelLog will handle file creation
-    # Just ensure the file path is valid by testing the directory
-    $logDir = Split-Path $script:LogFilePath -Parent
-    if (-not (Test-Path $logDir)) {
-        New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+
+    if ($script:LoggingAutoEnabled) {
+        Write-Host "-EnableVerbose/-EnableDebug also enabled -Logging. Log file: $script:LogFilePath" -ForegroundColor Gray
+    }
+}
+
+# --- Diagnostics folder (WI-05) -------------------------------------------------------------
+# Debug\ lives beside the resolved log file, derived from the SAME absolutised base above so a
+# relative -LogPath cannot split them. Created up front (also with -WhatIf:$false, same
+# reasoning as the log directory) so the transcript has somewhere to go. Failure to create it
+# is never fatal: diagnostics are best-effort and must not abort a deployment.
+$script:DebugFolderPath  = $null
+$script:TranscriptPath   = $null
+$script:TranscriptStarted = $false
+if ($script:DiagnosticsEnabled -and $script:LogDirectory) {
+    $candidateDebugFolder = Join-Path $script:LogDirectory 'Debug'
+    try {
+        if (-not (Test-Path -LiteralPath $candidateDebugFolder)) {
+            New-Item -Path $candidateDebugFolder -ItemType Directory -Force -WhatIf:$false | Out-Null
+        }
+    }
+    catch {
+        Write-Warning "Could not create diagnostics folder '$candidateDebugFolder': $($_.Exception.Message)"
+    }
+    if (Test-Path -LiteralPath $candidateDebugFolder) {
+        $script:DebugFolderPath = $candidateDebugFolder
+        Write-Host "Diagnostics folder: $script:DebugFolderPath" -ForegroundColor Gray
+    }
+    else {
+        Write-Warning "Diagnostics folder '$candidateDebugFolder' is unavailable; continuing without a transcript."
     }
 }
 
@@ -290,6 +416,144 @@ function Write-TierModelFailFast {
     }
     Write-Host ""
     Write-Host "Deploy script completed." -ForegroundColor Green
+
+    try {
+        # StrictMode: $script:LogFilePath is not yet DECLARED at the PowerShell-version gate, so
+        # it must be probed rather than read. Get-Variable avoids the strict-mode throw.
+        $ffLogPath = $null
+        $ffLogVar = Get-Variable -Name 'LogFilePath' -Scope Script -ErrorAction SilentlyContinue
+        if ($ffLogVar) { $ffLogPath = $ffLogVar.Value }
+
+        if ($ffLogPath) {
+            $ffMessage = 'FAIL-FAST (terminal): ' + ((@($Message) | Where-Object { $_ }) -join ' ')
+            $ffData = @{
+                FailFast       = $true
+                Terminal       = $true
+                Script         = 'Deploy-TierModel.ps1'
+                ConsoleMessage = @($Message)
+                Remediation    = @($Remediation)
+            }
+
+            if (Get-Command -Name 'Write-TierModelLog' -ErrorAction SilentlyContinue) {
+                Write-TierModelLog -LogPath $ffLogPath -Level 'Error' -Message $ffMessage -Data $ffData
+            }
+            else {
+                # The PowerShell-version gate fires BEFORE Import-Module, so the logger does not
+                # exist yet. Emit the identical JSON record directly rather than lose the failure.
+                $ffEntry = [PSCustomObject]@{
+                    Timestamp     = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss.fffZ')
+                    Level         = 'Error'
+                    Message       = $ffMessage
+                    Data          = $ffData
+                    CorrelationId = [Guid]::NewGuid().ToString()
+                }
+                $ffDir = Split-Path -Path $ffLogPath -Parent
+                if ($ffDir -and -not (Test-Path -LiteralPath $ffDir)) {
+                    New-Item -Path $ffDir -ItemType Directory -Force -WhatIf:$false | Out-Null
+                }
+                Add-Content -Path $ffLogPath -Value ($ffEntry | ConvertTo-Json -Compress -Depth 5) -Encoding UTF8 -WhatIf:$false
+            }
+        }
+    }
+    catch {
+        # A failure while REPORTING a failure must never become the operator's error.
+        Write-Warning "Fail-fast details could not be written to the log: $($_.Exception.Message)"
+    }
+}
+
+function Stop-TierModelDiagnosticsTranscript {
+    <#
+    .SYNOPSIS
+    Stops the diagnostics transcript, but ONLY if this script started it.
+    .DESCRIPTION
+    ⛔ NEVER call Stop-Transcript unguarded. POC-3 inverted our original assumption: a *nested*
+    Start-Transcript is harmless, but an unpaired Stop is not. If our Start-Transcript failed
+    (for example under -WhatIf, where it silently creates nothing) while the OPERATOR'S OWN
+    transcript is running, a bare Stop-Transcript SUCCEEDS and stops theirs — silently
+    destroying their change record. Nothing throws, so a try/catch cannot save you.
+
+    $script:TranscriptStarted is therefore load-bearing: it is set only after Test-Path has
+    CONFIRMED that our transcript file exists, and it is the sole authority for whether we are
+    allowed to stop anything. The flag is cleared afterwards so a second exit path cannot stop
+    a transcript we no longer own.
+
+    This is WI-08 "Option A": a guarded stop at each normal exit path (completion, throw, exit).
+    ⚠️ KNOWN GAP (Ctrl-C): after a genuine Ctrl-C the transcript is left open and keeps
+    capturing until the console exits. Closing that gap needs a try/finally around the whole
+    2,000-line script body, which POC-9 eliminated the need for elsewhere and which is not worth
+    the review cost; the trade is with Joel. If Option B is ever chosen, the only change needed
+    is to wrap the script body and call this function from the finally — every call site below
+    stays exactly as it is.
+    #>
+    if (-not $script:TranscriptStarted) { return }
+    $script:TranscriptStarted = $false
+    try {
+        Stop-Transcript | Out-Null
+    }
+    catch {
+        # Stop-Transcript throws when no transcript is running. Nothing actionable — we are on
+        # an exit path and the transcript content is already on disk.
+    }
+    if ($script:TranscriptPath) {
+        Write-Host "Diagnostics transcript written: $script:TranscriptPath" -ForegroundColor Gray
+    }
+}
+
+function Write-TierModelDiagnosticsHint {
+    <#
+    .SYNOPSIS
+    Prints a copy-pasteable re-run line that adds -EnableVerbose -EnableDebug (WI-09).
+    .DESCRIPTION
+    Reconstructs the operator's actual invocation from the bound parameters captured at script
+    start, then appends the two diagnostics switches. The result must be literally pasteable and
+    non-interactive — which is why the auto-enable path never prompts for -OutputFileBase.
+
+    Deliberately worded "for full diagnostics" rather than anything that implies the switches
+    will reveal the cause: they may not, and promising a cause is how an operator ends up
+    running the same failure twice and losing confidence in the tooling.
+
+    Suppressed when both switches are already active — there is nothing left to suggest.
+    #>
+    if ($EnableVerbose -and $EnableDebug) { return }
+
+    $parts = @()
+    foreach ($name in $script:InvocationBoundParameters.Keys) {
+        if ($name -in @('EnableVerbose', 'EnableDebug')) { continue }
+        $value = $script:InvocationBoundParameters[$name]
+        if ($value -is [System.Management.Automation.SwitchParameter]) {
+            if ($value.IsPresent) { $parts += "-$name" }
+            else { $parts += "-${name}:`$false" }
+        }
+        elseif ($value -is [bool]) {
+            $parts += "-${name}:`$$($value.ToString().ToLowerInvariant())"
+        }
+        elseif ($value -is [System.Array]) {
+            $parts += "-$name $((@($value) | ForEach-Object { "'$_'" }) -join ',')"
+        }
+        else {
+            $parts += "-$name '$value'"
+        }
+    }
+    # NON-BLOCKING-3: -OutputFileBase may have been supplied by a Read-Host PROMPT rather than on
+    # the command line, in which case it is absent from $PSBoundParameters. Replaying the
+    # invocation verbatim would emit -Logging with no base name; on the re-run $Logging is already
+    # $true, so $script:LoggingAutoEnabled stays $false, the silent-default branch is NOT taken,
+    # and the script hits Read-Host again — dying outright in a non-interactive host. That defeats
+    # the entire point of a copy-pasteable diagnostics line. Emit the RESOLVED value instead.
+    if (-not $script:InvocationBoundParameters.ContainsKey('OutputFileBase') -and
+        -not [string]::IsNullOrWhiteSpace($OutputFileBase)) {
+        $parts += "-OutputFileBase '$OutputFileBase'"
+    }
+
+    $parts += '-EnableVerbose'
+    $parts += '-EnableDebug'
+
+    $scriptRef = if ($PSCommandPath) { $PSCommandPath } else { '.\Deploy-TierModel.ps1' }
+
+    Write-Host ""
+    Write-Host "Re-run with the following for full diagnostics:" -ForegroundColor Yellow
+    Write-Host "  & '$scriptRef' $($parts -join ' ')" -ForegroundColor Yellow
+    Write-Host "  (writes a log file, and — with both switches — an UNREDACTED transcript under Debug\)" -ForegroundColor DarkYellow
 }
 
 function Get-TierModelAdmxFatalError {
@@ -415,6 +679,80 @@ if ($Logging -and $script:LogFilePath) {
     } $script:LogFilePath
 }
 
+# --- Diagnostics preferences (WI-06) --------------------------------------------------------
+# ORDERING IS LOAD-BEARING. These are set AFTER Import-Module, never before.
+#   POC-8: TierModel.psm1 emits Write-Verbose "Loading: <file>" per public file from inside the
+#   module body. -Verbose:$false on the import does NOT suppress those (163 records survive);
+#   only doing the import first, while VerbosePreference is still SilentlyContinue, gets it to 0.
+# Both mechanisms are required and neither replaces the other: -Verbose:$false must stay on the
+# import above, because it is what covers the four bare ActiveDirectory/GroupPolicy imports that
+# run AFTER preferences go live, which ordering alone cannot protect.
+#
+# POC-9: $script: alone reaches 0 records — module functions resolve preference variables
+# function-local -> module scope -> global, and never see the caller's script scope. So the
+# module-scope assignment via & $module { ... } is genuinely required. It reproduces $global:
+# output exactly (4 verbose / 1 debug from real TierModel functions) and, unlike $global:,
+# cannot leak into the operator's session on Ctrl-C — so no restore/finally is needed and no
+# $Original*Preference capture exists. The module-scope value does persist for the remainder of
+# the session, but both scripts Import-Module -Force at startup, which resets module scope, so
+# it self-heals between runs.
+#
+# NOTE: -Debug is NEVER forwarded as an explicit parameter to an AD or GroupPolicy cmdlet.
+# Lab-proven to throw "Object reference not set to an instance of an object" in a
+# non-interactive host. Setting the preference variable is the safe mechanism.
+if ($script:DiagnosticsEnabled) {
+    if ($EnableVerbose) { $script:VerbosePreference = 'Continue' }
+    if ($EnableDebug) { $script:DebugPreference = 'Continue' }
+
+    & $script:TierModelModule {
+        param($WantVerbose, $WantDebug)
+        if ($WantVerbose) { $script:VerbosePreference = 'Continue' }
+        if ($WantDebug) { $script:DebugPreference = 'Continue' }
+    } $EnableVerbose.IsPresent $EnableDebug.IsPresent
+
+    $enabledSwitches = @()
+    if ($EnableVerbose) { $enabledSwitches += '-EnableVerbose' }
+    if ($EnableDebug) { $enabledSwitches += '-EnableDebug' }
+    Write-Host "Diagnostics enabled: $($enabledSwitches -join ' ')" -ForegroundColor Gray
+}
+
+# --- Transcript (WI-07) ---------------------------------------------------------------------
+# A transcript is started ONLY when BOTH switches are supplied. -EnableVerbose alone is the
+# routine "show me more" case and must not produce an unredacted console capture; requiring
+# both makes the transcript a deliberate act.
+#
+# ⚠️ Under -WhatIf, Start-Transcript throws NOTHING and creates NO file (POC-2). A plain
+# try/catch therefore reports success and prints a path to a file that does not exist. Success
+# is confirmed with Test-Path and $script:TranscriptStarted is set ONLY on confirmed success.
+# Never infer success from the absence of an exception.
+# is set ONLY on confirmed success. Never infer success from the absence of an exception.
+#
+# POC-3: a nested Start-Transcript is harmless, so there is deliberately no "is a transcript
+# already running" pre-check here — an earlier version of this plan had one and it was wrong.
+if ($script:DiagnosticsEnabled -and $EnableVerbose -and $EnableDebug -and $script:DebugFolderPath) {
+    $transcriptStamp = Get-Date -Format 'MMddyy-HHmmss'
+    $candidateTranscript = Join-Path $script:DebugFolderPath "Deploy-TierModel.transcript.$transcriptStamp.log"
+    try {
+        Start-Transcript -Path $candidateTranscript -Force -WhatIf:$false -ErrorAction Stop | Out-Null
+    }
+    catch {
+        Write-Warning "Could not start diagnostics transcript: $($_.Exception.Message)"
+    }
+    if (Test-Path -LiteralPath $candidateTranscript) {
+        $script:TranscriptPath = $candidateTranscript
+        $script:TranscriptStarted = $true
+        Write-Host "Diagnostics transcript: $script:TranscriptPath" -ForegroundColor Gray
+        Write-Host "  WARNING: the transcript is an UNREDACTED capture of this console session." -ForegroundColor Yellow
+        Write-Host "  Review it for host names, account names and other environment detail before sharing it." -ForegroundColor Yellow
+        Write-Host "  If this run is interrupted with Ctrl-C the transcript is left open and keeps capturing" -ForegroundColor Yellow
+        Write-Host "  until the console exits; close it with Stop-Transcript if that happens." -ForegroundColor Yellow
+    }
+    else {
+        # Reached under -WhatIf (Start-Transcript is suppressed silently) and on any other
+        # failure. Diagnostics are best-effort: warn and carry on, never abort the deployment.
+        Write-Warning "Diagnostics transcript was not created; continuing without one."
+    }
+}
 # ── Critical pre-flight gate: dMSA Domain Functional Level ───────────────────────
 # dMSA delegation (-IncludeDmsa) has a hard dependency on a Domain Functional Level of
 # Windows Server 2025 — the dMSA schema attributes do not exist below DFL 2025. Like the
@@ -439,6 +777,8 @@ if ($IncludeDmsa) {
         ) -Remediation @(
             "Ensure all Domain Controllers in this forest are Server 2025 OS, then increase the DFL to 2025, follow all Microsoft guidance."
         )
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         return
     }
 }
@@ -462,6 +802,8 @@ if ($EnableAuditing -and $ConfirmApply) {
         Write-Host ""
         Write-Host "Deployment cancelled by user." -ForegroundColor Red
         Write-Host "Run without -ConfirmApply to see the deployment plan first." -ForegroundColor Cyan
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         exit 0
     }
 
@@ -482,6 +824,8 @@ if ($ConfirmApply) {
         Write-Host ""
         Write-Host "Deployment cancelled by user." -ForegroundColor Red
         Write-Host "Run without -ConfirmApply to see the deployment plan first." -ForegroundColor Cyan
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         exit 0
     }
     
@@ -530,6 +874,10 @@ try {
         $ffRemediation = @()
         if ($prereqResult -and $prereqResult.Remediation) { $ffRemediation = @($prereqResult.Remediation) }
         Write-TierModelFailFast -Message $ffMessages -Remediation $ffRemediation
+        # WI-09: suppressed automatically when both switches are already active.
+        Write-TierModelDiagnosticsHint
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         exit 1
     }
     
@@ -543,6 +891,10 @@ catch {
     if ($Logging) {
         Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Prerequisites check failed: $($_.Exception.Message)"
     }
+    # WI-09: suppressed automatically when both switches are already active.
+    Write-TierModelDiagnosticsHint
+    # WI-08: guarded — stops the transcript only if THIS script started it.
+    Stop-TierModelDiagnosticsTranscript
     exit 1
 }
 
@@ -560,6 +912,10 @@ try {
     if ($Logging) {
         Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Failed to load configuration: $($_.Exception.Message)"
     }
+    # WI-09: suppressed automatically when both switches are already active.
+    Write-TierModelDiagnosticsHint
+    # WI-08: guarded — stops the transcript only if THIS script started it.
+    Stop-TierModelDiagnosticsTranscript
     exit 1
 }
 
@@ -594,6 +950,10 @@ if ($null -eq $selectedScope) {
         if ($Logging) {
             Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Configuration validation threw: $($_.Exception.Message)" -Data @{ Scope = $selectedScope }
         }
+        # WI-09: suppressed automatically when both switches are already active.
+        Write-TierModelDiagnosticsHint
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         exit 1
     }
     if ($configValidation.Errors.Count -gt 0) {
@@ -601,6 +961,10 @@ if ($null -eq $selectedScope) {
         if ($Logging) {
             Write-TierModelLog -LogPath $script:LogFilePath -Level 'Error' -Message "Configuration validation failed" -Data @{ Scope = $selectedScope; Errors = $configValidation.Errors }
         }
+        # WI-09: suppressed automatically when both switches are already active.
+        Write-TierModelDiagnosticsHint
+        # WI-08: guarded — stops the transcript only if THIS script started it.
+        Stop-TierModelDiagnosticsTranscript
         exit 1
     }
     if ($configValidation.Warnings.Count -gt 0) {
@@ -1385,6 +1749,8 @@ function Invoke-GpoDeployment {
         }
         if (-not $Silent -and $plan -and $plan.Errors -and $plan.Errors.Count -gt 0) {
             Write-Host "GPO planning failed - check logs for details." -ForegroundColor Red
+            # WI-09: suppressed automatically when both switches are already active.
+            Write-TierModelDiagnosticsHint
         } elseif (-not $Silent -and $plan -and $plan.Actions -and $plan.Actions.Count -eq 0) {
             Write-Host "No GPO changes needed - all GPOs already configured and linked." -ForegroundColor Green
         }
@@ -2180,6 +2546,10 @@ if ($FullDeployment) {
                 Write-Host "  - Do NOT modify live/production OUs outside an approved change window; confirm with the audit script." -ForegroundColor Yellow
                 Write-Host ""
                 Write-Host "Deploy script completed." -ForegroundColor Green
+                # WI-09: suppressed automatically when both switches are already active.
+                Write-TierModelDiagnosticsHint
+                # WI-08: guarded — stops the transcript only if THIS script started it.
+                Stop-TierModelDiagnosticsTranscript
                 exit 1
             }
         }
@@ -3233,3 +3603,14 @@ if ($Logging) {
     }
     Write-Host "Log file saved: $script:LogFilePath" -ForegroundColor Gray
 }
+
+# WI-09: offer the diagnostics re-run only when the run did not fully succeed. Suppressed
+# automatically when both switches are already on.
+if ($script:DeploymentBlocked) {
+    Write-TierModelDiagnosticsHint
+}
+
+# WI-08: final guarded stop. Printed last so the transcript path is the last thing the operator
+# sees. Guarded by $script:TranscriptStarted, which is cleared by whichever exit path ran first,
+# so this can never stop a transcript we do not own.
+Stop-TierModelDiagnosticsTranscript

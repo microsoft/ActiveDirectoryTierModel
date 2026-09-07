@@ -67,6 +67,9 @@ function Get-TierModelGpoLinkFd {
                 
                 # First try direct name lookup
                 try {
+                    # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                    # case for a direct-name lookup during planning; the rename-key wildcard search
+                    # below re-checks with -ErrorAction Stop. Do not change to Stop.
                     $gpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                 } catch {
                     # GPO doesn't exist with direct name, try rename key if present
@@ -76,7 +79,7 @@ function Get-TierModelGpoLinkFd {
                 if (-not $gpo -and $gpoData.PSObject.Properties.Name -contains 'rename') {
                     try {
                         $renamePattern = $gpoData.rename
-                        $allGPOs = @(Get-GPO -All -Server $DomainController)
+                        $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                         
                         # Try direct pattern match first
                         $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })

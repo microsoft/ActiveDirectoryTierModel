@@ -382,7 +382,9 @@ Describe "Get-TierModelOu" -Tag 'Unit', 'OU', 'Plan' {
                 )
             }
             
-            $existsCallCount = 0
+            # Must be $script: — the mock body below increments $script:existsCallCount, and
+            # under Set-StrictMode -Version Latest an uninitialised $script: variable throws.
+            $script:existsCallCount = 0
             Mock Test-TierModelOuExists {
                 $script:existsCallCount++
                 @{ Exists = ($script:existsCallCount -eq 2) } # Only OU2 exists

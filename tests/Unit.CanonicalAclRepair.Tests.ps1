@@ -30,7 +30,9 @@ Describe "Repair-TierModelCanonicalAcl — ByBytes path" -Tag 'Unit', 'Canonical
             foreach ($s in $AceSpecs) {
                 $flags = if ($s.Inherited) { [System.Security.AccessControl.AceFlags]::Inherited } `
                          else               { [System.Security.AccessControl.AceFlags]::None }
-                if ($s.IsObject) {
+                # IsObject is documented optional; read it via ContainsKey so this helper
+                # survives Set-StrictMode -Version Latest leaking in from another test file.
+                if ($s.ContainsKey('IsObject') -and $s.IsObject) {
                     $objType = [System.Security.AccessControl.ObjectAceFlags]::None
                     $ace = New-Object System.Security.AccessControl.ObjectAce(
                         $flags, $s.Qual, 0x20094, $s.Sid, $objType,

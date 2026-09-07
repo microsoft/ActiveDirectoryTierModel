@@ -92,9 +92,16 @@ function New-TierModelGPOLink {
                     
                     # Verify GPO exists
                     try {
-                        Get-GPO -Name $gpoName -Server $DomainController | Out-Null
+                        Get-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop | Out-Null
                     } catch {
-                        throw "GPO '$gpoName' not found - create GPO first"
+                        $exTypeName = $_.Exception.GetType().FullName
+                        $isNotFound = $exTypeName -like '*ADIdentityNotFoundException' -or
+                                      $_.Exception -is [System.ArgumentException] -or
+                                      $_.CategoryInfo.Category -eq 'ObjectNotFound'
+                        if ($isNotFound) {
+                            throw "GPO '$gpoName' not found - create GPO first"
+                        }
+                        throw "Failed to read GPO '$gpoName' from '$DomainController' - existence could not be determined, refusing to link: $($_.Exception.Message)"
                     }
                     
                     # Check current link state
@@ -103,7 +110,7 @@ function New-TierModelGPOLink {
                     $currentEnforced = $null
                     
                     try {
-                        $inheritance = Get-GPInheritance -Target $targetOUPath -Server $DomainController
+                        $inheritance = Get-GPInheritance -Target $targetOUPath -Server $DomainController -ErrorAction Stop
                         $existingLink = $inheritance.GpoLinks | Where-Object { $_.DisplayName -eq $gpoName }
                         
                         if ($existingLink) {

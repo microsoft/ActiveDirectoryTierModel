@@ -26,7 +26,7 @@ function Resolve-TierModelDomainDN {
     # Check cache first
     if (-not $script:CachedDomainDN -or $script:CachedDomainController -ne $DomainController) {
         try {
-            $domain = Get-ADDomain -Server $DomainController
+            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
             $script:CachedDomainDN = $domain.DistinguishedName
             $script:CachedDomainController = $DomainController
             Write-TierModelLog -Level Debug -Message "Domain DN resolved and cached" -Data @{

@@ -95,6 +95,11 @@ function Test-TierModelOuAcl {
                 
                 try {
                     # Replace placeholders in target OU path
+                    # $targetOUPath is the RESOLVED path and is what every finding emitted from
+                    # here must identify. The outer catch at the bottom of this loop is the one
+                    # exception: it deliberately keeps the RAW path, because if the resolve below
+                    # is what threw, $targetOUPath still holds the PREVIOUS iteration's value -
+                    # a silently wrong identifier is worse than a visible placeholder.
                     $targetOUPath = Resolve-TierModelPlaceholder -Path $acl.targetOUPath -DomainDN $domainDN
                     $identityReference = $acl.identityreference
                     
@@ -107,10 +112,13 @@ function Test-TierModelOuAcl {
                     } catch {
                         Write-Host "    ❌ Target OU missing" -ForegroundColor Red
                         
+                        # Emit the class this site already COUNTS. Every drift site below increments
+                        # either $missingCount or $mismatchCount, so the label and the counter cannot
+                        # disagree and the report never has to re-derive the class from prose.
                         $findings += [PSCustomObject]@{
-                            Type = 'Drift'
+                            Type = 'Missing'
                             ResourceType = 'ACL'
-                            Identifier = "$identityReference → $($acl.targetOUPath)"
+                            Identifier = "$identityReference → $targetOUPath"
                             Property = 'TargetOU'
                             ExpectedValue = $targetOUPath
                             ActualValue = 'Not Found'
@@ -138,10 +146,11 @@ function Test-TierModelOuAcl {
                                 # Identity not found
                                 Write-Host "    ❌ Identity '$identityReference' not found" -ForegroundColor Red
                                 
+                                # $missingCount++ below - so the label is 'Missing'.
                                 $findings += [PSCustomObject]@{
-                                    Type = 'Drift'
+                                    Type = 'Missing'
                                     ResourceType = 'ACL'
-                                    Identifier = "$identityReference → $($acl.targetOUPath)"
+                                    Identifier = "$identityReference → $targetOUPath"
                                     Property = 'Identity'
                                     ExpectedValue = $identityReference
                                     ActualValue = 'Not Found'
@@ -167,7 +176,7 @@ function Test-TierModelOuAcl {
                         $findings += [PSCustomObject]@{
                             Type = 'Error'
                             ResourceType = 'ACL'
-                            Identifier = "$identityReference → $($acl.targetOUPath)"
+                            Identifier = "$identityReference → $targetOUPath"
                             Property = 'ACLAccess'
                             ExpectedValue = 'Readable'
                             ActualValue = 'Access Denied'
@@ -226,6 +235,10 @@ function Test-TierModelOuAcl {
                     
                     # Resolve inheritedObjectType if present
                     $inheritedObjectTypeGuid = [Guid]::Empty
+                    # Guid.Empty is ambiguous - it is both "no class restriction, by design"
+                    # and "resolution failed". Tracked separately so a failure can never be read as
+                    # a deliberate wildcard.
+                    $inheritedObjectTypeUnresolved = $false
                     if ($acl.PSObject.Properties['inheritedObjectType'] -and -not [string]::IsNullOrEmpty($acl.inheritedObjectType)) {
                         try {
                             if (-not [System.Guid]::TryParse($acl.inheritedObjectType, [ref][System.Guid]::Empty)) {
@@ -238,6 +251,14 @@ function Test-TierModelOuAcl {
                             }
                         } catch {
                             $inheritedObjectTypeGuid = [Guid]::Empty
+                            $inheritedObjectTypeUnresolved = $true
+                            Write-TierModelLog -Level Warning -Message "inheritedObjectType GUID resolution failed - ACE scope cannot be verified" -Data @{
+                                OriginalValue     = $acl.inheritedObjectType
+                                TargetOUPath      = $targetOUPath
+                                IdentityReference = $identityReference
+                                Error             = $_.Exception.Message
+                                CorrelationId     = $CorrelationId
+                            } | Out-Null
                         }
                     }
                     
@@ -254,10 +275,11 @@ function Test-TierModelOuAcl {
                             Write-Host "    ❌ No ACE found for identity '$identityReference'" -ForegroundColor Red
                         }
                         
+                        # $missingCount++ below - so the label is 'Missing'.
                         $findings += [PSCustomObject]@{
-                            Type = 'Drift'
+                            Type = 'Missing'
                             ResourceType = 'ACL'
-                            Identifier = "$identityReference → $($acl.targetOUPath)"
+                            Identifier = "$identityReference → $targetOUPath"
                             Property = 'ACE'
                             ExpectedValue = "ACE for '$identityReference'"
                             ActualValue = 'Missing'
@@ -279,7 +301,13 @@ function Test-TierModelOuAcl {
                         $rightsMatch = ($ace.ActiveDirectoryRights -band $expectedRights) -eq $expectedRights
                         
                         # Check inherited object type GUID if present
-                        $inheritedObjectTypeMatches = if ($inheritedObjectTypeGuid -ne [Guid]::Empty) {
+                        # Fail closed: an unverifiable scope is never a match. A failed resolution would
+                        # set the EXPECTATION to Guid.Empty, which matches exactly the over-scoped ACEs a
+                        # failed resolution produces on the write path - expectation and reality widened
+                        # together, certifying an escalated delegation as compliant.
+                        $inheritedObjectTypeMatches = if ($inheritedObjectTypeUnresolved) {
+                            $false
+                        } elseif ($inheritedObjectTypeGuid -ne [Guid]::Empty) {
                             $ace.InheritedObjectType -eq $inheritedObjectTypeGuid
                         } else {
                             $ace.InheritedObjectType -eq [Guid]::Empty -or $null -eq $ace.InheritedObjectType
@@ -321,10 +349,11 @@ function Test-TierModelOuAcl {
                     } else {
                         Write-Host "    ❌ ACL Delegation DRIFT DETECTED" -ForegroundColor Red
                         
+                        # $mismatchCount++ below - so the label is 'Mismatch'.
                         $findings += [PSCustomObject]@{
-                            Type = 'Drift'
+                            Type = 'Mismatch'
                             ResourceType = 'ACL'
-                            Identifier = "$identityReference → $($acl.targetOUPath)"
+                            Identifier = "$identityReference → $targetOUPath"
                             Property = 'ACEProperties'
                             ExpectedValue = "AccessType: $expectedAccessControlType, Rights: $expectedRights, Inheritance: $expectedInheritance, ObjectType: $expectedObjectType"
                             ActualValue = $aceDetails -join '; '
@@ -405,7 +434,8 @@ function Test-TierModelOuAcl {
                 $findings | ForEach-Object {
                     $color = switch ($_.Type) {
                         'Error' { 'Red' }
-                        'Drift' { 'Yellow' }
+                        'Missing' { 'Yellow' }
+                        'Mismatch' { 'Yellow' }
                         'Warning' { 'Gray' }
                         default { 'White' }
                     }

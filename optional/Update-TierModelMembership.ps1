@@ -1036,7 +1036,15 @@ function Invoke-TierReconciliation {
     $policyDn = $null
     if ($PolicyName) {
         try {
-            $configNC = (Get-ADRootDSE -Server $script:PreferredDc).configurationNamingContext
+            # A failed RootDSE read must be distinguished from "not found": without -ErrorAction
+            # Stop it is non-terminating, $configNC becomes $null, $searchBase is malformed, and
+            # the Get-ADObject below fails - reporting a read failure as "does not exist in AD".
+            try {
+                $configNC = (Get-ADRootDSE -Server $script:PreferredDc -ErrorAction Stop).configurationNamingContext
+            }
+            catch {
+                throw "$SwitchName FAILED: Could not read the configuration naming context from '$($script:PreferredDc)'. Authentication Policy '$PolicyName' could NOT be verified (this is a directory read failure, not a missing policy). $_"
+            }
             $searchBase = "CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,$configNC"
             $policyObjs = @(Get-ADObject -Filter "name -eq '$PolicyName'" `
                 -SearchBase $searchBase `
@@ -1571,7 +1579,15 @@ function Invoke-Tier2Operators {
     # Resolve policy DN
     $policyDn = $null
     try {
-        $configNC   = (Get-ADRootDSE -Server $script:PreferredDc).configurationNamingContext
+        # A failed RootDSE read must be distinguished from "not found": without -ErrorAction
+        # Stop it is non-terminating, $configNC becomes $null, $searchBase is malformed, and
+        # the Get-ADObject below fails - reporting a read failure as "does not exist in AD".
+        try {
+            $configNC = (Get-ADRootDSE -Server $script:PreferredDc -ErrorAction Stop).configurationNamingContext
+        }
+        catch {
+            throw "$switchName FAILED: Could not read the configuration naming context from '$($script:PreferredDc)'. Authentication Policy '$policyName' could NOT be verified (this is a directory read failure, not a missing policy). $_"
+        }
         $searchBase = "CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,$configNC"
         $policyObjs = @(Get-ADObject -Filter "name -eq '$policyName'" `
             -SearchBase $searchBase `
@@ -1848,7 +1864,15 @@ function Invoke-Tier2Eud {
     # Resolve EUD policy DN
     $policyDn = $null
     try {
-        $configNC   = (Get-ADRootDSE -Server $script:PreferredDc).configurationNamingContext
+        # A failed RootDSE read must be distinguished from "not found": without -ErrorAction
+        # Stop it is non-terminating, $configNC becomes $null, $searchBase is malformed, and
+        # the Get-ADObject below fails - reporting a read failure as "does not exist in AD".
+        try {
+            $configNC = (Get-ADRootDSE -Server $script:PreferredDc -ErrorAction Stop).configurationNamingContext
+        }
+        catch {
+            throw "$switchName FAILED: Could not read the configuration naming context from '$($script:PreferredDc)'. Authentication Policy '$policyName' could NOT be verified (this is a directory read failure, not a missing policy). $_"
+        }
         $searchBase = "CN=AuthN Policies,CN=AuthN Policy Configuration,CN=Services,$configNC"
         $policyObjs = @(Get-ADObject -Filter "name -eq '$policyName'" `
             -SearchBase $searchBase `

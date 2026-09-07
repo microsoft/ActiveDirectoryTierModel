@@ -43,8 +43,21 @@ param (
 Import-Module ActiveDirectory
 
 # Get the CN and Name of the current domain
-$Domain = Get-ADDomain
+# There is no legitimate "not found" case for the current domain and no graceful fallback. A
+# $null $Domain yields an empty $DomainCN, and the redirection targets are built by string
+# interpolation, so the failure would surface only as a malformed DN handed to
+# redirusr/redircmp. Fail loudly and stop before anything is redirected.
+try {
+    $Domain = Get-ADDomain -ErrorAction Stop
+}
+catch {
+    throw "Failed to read the current Active Directory domain: $($_.Exception.Message)"
+}
+
 $DomainCN = $Domain.DistinguishedName
+if ([string]::IsNullOrWhiteSpace($DomainCN)) {
+    throw 'Get-ADDomain returned no DistinguishedName; cannot build the container redirection targets.'
+}
 
 if ($RedirectUsers) {
     # Redirecting the User Container
