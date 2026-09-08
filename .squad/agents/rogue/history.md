@@ -1707,3 +1707,112 @@ unknown, content was undamaged); the now-stale ADMX exemption in the `DriftCount
 third-state branch, which is correct but unexercised by any test; and the ruling owed on whether
 an object that could not be verified belongs in the drift bucket, the error bucket, or both —
 today it depends on which catch fires in `Test-TierModelGroup.ps1`.
+
+## Learnings
+
+### 2026-09-08 09:32 +08:00 - Rule 23 instance seven: the renderer did not listen
+
+Cyclops closed the producer sweep with "the producers are honest; the question is whether the
+reporting layer listens." It was not. `Get-TierModelFindingColor` (Audit-TierModel.ps1:407)
+classifies by severity CLASS and carries a comment block that IS the specification. Six render
+sites print `[$($_.Type)]` coloured by `$color`. Four called the classifier. Two - the GPO Audit
+Findings block and the ADMX Audit Findings block - carried their own inline `switch ($_.Type)`
+with a `default { 'Gray' }` arm. Both now call the classifier. Each site keeps its own
+Write-Host format string verbatim; only the colour computation changed.
+
+**I was asked to confirm the framing and it was half wrong, so here is the measured version.**
+I enumerated every Type both producers can emit before editing, and the honest answer is that
+neither can reach the grey arm today:
+
+- `Test-TierModelAdmx.ps1` emits exactly `Missing` (L122, L189), `Mismatch` (L147, L214) and
+  `Error` (L302, the wholesale-failure shape). `Findings` is built only at those five sites.
+  Provably closed at three values.
+- `Test-TierModelGPOAudit.ps1` L420-426 computes `Missing` / `Error` / `Mismatch` and has a
+  fourth arm, `default { 'Unknown' }`. That arm is **currently unreachable**, because
+  `OverallStatus` is set by an exhaustive if/elseif/else at L354-368 to Pass, Error or Fail, and
+  the only object initialised with `OverallStatus = 'Unknown'` (L312) is appended to
+  `$auditResults` at L371, i.e. after the assignment. A throw in between skips the append.
+
+So `MissingAcl`, `MissingAuditRule`, `Unverified` and `Failed` do **not** reach these two lists
+today - those come from the MSA/gMSA/dMSA/WinLAPS/AuthSilo producers, which render elsewhere.
+The "tool currently lies in grey" framing is not supported by the code. What IS supported: a
+developer wrote a `default { 'Unknown' }` arm in the producer expecting it to mean something,
+and the renderer would have painted it grey - the colour we have just assigned to "nothing
+configured / not checked". The fix is correct as defence-in-depth and for consistency, and it
+converts a latent lie into an impossible one, but it is not a live customer-visible defect. I
+am recording that plainly rather than inflating it to match the dispatch.
+
+**D13: five `FINAL-2` identifiers, all five stripped, explanations kept.** Verified count
+independently rather than trusting the dispatch - it was right, five. Lines 1019, 1085, 1150,
+1267, 2279 before the edit. Four were the form `(see FINAL-2).`; one, L1019, was the different
+form `# FINAL-2: no drift findings...` and needed its own replacement - a single blanket
+replace would have left it. Zero `FINAL-n`, `BUG-nnn` or `T-nnn` remain in the file.
+
+**Three tests now fail, and they are information, not damage.** In
+`Unit.AuditReporting.Tests.ps1`: "Hands the classifier result... to every converted render site"
+(L1012, expects 4 delegating sites, now 6), "Colours [Error] red at the two render sites that do
+NOT use the classifier" (L1036, expects 2 inline switches, now 0), and "Routes every
+drift-finding render through the classifier" (L1062, expects 4 call sites, now 6). Every one of
+those literals pins the pre-fix SPLIT as the specification. The behavioural assertions in the
+same tests still pass: six coloured render sites, zero exact-literal `-eq 'Missing'` rules.
+The second test is now moot by name - there are no sites that do not use the classifier. I did
+not touch them; `tests\` is not mine. Raised to the inbox for Wolverine.
+
+This is rule 22 territory as much as rule 23: `Should -Be 4` and `Should -Be 2` were derived
+numbers - consequences of how many sites happened to have been converted - written as literals.
+The invariant that survives the fix is "delegating + inline == 6 and inline == 0", not "4 and 2".
+
+**Method note, cheap and it paid.** `[string]::Replace` on the full CRLF text after asserting
+the block occurs exactly 2 times, then re-measuring bytes, BOM, bare-LF count, line count and
+parse errors. Line delta was exactly -10 (two 6-line blocks to one line each), which is the
+number I predicted before writing. Call sites counted with the AST, never grep. The classifier
+was lifted out of the shipping file via its FunctionDefinitionAst and executed against
+'Unknown' to confirm Gray became Red - executed, not read, because reading is how I got
+yesterday wrong.
+
+### 2026-09-08 10:43 +08:00 - the entry scripts are now linted, and the "one line" was not one line
+
+`Deploy-TierModel.ps1` and `Audit-TierModel.ps1` (6,276 lines of shipped orchestration, where
+most of this session's fixes landed) appeared in `ci.yml` only as `Copy-Item` lines. They are
+now analysed by the lint job. Measured against CI's real 13-entry exclude list, **read out of
+`ci.yml` by regex rather than retyped**: 0 issues, entry scripts and modules alike.
+
+**Anti-vacuity first, because a zero from a path that matched nothing is not evidence.** With no
+exclude list the same two files report 1,082 issues (691 `PSAvoidUsingWriteHost`, 384
+`PSAvoidTrailingWhitespace`, 3 `PSAvoidUsingEmptyCatchBlock`, 2
+`PSUseShouldProcessForStateChangingFunctions`, 2 `PSUseSingularNouns`) - all five rule names are
+in CI's exclude list, which is exactly why the honest total is 0. I also ran the finished step
+against an injected known-bad file and confirmed it exits 1. **The gate is green because the
+code is clean, and it is provably still able to go red.**
+
+**The dispatch said one line. It could not be one line, and finding out why was the whole job.**
+`Invoke-ScriptAnalyzer -Path` is `[string]`, not `[string[]]` - passing an array throws
+"Cannot convert System.Object[]". The obvious fix is to pipe the paths in, which *does* bind.
+**Do not do that.** Piping multiple paths with `-ExcludeRule` intermittently throws
+`Collection was modified; enumeration operation may not execute.` - it fired on 1 of 3
+identical consecutive runs. The run still reported 0 issues and **still exited 0**. That is a
+race that silently drops files from analysis and reports a pass while doing it: the same shape
+as BUG-044's confidently-empty report, in the tool we were adding to *catch* that class of bug.
+Had I written the tidy one-liner and checked it once, it would have passed and I would have
+shipped a flaky false-green.
+
+So the step now loops over three targets accumulating `$results`. That forced dropping
+`-EnableExit`, and the reason is worth keeping: **`-EnableExit` sets the exit code via
+`SetShouldExit` and does NOT halt the script** - I proved this, the statement after it ran and
+the code (466) still landed. With several invocations the LAST one wins, so a clean entry-script
+pass would have overwritten a dirty module pass with exit 0. `-EnableExit` is only safe when
+there is exactly one invocation. Replaced with an explicit `exit $results.Count`, placed after
+the `Export-Csv` so the artifact survives a failing job.
+
+**Security pass: measured, not widened, and deliberately so.** The second invocation's six
+`-IncludeRule` security rules report 2 issues on the entry scripts - both
+`PSUseShouldProcessForStateChangingFunctions` on `Stop-TierModelDiagnosticsTranscript`. Both are
+Warnings, and that job only fails on `Severity -eq 'Error'`, of which there are 0; the current
+green baseline already carries 3 hits of the identical rule. So widening it is safe by that
+job's own gate. I still did not do it: my brief said stop at any non-zero measurement, and
+release day is not when I override a safety rule on my own authority. Recommendation recorded
+for Joel. Worth noting the oddity while it is in view - that rule is *excluded* by name from the
+main lint pass and *included* by name in the security pass, so the repo currently both ignores
+and enforces it.
+
+`CodeCoverage.Path` untouched, confirmed by diff. Neither entry script was reformatted.

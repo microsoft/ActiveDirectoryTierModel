@@ -794,3 +794,144 @@ become lies when the producer changes; name them after what they actually exerci
 106. Control-proofing a colleague's file is measurement, not an edit, *if and only if* the restore is
      verified against a hash captured before mutation. Six breaks across two files Joel had SHA-verified;
      all six restored=True and `git diff --stat` still reads the +66/-10 he signed off.
+
+## 2026-09-08 09:32 - Addendum 5: the first full CI-shaped run of the session (363f93e)
+
+107. **Predicting the number before running is what makes a green run readable.** I sealed
+     1982 / 1982 pass / 87.36% in writing first, and all three landed exactly. That is only worth
+     something because the alternative - reading 1982 off the screen and calling it good - cannot
+     distinguish "the suite agrees with my model of the system" from "the suite agrees with itself".
+     The value was not the hit; it was that a MISS would have been immediately legible as a specific
+     surprise rather than as a number I would have rationalised after the fact.
+108. **The coverage figure did not measure the code this session changed.** ci.yml sets
+     CodeCoverage.Path to `modules/TierModel/*.psm1`, `modules/TierModel/public/*.ps1` and
+     `optional/Update-TierModelMembership.ps1`. Verified against the emitted JaCoCo report: 82
+     sourcefiles, and `Audit-TierModel.ps1` / `Deploy-TierModel.ps1` are ABSENT from the population.
+     Five of the six fixes this session landed in `Audit-TierModel.ps1`. So 87.36% is a true number
+     about the modules and says **literally nothing** about the changed code. This is rule 12 (state
+     the population) applied to a metric everyone quotes and nobody scopes.
+109. **A green suite is evidence about the tests, so prove the gap with a control, not a grep.**
+     I suspected two fixes were unguarded. A grep returning zero hits is exactly the unfalsifiable
+     zero rule 21 forbids. Instead I inverted the actual behaviour in a scratch copy - killed the
+     `$ErrorCount -gt 0` guard, the `$TotalChecked -le 0` guard, and BOTH verdict precedence blocks
+     (consolidated L1929 and standalone L2519) - and re-ran the full suite: **1982/1982/0, and the
+     coverage percentage did not move by a single command.** An audit that hit errors now renders
+     green, an unexamined scope now renders 100%, and nothing anywhere noticed. That is proof.
+110. **Run the positive control too, or the negative control proves nothing.** A suite that stays
+     green when you break something might simply be broken. So I also reverted the colour classifier
+     to its pre-fix exact-literal rule and disabled the MissingCount publication: **19 failures**,
+     every one naming the right test for the right reason. The negative result is only trustworthy
+     sitting next to a positive one from the same harness in the same run configuration.
+111. **`[regex]::Replace(s, pat, rep, 1)` does not replace one match.** The four-argument static
+     overload takes `RegexOptions`, so `1` silently means `IgnoreCase` and ALL matches are replaced.
+     I intended to disable one of nine MissingCount sites and disabled all nine. Caught it by
+     recounting the population before running rather than trusting the mutation had done what the
+     code said. Instrument the mutation, not just the outcome - a control you have not verified
+     APPLIED is worse than no control (rule 6).
+112. **A textual AST guard can be defeated by a longer name that contains the old one.** The guard
+     "Publishes MissingCount at every DriftCount site" did NOT fail when I renamed the key to
+     `MissingCountDISABLED`, because the substring survived. What caught the break was StrictMode
+     crashing at report time in six Integration tests. The guard is real but should match a key
+     boundary, not a substring. Low severity - a real deletion would still trip it - but recorded
+     because the test's name overstates what it verifies.
+113. **Concurrency discipline paid off silently.** Ran from `git archive HEAD` into a scratch tree
+     outside the repo, verified 817/817 files against `git ls-tree -r HEAD`, in a clean
+     `pwsh -NoProfile`. Rogue's edit to `Audit-TierModel.ps1` was live in the working tree the whole
+     time (7+/17- at the end) and could not contaminate a single number I reported. The staged file
+     hash matched pre-mutation on both restores.
+
+## 2026-09-08 09:51 - Addendum 6: wave 2, ruling on Rogue's render-census conversion
+
+114. **A test whose NAME describes a migration state will break on the system improving.** All
+     three failures were called things like "every CONVERTED render site" and "the two sites that
+     do NOT use the classifier". Those names encode a moment in a refactor, not a requirement, and
+     they went red the instant Rogue FINISHED the conversion - i.e. the assertion failed because
+     the code got more correct. That is working rule 22's tell, visible in the test name alone
+     before reading a single assertion. Accepted Rogue's ruling on all three.
+115. **The census is stronger than the literal, and I proved it rather than argued it.** Replaced
+     `delegating | Should -Be 4` with `delegating.Count | Should -Be $allColoured.Count`. Control C
+     injected a SEVENTH coloured render site carrying its own inline `switch ($_.Type)` - the exact
+     regression these tests exist to catch - and all three rewritten tests failed. So the census
+     catches the regression AND survives the legitimate conversion; the literal did the opposite.
+116. **Retuning a count to zero can silently delete a test's entire safety content.** The obvious
+     "fix" for `$switchMaps.Count | Should -Be 2` was to change the 2 to a 0. That would have gone
+     green - and the two assertions that actually mattered ('Error' -> Red, 'Missing' -> Red) lived
+     INSIDE `foreach ($map in $switchMaps)`, which iterates zero times over an empty collection.
+     Working rule 19 on the assertion side: **a green test that iterates nothing is worse than a
+     red one**, because the red one is at least still telling you something. Re-homed the content
+     onto the classifier where it still executes, and kept `Should -Be 0` as a pure ratchet.
+117. **Every census equality needs an anti-vacuity floor.** `delegating == allColoured` is trivially
+     true at 0 == 0, so a regex that quietly stops matching after a reformat turns the whole guard
+     green while proving nothing. Added `allColoured.Count | Should -BeGreaterThan 0` to both census
+     tests. This is rule 21 (state the population beside the zero) applied to an assertion.
+118. **Recount the census yourself; the brief's number was off by one in a load-bearing way.** Rogue
+     reported six render sites. There are SEVEN `[$($_.Type)]` sites - the seventh is the plain-text
+     report body, which renders no colour at all and therefore must NOT delegate. Six is right for
+     the COLOURED census and the distinction is the whole point. Pinned it explicitly as
+     `anyTypeMarker - allColoured == 1` so that if the text-report site ever gains a
+     `-ForegroundColor` it joins the population instead of slipping past as an uncounted eighth.
+119. **Rogue refusing to report an unsubstantiated severity is the behaviour to reward.** He was
+     briefed that these sites rendered `MissingAcl`/`Unverified` grey, could not substantiate it,
+     and said so. I re-verified both producers independently: `Test-TierModelAdmx` emits only
+     {Missing, Mismatch, Error}; `Test-TierModelGPOAudit`'s `default { 'Unknown' }` arm is
+     unreachable because OverallStatus is assigned by an exhaustive if/elseif/else at L356-368
+     BEFORE the append at L370. Latent, not live. He was right and the brief was half wrong.
+120. **A latent branch guarded by a non-local invariant is exactly what to write the test for.**
+     The `Unknown` arm goes live the day someone adds a fourth OverallStatus in a DIFFERENT FILE -
+     which is precisely the day nobody is looking at the render code. The existing escalation test
+     deliberately used names "unowned by any producer", so `Unknown` - the one unclassified name a
+     real producer can actually emit - was not covered. Added it with the mechanism written down.
+     Post-fix it escalates to Red, so the future change is safe by default rather than by luck.
+121. **The wave-1 gap is closed, and the proof is that the old control now fires.** Added six tests
+     pinning the verdict precedence. Re-ran the EXACT mutation that went unnoticed at 1982/1982 in
+     wave 1: it now fails 4 tests. Then refined it - the first control killed the guard outright and
+     two tests failed by DivideByZero rather than by assertion, which is rule 6's "fails for the
+     wrong reason". A gentler control that left the function runnable and merely made it print a
+     green `100%` for an empty scope produced three clean assertion failures naming the actual lie.
+     **Prefer the control that keeps the code running: a crash proves the line is load-bearing, but
+     only a wrong ANSWER proves your assertion can detect a wrong answer.**
+122. **Capturing Write-Host colour is possible and makes verdict tests real.** `Write-Host` emits an
+     InformationRecord on stream 6, and `$rec.MessageData.ForegroundColor` carries the colour. So
+     `@(Write-TierModelComplianceLine ... 6>&1)` lets a unit test assert "grey, and never green"
+     directly instead of pattern-matching source. Probed it standalone before writing any test
+     against it - never write an assertion on a mechanism you have not watched behave.
+
+## 2026-09-08 10:23 - Addendum 7: final gate, the manifest repoint, and the measured split
+
+123. **Prove a replacement assertion is stronger ON THE SAME MUTATION, not in the abstract.** For
+     the manifest repoint I removed the 2.1.0 ReleaseNotes entry from a staged psd1 and evaluated
+     BOTH patterns against that one mutated manifest: the old `Should -Match '1\.1\.0'` returned
+     True (still green, still lying) and the new ModuleVersion-derived pattern returned False. That
+     side-by-side is the whole argument, executed rather than asserted, and it took one script. A
+     claim of "strictly stronger" that is not evaluated against a shared counter-example is opinion.
+124. **A version string is not a safe regex, and three separate things had to be hardened.**
+     `Should -Match $version` with `2.1.0` treats '.' as ANY character, so it matches '2X1X0'
+     (rule 7). It also matches the version appearing anywhere in prose, so I anchored on the
+     `'<version>: '` entry format that the ReleaseNotes actually use. And '2.1.0' is a substring of
+     '12.1.0', so a negative lookbehind was needed too. Deriving a pattern from data is not
+     automatically safer than a literal - it just moves where the sloppiness can hide.
+125. **Check that every test FILE produced a container.** A .ps1 that fails to load contributes zero
+     tests and no failure - it simply vanishes from the total, and the suite still reads green. So
+     the split I reported included `32 files on disk == 32 containers reported, 0 produced no
+     container`, and the per-file totals were summed and reconciled against Pester's own
+     TotalCount (1988 == 1988) before I quoted either number. Rule 14 applied to my own report.
+126. **Answer a sequencing question by measuring both options, not by reasoning about them.** Asked
+     whether to add the entry scripts to lint now and coverage later, I ran both. Lint: **0 findings**
+     on both entry scripts under CI's exact 13-rule exclusion list - and I control-proved that zero
+     by injecting an `Invoke-Expression` into a scratch copy and watching the analyzer catch it, so
+     it is a falsifiable zero and not a path that failed to resolve. Coverage: adding both scripts
+     takes the aggregate 87.36% -> **84.22%**, still above the 80 gate. So the honest answer was
+     "do both, now, no temporary threshold" - which is not the answer I would have guessed.
+127. **The CI gate is aggregate, not per-file, and the proof was already sitting in the data.**
+     ci.yml computes one percentage from CommandsExecuted/CommandsAnalyzed across the whole
+     population. Evidence it has always been aggregate: **six files in the CURRENT population are
+     already below 80 individually** - `TierModel.psm1` at 63.6%, `Update-TierModelMembership.ps1`
+     at 59.53% - and CI has been green throughout. That also means README's "all files above 80%
+     CI gate" is false TODAY, independently of anything I changed. Before recommending a threshold
+     change, check whether the threshold works the way everyone assumes.
+128. **Published per-file coverage figures go stale silently and in the dangerous direction.** README
+     quotes `Audit-TierModel.ps1` 77.16% and `Deploy-TierModel.ps1` 81.53%. Measured today: **74.35%
+     and 71.56%.** Both fell because this session added ~1,000 lines of diagnostics to files that no
+     coverage run has ever measured. Deploy has crossed from above the gate to below it and nobody
+     could have noticed, because the number is hand-maintained prose about a file CI does not
+     measure. That is rule 13 (a register goes stale faster than the code) applied to documentation.

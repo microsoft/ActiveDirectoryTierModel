@@ -601,6 +601,8 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
                 'Get-EntityDriftTotals'
                 'Get-EntityErrorTotal'
                 'Get-TierModelFindingColor'
+                'Get-TierModelUnverifiedCount'
+                'Write-TierModelComplianceLine'
                 'ConvertTo-TierModelDriftFinding')) {
             . ([scriptblock]::Create((Get-CounterFunctionText -Name $fn)))
         }
@@ -1000,46 +1002,92 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
             }
         }
 
-        It 'Hands the classifier result, and the finding type, to every converted render site' {
+        It 'Hands the classifier result to EVERY coloured render site - a census, not a count' {
             # The classifier can be perfect and a line still print the wrong colour if a render
-            # site keeps its own colour expression. Population stated so the zero below is
-            # falsifiable: there are SIX '[$($_.Type)]' render sites coloured by $color in
-            # Audit-TierModel.ps1, of which FOUR now delegate to the classifier - the OU, Group
-            # and User single-entity reports and the consolidated per-section body.
+            # site keeps its own colour expression. This test therefore guards the render
+            # SURFACE, not the classifier.
+            #
+            # It used to read `$delegating.Count | Should -Be 4` and `$allColoured.Count |
+            # Should -Be 6`. The 6 was a census; the 4 was NOT decreed - it was a snapshot of how
+            # far the conversion had got when the test was written, which is precisely the
+            # derived-number trap of working rule 22. It duly went red the moment Rogue finished
+            # the conversion, i.e. it broke on the system being made MORE correct. A test that
+            # must be rewritten every time the system legitimately improves is charging rent.
+            #
+            # The decreed rule is the equality: every render site that colours a finding must get
+            # that colour from the classifier. Written as an equality it survives a SEVENTH
+            # render site being added correctly, and breaks the moment one is added that colours
+            # itself - which is the regression it exists to catch.
             $source = [IO.File]::ReadAllText($script:AuditScriptPath)
 
-            $delegating = @([regex]::Matches($source, '\$color\s*=\s*Get-TierModelFindingColor\s+\$_\.Type'))
-            $delegating.Count | Should -Be 4
-            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be 4
-
+            $delegating  = @([regex]::Matches($source, '\$color\s*=\s*Get-TierModelFindingColor\s+\$_\.Type'))
             $allColoured = @([regex]::Matches($source, '\[\$\(\$_\.Type\)\][^\r\n]*-ForegroundColor\s+\$color'))
-            $allColoured.Count | Should -Be 6
+
+            # ANTI-VACUITY (working rule 19): the equality below is trivially true at 0==0, so a
+            # regex that silently stops matching would turn this whole test green while proving
+            # nothing. State the population and require it to be non-empty first.
+            $allColoured.Count | Should -BeGreaterThan 0 -Because 'a census of zero render sites means the pattern broke, not that the code is clean'
+
+            $delegating.Count | Should -Be $allColoured.Count -Because 'every coloured render site must take its colour from the classifier'
+            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be $allColoured.Count
+
+            # DELIBERATE NON-MEMBER, recorded per working rule 17 so the next reader does not
+            # "fix" it: there is a SEVENTH '[$($_.Type)]' site, in the plain-text report body.
+            # It renders no colour at all, so it must NOT delegate and is correctly outside this
+            # census. Pinned so that if it ever gains a -ForegroundColor it joins the population
+            # above rather than slipping through as an eighth uncounted site.
+            $anyTypeMarker = @([regex]::Matches($source, '\[\$\(\$_\.Type\)\]'))
+            ($anyTypeMarker.Count - $allColoured.Count) | Should -Be 1 -Because 'the only uncoloured [Type] site is the plain-text report body'
 
             # No render site may reintroduce the exact-literal rule the classifier replaced.
             [regex]::Matches($source, "-eq\s+'Missing'\s*\)\s*\{\s*'Red'").Count | Should -Be 0
         }
 
-        It 'Colours [Error] red at the two render sites that do NOT use the classifier' {
-            # The GPO-audit and ADMX-audit findings blocks keep their own `switch ($_.Type)`
-            # maps. Those are the remaining two of the six sites above, and they are the ones a
-            # classifier-only assertion would miss entirely.
+        It 'Prints every real producer type that reaches the GPO and ADMX render sites in red or yellow, never grey' {
+            # SUPERSEDES 'Colours [Error] red at the two render sites that do NOT use the
+            # classifier'. That name described a migration state, and when Rogue converted the
+            # last two sites the assertion `$switchMaps.Count | Should -Be 2` went red because
+            # there were no inline maps left to find.
             #
-            # This is the [Error]-is-unverifiable-in-the-lab guard applied to the WHOLE render
-            # surface rather than to one function: whichever of the six sites a hard error
-            # arrives at, it must print red. Asserted against the shipping source because these
-            # two sites are inline switch expressions, not a callable function.
+            # The trap avoided here: simply retuning that literal from 2 to 0 would have made the
+            # test PASS while deleting its entire safety content, because the two assertions that
+            # actually mattered lived inside `foreach ($map in $switchMaps)` and a zero-length
+            # collection iterates zero times. That is working rule 19 - a filter that matches
+            # nothing raises no error and returns a confident, empty, wrong answer - and it would
+            # have been a strictly worse outcome than leaving the test red.
+            #
+            # So the ratchet is kept, and the CONTENT is re-homed onto the classifier where it
+            # still executes. The exemplars below are not invented: they are the closed emit
+            # vocabularies of the two producers that feed these render sites, enumerated from
+            # source rather than assumed.
             $source = [IO.File]::ReadAllText($script:AuditScriptPath)
 
-            $switchMaps = @([regex]::Matches(
-                $source,
-                '\$color\s*=\s*switch\s*\(\$_\.Type\)\s*\{(?<body>(?:[^{}]|\{[^{}]*\})*)\}'))
-            $switchMaps.Count | Should -Be 2
+            # RATCHET: no render site may reintroduce a local colour map.
+            @([regex]::Matches($source, '\$color\s*=\s*switch\s*\(\$_\.Type\)')).Count |
+                Should -Be 0 -Because 'a per-site colour map is how these two sites drifted from the classifier in the first place'
 
-            foreach ($map in $switchMaps) {
-                $body = $map.Groups['body'].Value
-                $body | Should -Match "'Error'\s*\{\s*'Red'\s*\}"   -Because 'a hard error must never be less salient than a mismatch'
-                $body | Should -Match "'Missing'\s*\{\s*'Red'\s*\}" -Because 'an absence is red at every render site'
+            # Test-TierModelAdmx.ps1 emits exactly these three Types (verified by enumeration:
+            # Missing at L122/L189, Mismatch at L147/L214, Error at L302 - no other Type site).
+            foreach ($type in 'Missing', 'Error') {
+                Get-TierModelFindingColor $type | Should -Be 'Red' -Because "$type reaches the ADMX render site and is not a mere mismatch"
             }
+            Get-TierModelFindingColor 'Mismatch' | Should -Be 'Yellow'
+
+            # Test-TierModelGPOAudit.ps1 derives its Type from OverallStatus:
+            #   Missing (IsMissing) / Error / Mismatch (from 'Fail') / Unknown (default arm).
+            foreach ($type in 'Missing', 'Error') {
+                Get-TierModelFindingColor $type | Should -Be 'Red'
+            }
+
+            # 'Unknown' is the important one and the reason this test still exists. It is the
+            # `default { 'Unknown' }` arm of the GPO-audit findings switch. That arm is currently
+            # UNREACHABLE - OverallStatus is assigned by an exhaustive if/elseif/else before the
+            # result is appended to the collection the findings are built from - so this is a
+            # LATENT path, guarded by a non-local invariant in a different file. It becomes live
+            # the day someone adds a fourth OverallStatus, and that is exactly the day nobody
+            # will be looking here. Escalating rather than demoting it is what makes that future
+            # change safe by default.
+            Get-TierModelFindingColor 'Unknown' | Should -Be 'Red' -Because 'the latent GPO-audit default arm must escalate, not render grey or yellow'
         }
 
         It 'Escalates an unknown or empty type rather than demoting it' {
@@ -1058,8 +1106,13 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
 
         It 'Routes every drift-finding render through the classifier, with no literal left behind' {
             # Kept as the narrow ratchet on the classifier itself; the render-surface census
-            # lives in the two tests above.
-            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be 4
+            # lives in the two tests above. Was `Should -Be 4` - a derived number that broke when
+            # the conversion finished. Tied to the census instead, so it tracks the render
+            # surface rather than a moment in its history.
+            $source = [IO.File]::ReadAllText($script:AuditScriptPath)
+            $allColoured = @([regex]::Matches($source, '\[\$\(\$_\.Type\)\][^\r\n]*-ForegroundColor\s+\$color'))
+            $allColoured.Count | Should -BeGreaterThan 0 -Because 'anti-vacuity: an empty census would make the equality below meaningless'
+            (Get-CallSiteCount 'Get-TierModelFindingColor') | Should -Be $allColoured.Count
         }
 
         It 'Colours the whole drifted estate without leaving a real failure yellow' {
@@ -1081,6 +1134,101 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
             @($coloured | Where-Object { $_.Type -like 'Missing*' -and $_.Color -ne 'Red' }).Count | Should -Be 0
             @($coloured | Where-Object { $_.Color -eq 'Red' }).Count    | Should -Be 9
             @($coloured | Where-Object { $_.Color -eq 'Yellow' }).Count | Should -Be 5
+        }
+    }
+
+    # =====================================================================================
+    Context 'A run that errored, or checked nothing, may never render as compliance' {
+        # ADDED 2026-09-08 after the first full CI-shaped run of the session. That run was
+        # 1982/1982 green, and it was green for the WRONG REASON here: I control-proved the gap
+        # by inverting the real behaviour in a scratch tree - killing the $ErrorCount guard, the
+        # $TotalChecked guard, and BOTH verdict precedence blocks - and re-running the whole
+        # suite. It came back 1982/1982/0 with the coverage percentage unmoved by a single
+        # command. An audit that hit errors rendered green, an unexamined scope rendered 100%,
+        # and nothing in 1982 tests noticed.
+        #
+        # Two reasons the gap survived so long, both worth naming:
+        #   1. ci.yml scopes CodeCoverage.Path to modules/ + optional/, so Audit-TierModel.ps1
+        #      is not in the coverage population at all. The percentage could never have flagged
+        #      this, however high it got.
+        #   2. The behaviour is a PRECEDENCE rule between three outcomes. Every existing test
+        #      supplied a clean single outcome, so the ordering was never exercised.
+        #
+        # The assertions below therefore always pin the LOSING branch as well as the winning one:
+        # a precedence rule is only proved by a case where both conditions are live at once.
+
+        It 'Reports N/A, in red, when errors are present - even with zero drift and a full check count' {
+            # The decisive case. Drift is 0 and 10 objects were checked, so the percentage branch
+            # would happily print a green 100%. Errors must outrank that.
+            $recs = @(Write-TierModelComplianceLine -TotalChecked 10 -DriftCount 0 -ErrorCount 1 6>&1)
+            @($recs).Count | Should -Be 1
+            $recs[0].MessageData.Message         | Should -BeLike '*N/A (could not be determined)*'
+            $recs[0].MessageData.ForegroundColor | Should -Be 'Red'
+            # The point of the rule, asserted as its own claim rather than left implied.
+            $recs[0].MessageData.Message | Should -Not -BeLike '*100*'
+            $recs[0].MessageData.ForegroundColor | Should -Not -Be 'Green'
+        }
+
+        It 'Reports "not checked", in grey, for an empty scope - and never a percentage' {
+            # TotalChecked 0 with no drift and no errors. Dividing here would be 0/0; printing
+            # any percentage at all reports an unexamined scope as if it had passed.
+            $recs = @(Write-TierModelComplianceLine -TotalChecked 0 6>&1)
+            @($recs).Count | Should -Be 1
+            $recs[0].MessageData.Message         | Should -BeLike '*Not checked - nothing configured*'
+            $recs[0].MessageData.ForegroundColor | Should -Be 'Gray'
+            $recs[0].MessageData.Message | Should -Not -Match '\d+(\.\d+)?%'
+            $recs[0].MessageData.ForegroundColor | Should -Not -Be 'Green'
+        }
+
+        It 'Puts errors ahead of the empty scope too, so the order of the two guards is pinned' {
+            # Both guards fire at once. Without this, swapping the two blocks would keep every
+            # other assertion in this Context green.
+            $recs = @(Write-TierModelComplianceLine -TotalChecked 0 -ErrorCount 3 6>&1)
+            $recs[0].MessageData.Message | Should -BeLike '*could not be determined*'
+            $recs[0].MessageData.Message | Should -Not -BeLike '*nothing configured*'
+        }
+
+        It 'Still prints a real percentage, in a banded colour, when the run actually established one' {
+            # ANTI-VACUITY: the three assertions above are all satisfied by a function that
+            # refuses to print anything useful ever. This proves the normal path survives.
+            $good = @(Write-TierModelComplianceLine -TotalChecked 10 -DriftCount 0 6>&1)
+            $good[0].MessageData.Message         | Should -BeLike '*100%*'
+            $good[0].MessageData.ForegroundColor | Should -Be 'Green'
+
+            $bad = @(Write-TierModelComplianceLine -TotalChecked 10 -DriftCount 6 6>&1)
+            $bad[0].MessageData.Message         | Should -BeLike '*40%*'
+            $bad[0].MessageData.ForegroundColor | Should -Be 'Red'
+        }
+
+        It 'Honours a percentage the producer already published rather than recomputing it' {
+            $recs = @(Write-TierModelComplianceLine -TotalChecked 10 -DriftCount 9 -Percentage 87.5 6>&1)
+            $recs[0].MessageData.Message | Should -BeLike '*87.5%*'
+        }
+
+        It 'Orders the guards identically at BOTH verdict sites in the shipping source' {
+            # The consolidated verdict (Overall Audit Status) and the standalone verdict (Overall
+            # Status) are inline script, not functions, so they cannot be lifted and called. They
+            # are pinned structurally instead: errors first, empty scope second, drift last.
+            #
+            # This is the weaker form of the assertions above and is deliberately kept ANYWAY,
+            # because those two blocks are where a green verdict is actually printed to the
+            # operator, and duplicating a rule in two places is exactly how the two copies drift.
+            $source = [IO.File]::ReadAllText($script:AuditScriptPath)
+
+            foreach ($pair in @(
+                    @{ Errors = 'totalErrors';           Checked = 'totalChecked';           Label = 'Overall Audit Status' }
+                    @{ Errors = 'standaloneTotalErrors'; Checked = 'standaloneTotalChecked'; Label = 'Overall Status' })) {
+
+                $pattern = 'if \(\$' + $pair.Errors + ' -gt 0\) \{\s*\r?\n\s*Write-Host "' + [regex]::Escape($pair.Label) +
+                           ':[^\r\n]*COULD NOT BE FULLY DETERMINED[^\r\n]*\r?\n\s*\} elseif \(\$' + $pair.Checked +
+                           ' -le 0\) \{\s*\r?\n\s*Write-Host "' + [regex]::Escape($pair.Label) + ':[^\r\n]*NOT CHECKED'
+
+                @([regex]::Matches($source, $pattern)).Count |
+                    Should -Be 1 -Because "the $($pair.Label) verdict must test errors first, then an empty scope, before it may print a drift verdict"
+            }
+
+            # And neither site may reach a COMPLIANT verdict from the leading branch.
+            @([regex]::Matches($source, "if \(\`$totalErrors -gt 0\) \{[^\r\n]*\r?\n\s*Write-Host [^\r\n]*✅")).Count | Should -Be 0
         }
     }
 

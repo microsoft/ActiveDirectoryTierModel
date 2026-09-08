@@ -1,5 +1,93 @@
 # beast -- History
 
+## Session 2026-09-08 — v2.1.0 Bug Register Reconciliation (FINAL)
+
+**Status:** COMPLETE — all bugs verified, register corrected, 1 open + 2 deferred remains
+
+**Task:** Reconcile `.research\known-bugs.md` against measured reality at HEAD 363f93e per Joel's
+directive, with corrections from team upon final report.
+
+### Process Improvements Applied
+
+**Working rule 23 execution:** Finding the correct implementation IS the start of the search, not the
+end. After verifying four bugs fixed, had to enumerate all finding-list render sites to catch BUG-058
+not yet done. Six sites already correct; two offline. This pattern is now explicit in the register as
+a structural risk to search for in future audits.
+
+**Measurement discipline:** Never take an agent's briefing as the bug population. Joel provided six
+claims; verification found 4 fixed, 1 still open (but unblocked), discovered 1 new (latent). The
+briefing mentioned the rogue colour render sites had live customer-facing defects; Rogue's own
+measurement proved them latent (unreachable, guarded by non-local invariant). Instructed to record
+Rogue's severity assessment, not the briefing.
+
+**Timestamp preservation:** Old time drift in the register (up to 75 minutes ahead) was preserved as
+requested, not rewritten. Dates remain correct; file mtimes on disk are authoritative.
+
+### CORRECTIONS APPLIED
+
+**Correction 1: BUG-058 severity and customer impact (false claim retracted)**
+- Brief claimed two render sites currently render unknown findings in grey
+- Rogue's census proved the grey arm is **latent**, not live (unreachable — guarded by exhaustive
+  if/elseif/else upstream)
+- **No customer-visible defect existed**
+- Register corrected to note latent vs. live distinction; Rogue's wording taken over briefing
+
+**Correction 2: BUG-058 is FIXED (not in-progress)**
+- Rogue completed the fix: all 6 drift-finding render sites now delegate to `Get-TierModelFindingColor`
+- 0 inline switch colour maps remain
+- File parses clean, lints clean
+
+**Correction 3: BUG-057 is UNBLOCKED and reclassified**
+- Cyclops wrote the missing `2.1.0` ReleaseNotes entry in TierModel.psd1
+- Test content prerequisite resolved
+- Test assertion still false-green: asserts `1.1\.0` while ModuleVersion is `2.1.0`
+- Reclassified: OPEN (pending Wolverine ruling) not BLOCKED
+- Wolverine also rules on test census (literal vs. invariant) after Rogue's fix broke three tests
+
+**Correction 4: Three tests broken by Rogue's fix (added to open items)**
+- Unit.AuditReporting.Tests.ps1 lines 1012, 1036, 1062 pinned numbers as literals when derived
+- Rogue proposed classifier invariant (all render sites delegate; no inline maps)
+- Owner: Wolverine's governance ruling on derived numbers → literals vs. invariants
+
+### ADDITIONS (NEW FINDINGS)
+
+**Addition 1: CI coverage blind spot**
+- `ci.yml` lints only `modules/TierModel/`, not root scripts
+- `CodeCoverage.Path` excludes both `Deploy-TierModel.ps1` (3,616 lines) and `Audit-TierModel.ps1`
+  (2,660 lines)
+- **6,276 unmeasured lines** where all v2.1.0 defects lived
+- Linting would report 389 issues if enabled (384 whitespace, 3 empty-catch, 2 singular nouns)
+- Structural explanation for why this bug class recurred
+
+**Addition 2: README coverage figures unpublished**
+- `README.md:58` claims 77.16% (Audit) and 81.53% (Deploy)
+- Both files outside CI coverage scope; figures cannot come from CI
+- 77.16% is below 80% gate (explains why files were excluded)
+- **Finding, not v2.1.0 defect:** inform Joel's scope decisions
+
+**Addition 3: BUG-059 (new deferred bug)**
+- Bare `catch { }` on `Get-ADDomain` at Deploy-TierModel.ps1:771
+- Silently skips dMSA DFL prerequisite check
+- Same class as BUG-016 (two-GPO silent skip)
+- Deferred to v2.1.1 (deployment correctness, not output accuracy)
+
+### FINAL STATE
+
+**Open for v2.1.0:** 1 (BUG-057-UNBLOCKED, pending Wolverine ruling)
+
+**Fixed (verified):** 5 (BUG-054, 055, 056, 052, 058)
+
+**Deferred (v2.1.1+):** 2 (BUG-050, BUG-059)
+
+**Closed as intended:** 1 (BUG-053)
+
+**Register files updated:**
+- `.research\known-bugs.md` — rebuilt, clear headline, verified fixes, open items, findings
+- `.research\deferred-bugs.md` — updated table, added BUG-059 full detail
+- `.squad\agents\beast\history.md` — this entry
+
+---
+
 ## Session 2026-09-04 — Config Validation Wire-In & Scribe Orchestration
 
 **Status:** Scribe logs recorded; prior session work (BUG-020/021/022/023) completed by team

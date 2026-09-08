@@ -1339,3 +1339,84 @@ including the instrument that tests the instrument.**
 ### Hygiene
 Read-only honoured: zero product edits this session. Diff footprint still exactly the BUG-056 +66/-10.
 Artifacts: `C:\CyclopsStage\sweep\`.
+
+---
+
+### Session — [2.1.0] release record: CHANGELOG + manifest ReleaseNotes (2026-09-08)
+
+**Deliverable:** `## [2.1.0]` release content in `CHANGELOG.md` (11 lines, 0 deletions) and a
+`2.1.0:` entry at the head of `ReleaseNotes` in `modules/TierModel/TierModel.psd1` (+962 bytes,
+one line changed). Both files are exclusively mine. Nothing committed — Joel reviews first.
+
+**The brief was wrong about its own premise, and checking cost 30 seconds.** It said CHANGELOG
+"needs a `[2.1.0]` section". `## [2.1.0] - 2026-09-03` already existed at line 10 with four
+populated subsections. Had I taken the brief at face value I would have written a **duplicate
+release heading into a customer-facing file**. What was actually missing was the content: a
+whole-file regex sweep returned `-EnableVerbose` 0, `MissingAuditRule` 0, `NotChecked` 0,
+`Unverified` 0 — the release was named for a feature the release record did not mention. So the
+right shape was *append into the existing subsections*, not *add a section*. **A brief that
+asserts an absence is a hypothesis. Rule 21 applies to briefs, not just to my own reports.**
+
+**Two instructions in the same brief were in direct conflict, and I had to rule rather than
+comply.** "Use the real date for the `[2.1.0]` heading" versus "⚠️ HARD CONSTRAINT: verify the
+byte content of every pre-existing line is unchanged / diff purely additive, 0 deletions."
+Changing `2026-09-03` to `2026-09-08` is a deletion. I took the hard constraint and did not touch
+the heading, then escalated the stale date to Joel as a one-line change that is his to make —
+which is also what his own timestamp-drift ruling says to do (leave the stamp, note the
+limitation). **When a brief contradicts itself, do not silently pick the half you prefer and
+report success. Name the conflict, state which half you took and why, and hand the other half
+back.** Reporting "done" here would have quietly buried a wrong release date in a shipping file.
+
+**Anchors, not line numbers — and the anchors disagreed with grep.** `grep -n` reported
+`### Changed` at line 36; a `-split "``r``n"` index put it at 37. I did not spend time resolving
+the off-by-one, because the edit did not need to know: both insertions were done by unique-string
+`.Replace()` on multi-line anchors, each guarded by an assertion that the anchor matches
+**exactly once** before any write. Third session running where a line number would have been the
+weak link. **If your edit does not need a line number, do not acquire one — a number you never
+relied on cannot be stale.**
+
+**Proving "0 deletions" properly.** `git diff --numstat` said `11 0`, which is necessary but not
+sufficient — it proves no line was removed, not that the *right* lines survived. So I also
+reconstructed `HEAD:CHANGELOG.md` and asserted every one of its **339** lines is still present in
+the 350-line result: **missing = 0**. Then located the three lines the brief called out by
+content, not position: old L23 → new L23, old L25 → new L25, old L48 → **new L59** (shifted by my
+six Fixed bullets, content byte-identical). **A line number in a hard constraint is a pointer to
+content; when you insert above it, the content is the constraint and the number is not.**
+
+**D15 verified by execution rather than by intent.** Population: every `+` line in
+`git diff -U0` across both owned files, minus the `+++` header — **12 lines**. `BUG-` occurs
+**0 times** in them. Stating the population is what makes that zero checkable (rule 21).
+
+**Encoding held on both files, measured before and after.** psd1: no BOM, **105** CRLF, 0 lone
+LF, 5913 → 6875 bytes. The +962 delta is exactly the length of the inserted `2.1.0:` string, all
+of it inside the single-quoted ReleaseNotes literal on line 102 — `git diff -U0` shows `@@ -102
++102 @@`, one line changed, nothing else. CHANGELOG: no BOM, 338 → 349 CRLF (+11, matching the
+11 inserted lines), 0 lone LF. **Writing through `[IO.File]::WriteAllText` with an explicit
+`UTF8Encoding($false)` is the only way I would touch a BOM-less CRLF file** — `Set-Content` and
+`Out-File` both have opinions about encoding and both would have been a silent 63-test failure.
+
+**The single-quoted-string trap in the psd1, avoided deliberately.** `ReleaseNotes` is one PS
+single-quoted literal. An apostrophe in my prose would terminate it and break the manifest for
+every consumer. Wrote the entry apostrophe-free rather than doubling quotes, because a doubled
+quote is invisible to the next person editing that line. Note the asymmetry with CHANGELOG, where
+I *did* need `renderer''s` — that string lives inside my generator script, not in the product
+file. Same character, two different hazards, one file apart.
+
+**Test 399 — reported as a falsifiable prediction, not a claim.** The false green
+(`Should -Match '1\.1\.0'`, passing only because `1.1.0` survives among historical entries) is
+now fixable. Measured against the loaded manifest, not reasoned about:
+`ReleaseNotes -match [regex]::Escape($m.Version.ToString())` → **True**;
+`StartsWith('2.1.0:')` → **True**; `1.1.0` still present → **True**, so the current test does not
+break either. Did **not** edit the test — `tests\` is Wolverine's and his suite is live. This is
+rule 22 exactly: `'1\.1\.0'` pins yesterday's answer, `$Manifest.Version` encodes the
+relationship, and the repointed test cannot go false-green on the next version bump.
+
+**Verified by EXECUTION:** additive-only diff (`11 0`), all 339 pre-existing lines survive,
+0 `BUG-` in added text, both files BOM-less with CRLF intact, `Test-ModuleManifest` clean at
+version 2.1.0 with **83** exported functions, `Unit.ModuleManifest.Tests.ps1` **63/63 passing**.
+**Verified by READING:** that the six accuracy behaviours I described match the code — the
+"Not checked - nothing configured" grey render and its explanatory comment at `Audit-TierModel.ps1`
+~L479-509, the two headline sites at ~L1930 and ~L2522 where errors are tested before drift,
+`MissingAuditRule` present 5x in Audit and 2x in `Test-TierModelAuditRule.ps1` with `AuditRight`
+now at **0** occurrences there. I did not run an audit; the behavioural claims rest on the source
+and on the two commit messages (`23b5100`, `363f93e`), and lab validation remains outstanding.

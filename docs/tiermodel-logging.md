@@ -36,6 +36,30 @@ For audit reporting documentation, see [Drift Detection Details](drift-detection
 - **File**: JSON format for log aggregation and analysis
 - **CI/CD Integration**: Automatic artifact publishing in pipelines
 
+### Diagnostic Output — Debug Logging
+The `-EnableVerbose` and `-EnableDebug` switches provide detailed diagnostic output for troubleshooting deployment or audit failures:
+
+- **`-EnableVerbose`**: Enable verbose diagnostic output. Console output becomes considerably more detailed and interleaves with normal progress output. This switch automatically enables `-Logging`, so a diagnostic run always leaves a log file behind. If `-OutputFileBase` is not specified, it defaults to the script name (`Deploy-TierModel` or `Audit-TierModel`) without prompting, keeping the re-run command copy-pasteable.
+
+- **`-EnableDebug`**: Enable debug diagnostic output. Like `-EnableVerbose`, this also automatically enables `-Logging` and makes console output substantially more detailed. These switches change **only what is recorded**, never what is decided or written to Active Directory.
+
+- **Combined: `-EnableVerbose -EnableDebug`**: When both switches are supplied together, a PowerShell transcript (full console session capture) is automatically started in a `Debug\` subfolder beneath the resolved log directory. The transcript continues for the entire PowerShell session.
+
+  ⚠️ **CRITICAL WARNING — Transcript Contains Unredacted Sensitive Information:**
+  
+  The transcript is **NOT redacted** and may contain:
+  - Distinguished names (DNs)
+  - Security identifiers (SIDs)
+  - SDDL (Security Descriptor Definition Language)
+  - Group memberships
+  - Other sensitive Tier 0 environmental detail
+  
+  **You MUST review the transcript contents before sharing it with anyone, including Microsoft support.** Do not post it to forums, email it broadly, or include it in documents without careful redaction. This is a Tier 0 security tool; the transcript captures the full console session.
+  
+  If the PowerShell session is interrupted with Ctrl-C before normal completion, the transcript is left open and continues capturing until the console exits. In that case, run `Stop-Transcript` manually to close the transcript file.
+
+**Performance note:** Diagnostic switches slow execution and generate substantial output. Use them only when diagnosing failures; they are not intended for routine runs.
+
 ## Usage
 
 ### Enabling Logging in Deployment
@@ -61,6 +85,53 @@ The deployment script will log:
 - Summary statistics and completion status
 
 **Note**: The `Audit-TierModel.ps1` script generates audit reports but does not use the logging system. Use `-OutputFormat` and `-LogPath` parameters for audit report generation.
+
+### Enabling Diagnostic Output — Verbose and Debug Logging
+
+Both `Deploy-TierModel.ps1` and `Audit-TierModel.ps1` support diagnostic switches for troubleshooting:
+
+#### Verbose Diagnostic Output
+
+Enable verbose output to see detailed progress messages:
+
+```powershell
+# Deploy with verbose diagnostics (plan mode)
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly -EnableVerbose
+
+# Deploy with verbose diagnostics (apply mode) and custom log location
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -ConfirmApply -EnableVerbose -LogPath "C:\Logs"
+
+# Audit with verbose diagnostics
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -GposOnly -EnableVerbose
+```
+
+#### Debug Diagnostic Output
+
+Enable debug output for the deepest level of troubleshooting:
+
+```powershell
+# Deploy with debug diagnostics
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -ConfirmApply -EnableDebug -LogPath "C:\Logs"
+
+# Audit with debug diagnostics
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -EnableDebug -LogPath "C:\Reports"
+```
+
+#### Debug Transcript (Verbose + Debug Combined)
+
+Capture a full unredacted transcript for detailed failure analysis. Use this only when diagnosing a complex issue in a controlled environment:
+
+```powershell
+# Deploy with both verbose and debug enabled (creates transcript in Debug\ subfolder)
+.\Deploy-TierModel.ps1 -PreferredDc "DC01.contoso.com" -OuOnly -ConfirmApply -EnableVerbose -EnableDebug -LogPath "C:\Logs"
+# Creates: C:\Logs\Debug\<transcript-file>
+
+# Audit with both switches
+.\Audit-TierModel.ps1 -PreferredDc "DC01.contoso.com" -FullDeployment -EnableVerbose -EnableDebug -LogPath "C:\Reports"
+# Creates: C:\Reports\Debug\<transcript-file>
+```
+
+The transcript captures every command and output from the PowerShell console session. Review it carefully before sharing—it may contain sensitive object names, DNs, SIDs, SDDL, and group memberships.
 
 ### Direct Function Usage (Advanced)
 

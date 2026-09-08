@@ -1,6 +1,6 @@
 # TierModel Test Coverage Analysis & Roadmap
 
-**Generated:** February 27, 2026  
+**Generated:** September 8th, 2026  
 **Purpose:** Comprehensive analysis of test coverage across all TierModel scripts and functions
 
 ---
@@ -9,7 +9,7 @@
 
 > **How coverage is measured:** Pester v5's built-in `CodeCoverage` feature instruments each production file and tracks which lines are executed during the full test suite run (`Invoke-AllTests.ps1`). To re-run: `cd TierModel; $c = New-PesterConfiguration; $c.Run.Path = './tests'; $c.CodeCoverage.Enabled = $true; $c.CodeCoverage.Path = @('./modules/TierModel/public/*.ps1','./modules/TierModel/TierModel.psm1','./Audit-TierModel.ps1','./Deploy-TierModel.ps1'); Invoke-Pester -Configuration $c`
 
-**Last measured:** 2026-09-07 (1,980 automated tests: **1,980 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: ~90.9%** | **Target: 95%** | **CI gate: 80%**
+**Last measured:** 2026-09-08 (1,988 automated tests: **1,988 passing / 0 failures — 100%** — Pester 5.9.0 pinned) | **Overall: ~90.9%** | **Target: 95%** | **CI gate: 80%**
 
 > ✅ **Membership Reconciliation script measured (2026-09-07 — 100% pass rate):** `optional/Update-TierModelMembership.ps1` (v1.7.2, standalone scheduled-task script) added to CI code-coverage measurement and covered by new `Unit.MembershipReconciliation.Tests.ps1` (**107 tests**, dot-source seam, all mock-based). Functions covered: `Resolve-ActiveSwitches`, `Test-IsBuiltInExcluded`, `Test-IsCustomerExcluded`, `Initialize-BuiltInExclusions`, `Write-TmEvent`, `Initialize-Logging`, `Write-Log`, `Write-DebugLog`, `Resolve-OuDn`, `Resolve-GroupSam`, `Invoke-TierReconciliation`, `Invoke-Tier2Operators`, `Invoke-Tier2Eud`. NOT unit-tested (inline in main try-block, integration-covered by Joel lab UAT): exclusion parameter-pairing gate, `-NoExclusions` safety gate, `Invoke-Tier0/1/2*` dispatch wrappers, `Invoke-BuiltInExclusionEnforcement`. Script coverage measured **60.18%** (top-level standalone script; inline main-block and dispatch wrappers not reachable via dot-source). Overall aggregate 1,783 -> **1,980 automated tests** (+107 membership; +1 merged #48 prerequisite test; +89 other new tests in v2.1.0). 71 -> **72** production files measured.
 

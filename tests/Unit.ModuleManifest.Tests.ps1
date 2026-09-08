@@ -396,8 +396,33 @@ Describe 'TierModel Module Manifest' -Tag 'Unit', 'Manifest' {
             $script:Manifest.PrivateData.PSData.ReleaseNotes | Should -Not -BeNullOrEmpty
         }
         
-        It 'Release notes mention current version' {
-            $script:Manifest.PrivateData.PSData.ReleaseNotes | Should -Match '1\.1\.0'
+        It 'Release notes carry an entry for the manifest''s own ModuleVersion' {
+            # REPOINTED 2026-09-08. This test previously read:
+            #     $script:Manifest.PrivateData.PSData.ReleaseNotes | Should -Match '1\.1\.0'
+            # and it was a FALSE GREEN for four releases. ModuleVersion had moved to 2.1.0 while
+            # the assertion still pinned 1.1.0 - which kept passing purely because the 1.1.0 entry
+            # survives in the historical list further down the same string. The test's NAME said
+            # "current version"; its ASSERTION said "some version we shipped in the past". It
+            # could never have gone red for the thing it existed to catch, because the literal it
+            # matched was frozen and the value it was supposed to track was not.
+            #
+            # Now derived from the manifest itself, so it tracks whatever ModuleVersion becomes.
+            #
+            # Three deliberate hardening choices, none cosmetic:
+            #   1. [regex]::Escape - '2.1.0' as a raw regex has '.' as ANY character, so it would
+            #      happily match '2X1X0'. Working rule 7: -Match is a regex, and a loose one is
+            #      how an assertion gets satisfied by the state it was written to reject.
+            #   2. Anchored on ':' - the ReleaseNotes format is '<version>: <text>', so this
+            #      requires a real ENTRY rather than the version number appearing anywhere at all
+            #      (a bare substring test would be satisfied by prose mentioning the version).
+            #   3. Negative lookbehind - without it, ModuleVersion '2.1.0' is a substring of a
+            #      hypothetical '12.1.0:' entry and would match the wrong release.
+            $version = $script:Manifest.ModuleVersion
+            $version | Should -Not -BeNullOrEmpty -Because 'anti-vacuity: an empty version would make the pattern below match almost anything'
+
+            $entryPattern = '(?<![\d.])' + [regex]::Escape($version) + ':\s'
+            $script:Manifest.PrivateData.PSData.ReleaseNotes |
+                Should -Match $entryPattern -Because "ReleaseNotes must document the version being shipped ($version), not only its predecessors"
         }
     }
 }

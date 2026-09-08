@@ -193,9 +193,9 @@ are the evidence that makes each rule believable. Read the citations; they are t
 23. **Finding the correct implementation of a rule is the START of the search, not the end.** When
     you find a guard, a comment, or a remedy that is *right*, the next question is never "good, that
     is handled" — it is **"where else should this be, and is it?"** In this codebase the answer has
-    been *"somewhere it isn't"* **six times**.
+    been *"somewhere it isn't"* **seven times**.
 
-    **The six, with sites, so this is checkable rather than folklore:**
+    **The seven, with sites, so this is checkable rather than folklore:**
 
     | The rule, where it IS correct | Where it is MISSING | Bug |
     |---|---|---|
@@ -203,6 +203,24 @@ are the evidence that makes each rule believable. Read the citations; they are t
     | `Test-TierModelOu` — `UnverifiedCount`, commented *"an OU we could not read is not a pass"* | `Test-TierModelGroup`, `Test-TierModelUser` | BUG-056 |
     | **5 of 7** compliance sites guard `totalChecked -le 0` | `Audit-TierModel.ps1:1116` (GPO), `:2120` (ADMX) | BUG-052 |
     | `Test-TierModelGPOAudit.ps1:438-462` — real-count fix | `Audit-TierModel.ps1:1168` — the render site the same fix missed | BUG-054 |
+    | `Get-TierModelFindingColor` — severity-class colouring, used at **4 of 6** render sites, with a comment block that IS the specification | `Audit-TierModel.ps1` GPO-audit and ADMX-audit findings blocks, each carrying its own inline `switch ($_.Type)` | 2026-09-08 |
+
+    **Instance seven is the one to study, because it is the corollary below turned inside out.** The
+    producers were swept and found honest; the closing note was *"the question is whether the
+    reporting layer listens."* It did not. **Four of six render sites delegating is not a partial
+    rollout, it is a defect with a majority.** When you find a helper, do not confirm that it is
+    *used* — count the sites that *should* use it and diff. Use the AST, not grep.
+
+    **And the second half of instance seven, which matters more.** The inline arms ended
+    `default { 'Gray' }` while the classifier escalates the unknown to red. That is an
+    under-statement, so the framing was that the tool was actively lying. **It was not.** Both
+    producers were enumerated before the edit and neither can reach the grey arm today: one is
+    closed at three literal types, and the other's `default { 'Unknown' }` arm is unreachable only
+    because an exhaustive `if/elseif/else` in a *different function* runs before the result is
+    appended. So the finding is real but **latent**, and its guard is non-local. Report that
+    distinction rather than rounding a latent lie up to a live one — a fix that is right on
+    consistency grounds does not need severity inflation to justify it, and inflating it is how a
+    changelog stops being evidence (see the BUG-054 note below).
 
     **The defect is INCONSISTENCY, not absence.** Nobody failed to decide these; somebody failed to
     apply a decision everywhere. That is a different search, and grep for the *symptom* will not find

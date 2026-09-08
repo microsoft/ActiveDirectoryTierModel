@@ -57,8 +57,16 @@ jobs:
           'PSAvoidUsingConvertToSecureStringWithPlainText',
           'PSUseDeclaredVarsMoreThanAssignments'
         )
-        $results = Invoke-ScriptAnalyzer -Path "modules/TierModel" -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule $excludeRules -EnableExit
-        Write-Host "ScriptAnalyzer completed with exit code: $LASTEXITCODE"
+        # Analyse the module tree AND the two shipped entry scripts. -Path takes a single
+        # string, so each target is analysed separately and the results accumulated. Piping
+        # several paths into one invocation is NOT safe here: combined with -ExcludeRule it
+        # intermittently throws "Collection was modified" and still exits 0, i.e. a false pass.
+        $analyzerTargets = @('modules/TierModel', 'Deploy-TierModel.ps1', 'Audit-TierModel.ps1')
+        $results = @()
+        foreach ($analyzerTarget in $analyzerTargets) {
+          $results += Invoke-ScriptAnalyzer -Path $analyzerTarget -Recurse -Severity @('Error', 'Warning', 'Information') -ExcludeRule $excludeRules
+        }
+        Write-Host "ScriptAnalyzer analysed $($analyzerTargets.Count) targets and found $($results.Count) issue(s)"
         
         # Export results for artifact
         $results | Export-Csv "scriptanalyzer-results.csv" -NoTypeInformation
@@ -66,6 +74,12 @@ jobs:
         if ($results) {
           Write-Host "ScriptAnalyzer found $($results.Count) issues:"
           $results | Format-Table Severity, RuleName, ScriptName, Line, Message -AutoSize
+        }
+        
+        # Replaces -EnableExit, which can only reflect one invocation. Deliberately after the
+        # export above so the artifact is still written when the job fails.
+        if ($results.Count -gt 0) {
+          exit $results.Count
         }
         
     - name: Upload ScriptAnalyzer Results

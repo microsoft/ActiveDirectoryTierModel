@@ -1016,7 +1016,7 @@ function Invoke-OuAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            # FINAL-2: no drift findings is only good news if the audit actually completed.
+            # No drift findings is only good news if the audit actually completed.
             # A total failure produces zero findings because nothing ever ran.
             if ($audit.Errors.Count -gt 0) {
                 Write-Host "  ⚠️  OU compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
@@ -1082,7 +1082,7 @@ function Invoke-GroupAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            # Zero findings is only good news if the audit completed (see FINAL-2).
+            # Zero findings is only good news if the audit completed.
             if ($audit.Errors.Count -gt 0) {
                 Write-Host "  ⚠️  Group compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
             } else {
@@ -1147,7 +1147,7 @@ function Invoke-UserAudit {
                 Write-Host "  [$($_.Type)] $($_.Identifier): $($_.Details)" -ForegroundColor $color
             }
         } else {
-            # Zero findings is only good news if the audit completed (see FINAL-2).
+            # Zero findings is only good news if the audit completed.
             if ($audit.Errors.Count -gt 0) {
                 Write-Host "  ⚠️  User compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
             } else {
@@ -1255,16 +1255,11 @@ function Invoke-GpoAudit {
         if ($gpoFindingCount -gt 0) {
             Write-Host "GPO Audit Findings:" -ForegroundColor Yellow
             $audit.Findings | ForEach-Object {
-                $color = switch ($_.Type) {
-                    'Missing' { 'Red' }
-                    'Mismatch' { 'Yellow' }
-                    'Error' { 'Red' }
-                    default { 'Gray' }
-                }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "  [$($_.Type)] $($_.GpoName): $($_.Message)" -ForegroundColor $color
             }
         } else {
-            # Zero findings is only good news if the audit completed (see FINAL-2).
+            # Zero findings is only good news if the audit completed.
             if ($gpoErrorCount -gt 0) {
                 Write-Host "  ⚠️  GPO compliance could NOT be determined - the audit reported errors above." -ForegroundColor Red
             } else {
@@ -2267,16 +2262,11 @@ else {
         if ($admxAudit.Findings.Count -gt 0) {
             Write-Host "ADMX Audit Findings:" -ForegroundColor Yellow
             $admxAudit.Findings | ForEach-Object {
-                $color = switch ($_.Type) {
-                    'Missing' { 'Red' }
-                    'Mismatch' { 'Yellow' }
-                    'Error' { 'Red' }
-                    default { 'Gray' }
-                }
+                $color = Get-TierModelFindingColor $_.Type
                 Write-Host "  [$($_.Type)] $($_.ResourceType)/$($_.FileName): $($_.Message)" -ForegroundColor $color
             }
         } else {
-            # Zero findings is only good news if the audit completed (see FINAL-2).
+            # Zero findings is only good news if the audit completed.
             # Test-TierModelAdmx reports failure as Summary.Errors, an int on both shapes.
             $admxErrorCount = 0
             if ($admxAudit.Summary.PSObject.Properties.Name -contains 'Errors') {
