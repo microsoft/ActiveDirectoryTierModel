@@ -935,3 +935,15 @@ become lies when the producer changes; name them after what they actually exerci
      coverage run has ever measured. Deploy has crossed from above the gate to below it and nobody
      could have noticed, because the number is hand-maintained prose about a file CI does not
      measure. That is rule 13 (a register goes stale faster than the code) applied to documentation.
+
+## 2026-09-08 17:18 +08:00 - Spec 006 task verification (Joel release check)
+
+Verified specs\006-verbose-debug-logging\tasks.md against the tree. Ticked T018, T019, T022, T025 and T026; ticked T027 as **lab-contingent** under Joel's explicit 2026-09-08 instruction. Left T017, T021 and T023 unchecked because the evidence is not there, bub. Full suite: 1,994/1,994/0; coverage check: 1,988/1,988/0, 87.36%; targeted OU ACL: 103/103/0; targeted T018 guard: 6/6/0. No product files edited.
+
+## 2026-09-08 17:43 +08:00 - T023 documentation verification
+
+Re-verified T023 after Storm/Cyclops docs landed. Quick guide and detailed appendix now cover the diagnostics checklist, and quick guide has EnableVerbose=3, EnableDebug=3, Debug\=2, transcript=4, unredact=3, literal -Debug=0. Left T023 unticked because docs\tiermodel-logging.md still has no retention/membership-script contrast and still says Audit does not use logging at two sites. No doc edits, bub.
+
+## 2026-09-08 17:47 +08:00 - T023 final verification
+
+Re-verified the fixed docs\tiermodel-logging.md blocker. False Audit logging claim count is 0; retention section now covers no Deploy/Audit pruning and contrasts optional\Update-TierModelMembership.ps1 bounds of 7 days / 30 files / 200 MB. No cause/promise overclaim found across logging, quick guide, and detailed appendix. Ticked T023; Spec 006 now has 25 checked, 0 unchecked, 2 deferred.

@@ -1233,3 +1233,13 @@ not just when I remember.
 
 Register: 29,895 B / 535 lines, by-design verified still last heading. **5 open, next free ID 058 -
 unchanged; neither job registered or closed a bug.**
+
+---
+
+## Session 2026-09-08 — known-bugs consolidation; deferred-bugs absorbed
+
+**Status:** COMPLETE. Merged `.research\deferred-bugs.md` into the exclusive live register before deletion: BUG-050 and BUG-059 now live in `.research\known-bugs.md` with full reproduction detail and OPEN/deferred status. Registered BUG-060 as fixed in v2.1.0 and BUG-061/062 as v2.1.1 deferred/open. Trimmed spent process narrative, reduced the clock-drift note to one sentence, kept by-design rulings and the GitHub Pages PR-gap finding, and updated coverage/README scope notes. Final counts: **0 active open**, **7 fixed numbered bugs**, **4 deferred/open**, next free ID **063**. No Pester run.
+
+## Session 2026-09-08 — archive cleanup correction applied
+
+**Status:** COMPLETE. Adjusted `.research\known-bugs.md` after Joel deleted `.research\known-bugs-archive.md`: removed live-record archive language and stated that known-bugs is now the in-repo bug record. Re-verified BUG-050 part 2 / Joel fix ruling and BUG-059 code block survived the merge. Counts unchanged: **0 active open**, **7 fixed numbered bugs**, **4 deferred/open**, next free ID **063**.

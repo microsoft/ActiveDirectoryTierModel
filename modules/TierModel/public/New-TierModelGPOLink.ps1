@@ -39,7 +39,7 @@ function New-TierModelGPOLink {
     Write-TierModelLog -Level Info -Message "GPO link execution start" -Data @{
         TotalActions = $linkActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

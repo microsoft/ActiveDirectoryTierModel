@@ -1420,3 +1420,8 @@ version 2.1.0 with **83** exported functions, `Unit.ModuleManifest.Tests.ps1` **
 `MissingAuditRule` present 5x in Audit and 2x in `Test-TierModelAuditRule.ps1` with `AuditRight`
 now at **0** occurrences there. I did not run an audit; the behavioural claims rest on the source
 and on the two commit messages (`23b5100`, `363f93e`), and lab validation remains outstanding.
+---
+
+## Session: detailed deployment diagnostic appendix (2026-09-08)
+
+Updated only `docs\detailed-deployment-guide.md` and this history entry. Added the end-of-document appendix for v2.1.0 `-EnableVerbose` / `-EnableDebug`: escalation ladder, `Debug\` output location, transcript-only-when-both rule, prominent unredacted-transcript warning, no-retention rationale, symptom table, honest limits, and `tiermodel-logging.md` cross-link. Did not create docs pages or touch `mkdocs.yml`. `mkdocs build --strict --site-dir <session files>` exited 0.

@@ -16,7 +16,7 @@ unticked, even where a conversation suggested otherwise.
 **Sequencing deviation from Constitution II, accepted by Joel:** Pester tests for this feature are written
 **after** lab validation, not before, because the behaviour to be asserted is the behaviour the lab measures.
 
-**Current stopping line (updated 2026-09-07):** Suite measured green at **1,980 automated tests / 1,980 passing / 0 failed** (verified 2026-09-07), confirming Phase 6 completion is reachable. T015 lab gate **passed** on 2026-09-05 (RUN 1, 50 rows, 0 FAIL), and the suite has grown to full v2.1.0 capacity. Post-lab work tasks T017–T025 remain open pending verification; their blockers have evolved as the suite matured.
+**Current stopping line (updated 2026-09-08):** Suite measured green at **1,994 automated tests / 1,994 passing / 0 failed** after the T018 guard appeared, with **87.36%** coverage over the CI-scoped 82-file module population measured in the preceding full coverage run. T015 lab gate **passed** on 2026-09-05 (RUN 1, 50 rows, 0 FAIL), and Joel explicitly authorised treating lab-dependent acceptance as satisfied on 2026-09-08. **T017 is deferred to v2.1.1 by Joel's explicit ruling.** No verified-open v2.1.0 tasks remain; the only incomplete items are deferred.
 
 ---
 
@@ -149,41 +149,46 @@ unticked, even where a conversation suggested otherwise.
 
 ---
 
-## Phase 6: Post-Lab Work — 🔄 IN PROGRESS (T015 passed; see the re-validation caveat)
+## Phase 6: Post-Lab Work — ✅ COMPLETE (T015 passed; T016/T017 deferred)
 
-- [ ] 🔄 T017 Author the Pester suite for the feature: parameter surface parity; the default-off regression;
-      **non-modification** (not restoration) of global preferences on every exit path; module-scope reach;
-      `Debug\` path resolution including the relative case; transcript gating; transcript failure is
-      non-fatal; `Stop-Transcript` pairing asserted on the state flag; `-WhatIf` does not suppress
-      diagnostics; success is not inferred from a missing exception; D8 auto-logging never prompts; the
-      re-run hint round-trips; and the FR-020 no-inert-switch gate.
-  - **Files**: `tests/` *(Wolverine)*
-  - **Satisfies**: FR-001 … FR-020
-  - **Depends on**: T014 ✅, T015 ✅ — **both blockers are now met** (2026-09-07). This work is unblocked.
-  - **Status caveat (2026-09-07)**: Blockers resolved, but **cannot verify work completion** without examining `tests/` that Wolverine is actively editing. Wolverine owns this task; cannot measure from here.
-
-- [ ] 🟢 T026 Repair the one failing unit test. **Status caveat (2026-09-07): Blocker resolved** — suite is now green at **1,980 automated tests / 1,980 passing / 0 failed** (verified 2026-09-07), where the 2026-09-06 report showed 1,572 passed / 1 failed. The red-suite blocker no longer exists.
-      **Cannot verify work completion** without examining `tests/Unit.OuAclOperations.Tests.ps1` that Wolverine is actively editing. The original premise from 2026-09-06 was the failing assertion at line 981 (*"Sets Type='Drift' on the ACEProperties finding"*) — whether that test was fixed or the assertion was changed cannot be determined from here without touching Wolverine's work.
+- [x] 🟢 T026 Repair the one failing unit test. **Verified 2026-09-08** — suite is green at **1,994 automated tests / 1,994 passing / 0 failed** after the T018 guard appeared, where the 2026-09-06 report showed 1,572 passed / 1 failed. The red-suite blocker no longer exists.
   - **Files**: `tests/Unit.OuAclOperations.Tests.ps1` *(Wolverine — this file is Wolverine's; nobody else edits it)*
   - **Note**: under **D14** `tests/` is exempt from the comment-hygiene rule, so the surrounding `BUG-nnn` references in this file stay.
+  - **Evidence**: `tests\Unit.OuAclOperations.Tests.ps1:980-1004` now asserts the producer-counted class
+    relationally, explicitly rejects the old literal `Type='Drift'`, and reconciles `Mismatch`/`Missing`
+    counts. Targeted run: `Unit.OuAclOperations.Tests.ps1` **103/103/0**. Full CI-scoped coverage run:
+    **1,988/1,988/0**.
   - **Satisfies**: green suite — a release gate
 
-- [ ] 🔵 T027 Confirmatory lab pass over the **audit reporting path** after the reporting accuracy improvements.
+- [x] 🔵 T027 Confirmatory lab pass over the **audit reporting path** after the reporting accuracy improvements.
       RUN 1 (2026-09-05) validated a report path that has since been changed by six reporting accuracy improvements.
       This is not a re-run of the full 50-row matrix — it is the reporting rows plus the standalone-scope and
       consolidated-report rows that the accuracy improvements touched.
   - **Files**: `.research/lab-validation/` *(harness — not this spec's to edit)*
+  - **Basis**: **LAB-CONTINGENT CHECK-OFF.** Joel's 2026-09-08 instruction says to assume the lab passes at
+    this point. No product-code file can prove this; the check mark is explicitly conditional on that
+    owner-authorised lab assumption.
   - **Blocks**: Joel's confidence in the audit report, not the diagnostics feature itself
 
-- [ ] T018 CI static prohibition check: AST-scan `modules/TierModel/public/` and both entry scripts and fail
+- [x] T018 CI static prohibition check: AST-scan `modules/TierModel/public/` and both entry scripts and fail
       the build on any AD/GPO invocation carrying a literal `-Debug`, and on any `@PSBoundParameters` splat
       into an AD/GPO call. **Independently required for v2.1.0** — it is not gated on T016 and T016's
       deferral does not defer it. If T016 is ever revived, T018 must already be in place first.
   - **Files**: `tests/`, `.github/workflows/ci.yml`
+  - **Verification 2026-09-08 (Wolverine)**: `tests\Unit.DebugProhibition.Tests.ps1:1-132` parses
+    `modules\TierModel\public`, `Deploy-TierModel.ps1`, and `Audit-TierModel.ps1` with the PowerShell AST,
+    anti-vacuity-checks the scan, and asserts zero literal `-Debug` parameters and zero `@PSBoundParameters`
+    splats on AD/GPO invocations. Targeted run: **6/6/0**. `.github\workflows\ci.yml:123-139` runs the whole
+    `tests` tree, so this guard is CI-enforced once the test file is tracked.
   - **Satisfies**: FR-017
 
-- [ ] T019 Coverage review against the 80% gate once T017 lands.
+- [x] T019 Coverage review against the 80% gate once T017 lands.
   - **Depends on**: T017, T026
+  - **Verification 2026-09-08 (Wolverine)**: full suite with CI coverage paths
+    (`modules/TierModel/*.psm1`, `modules/TierModel/public/*.ps1`, `optional/Update-TierModelMembership.ps1`)
+    passed **1,988/1,988/0** and measured **87.36%** command coverage (**14,606 / 16,719**), clearing the
+    80% gate. After the tests-only T018 guard appeared, a full no-coverage suite run passed
+    **1,994/1,994/0**. The CI gate itself is present in `.github\workflows\ci.yml:136-158`.
   - **Satisfies**: Constitution II
 
 - [x] T020 Refresh the test counts in `README.md` and `docs/test-coverage.md`.
@@ -198,10 +203,15 @@ unticked, even where a conversation suggested otherwise.
     - `docs/test-coverage.md` Membership section: aggregate "1,783 → 1,891" → "1,783 → 1,980" with note "+89 other new tests in v2.1.0"
   - **About the 2026-09-06 assessment**: The original task analysis ("only verdict and date are stale; numbers are correct") was superseded by suite growth. By 2026-09-07 execution, the counts themselves had grown (1,650+330 vs 1,573+318) and file totals were incorrect (33 vs 32). The file-count error is worth understanding: the old "32 files" figure counted the Excel workbook (`tests\Manual.Integration.Tests.xlsx`, 60.7 KB) as a file, which coincidentally matched the count of `.ps1` containers (24+7). When Unit tests grew to 25 files, the total `.ps1` count became 32, and the coincidence broke — now correctly reported as 33 total (32 automated + 1 manual workbook). This breakdown was independently identified by Wolverine and is recorded in `.squad\decisions\inbox\wolverine-ci-parity.md:116-120`.
   - **Verification**: All arithmetic asserts pass: 25+7=32, 1,650+330=1,980, 32+1=33, 1,980+378=2,358. Headline and table rows are now consistent.
+  - **Sanity check 2026-09-08 (Wolverine)**: current `README.md:47,58` and `docs\test-coverage.md:12`
+    have moved to **1,988** automated tests, but `docs\test-coverage.md:14` still carries a historical
+    **1,980** aggregate note. If `tests\Unit.DebugProhibition.Tests.ps1` (T018, currently visible in the
+    working tree) is accepted into the release, the published counts need another bump to **1,994** automated
+    tests. Not touching docs here; recording the drift so nobody calls stale numbers green.
   - **Depends on**: T026 (suite was green before numbers were published)
   - **Satisfies**: docs accuracy
 
-- [ ] T021 `CHANGELOG.md` `[2.1.0]` section — **RE-SCOPED 2026-09-06 by D15.**
+- [x] T021 `CHANGELOG.md` `[2.1.0]` section — **RE-SCOPED 2026-09-06 by D15.**
       **The planned migration of the 22 pending reliability improvements into `CHANGELOG.md` is
       CANCELLED — not deferred, not reduced. It is not happening.** Per-bug detail goes in the **pull
       request** instead.
@@ -217,18 +227,66 @@ unticked, even where a conversation suggested otherwise.
     is locked out of `CHANGELOG.md` on this branch. Storm's failed v2.0.0 backfill
     (`.squad/agents/storm/history.md`, 2026-09-03) is the reason the lock exists, and re-scoping the task
     does not lift it.
+  - **Verification 2026-09-08 (Wolverine)**: **COMPLETED after Cyclops rewrite.** `CHANGELOG.md:10-27`
+    is a short 2.1.0 section. In that section, independent measurements found `BUG-\d+` = **0** and
+    `filename.ps1:123`-style references = **0**. Required content is present: both switches and the
+    preferences they raise (`$VerbosePreference` / `$DebugPreference`), naming rationale (`-Verbose` /
+    `-Debug` remain unshadowed), auto-enabled `-Logging` plus on-screen announcement, `Debug\` subfolder,
+    transcript only when both switches are supplied and not by either alone, and the unredacted-transcript
+    warning. Cause/promise scan found **0** "root cause / reveal why" style claims. Normalised comparison
+    confirmed `[Unreleased]` and `[2.0.0]`+ earlier sections are byte-equivalent to HEAD outside line-ending
+    normalisation; diff hunks are confined to the old `[2.1.0]` span.
+  - **Tests-line judgment**: acceptable, not blocking. "Added regression coverage for diagnostic logging
+    behavior" says coverage was added, not that the full T017 diagnostics suite exists. Sharper wording would
+    be "Added targeted regression coverage for diagnostics guardrails and the reliability/reporting sweep,"
+    but the current line is not a false-green because T017's full transcript/preference coverage debt is
+    explicitly deferred in this spec.
   - **Governed by**: **D15**
 
-- [ ] T022 `ci.yml` PSScriptAnalyzer scope change.
+- [x] T022 `ci.yml` PSScriptAnalyzer scope change.
   - **Files**: `.github/workflows/ci.yml`
+  - **Evidence**: `.github\workflows\ci.yml:62-67` now analyses three explicit targets —
+    `modules/TierModel`, `Deploy-TierModel.ps1`, and `Audit-TierModel.ps1` — accumulating results per target
+    before failing on a non-zero count at `.github\workflows\ci.yml:78-81`.
 
-- [ ] T023 Documentation pass — `docs/tiermodel-logging.md` and `docs/quick-deployment-guide.md`: the two
+- [x] T023 Documentation pass — `docs/tiermodel-logging.md` and `docs/quick-deployment-guide.md`: the two
       switches, the composed escalation command, the `Debug\` folder, the absence of retention and why it
       differs from the membership script, the accepted console noise, and — prominently — the unredacted
       transcript warning. **No new file may be created under `docs/` without Joel's approval, because
       `docs/` publishes to GitHub Pages.** Must not assert a cause for the customer incident, and must not
       promise the switches will reveal why a GPO failed.
   - **Files**: `docs/tiermodel-logging.md`, `docs/quick-deployment-guide.md` *(existing files only)*
+  - **Verification 2026-09-08 (Wolverine)**: **NOT COMPLETE.** `docs\tiermodel-logging.md:40-59` and
+    `:99-134` cover the switches, `Debug\` folder and unredacted transcript warning, but the same page still
+    states Audit "does NOT use the logging system" at `docs\tiermodel-logging.md:17-23` after T009 added
+    `-Logging` to Audit. `docs\quick-deployment-guide.md` has **zero** matches for `EnableVerbose`,
+    `EnableDebug`, `Debug\`, `unredacted`, `transcript`, or `diagnostic`.
+  - **Status update 2026-09-08**: **IN PROGRESS, not deferred.** Storm owns the
+    `docs\quick-deployment-guide.md` repair; Cyclops owns the `docs\detailed-deployment-guide.md` appendix
+    work. Leave unticked until both land and Wolverine verifies the docs directly.
+  - **Re-verification 2026-09-08 (Wolverine)**: Storm's `docs\quick-deployment-guide.md` update now passes
+    the six requested checks: `-EnableVerbose`/`-EnableDebug`, composed escalation command, `Debug\` folder,
+    no retention plus contrast with `optional\Update-TierModelMembership.ps1`, accepted console noise, and a
+    prominent unredacted-transcript warning. Measured counts in that file: `EnableVerbose` = **3**,
+    `EnableDebug` = **3**, `Debug\` = **2**, `transcript` = **4**, `unredact` = **3**, literal `-Debug` =
+    **0**. Cyclops's `docs\detailed-deployment-guide.md:640-697` appendix also covers the same diagnostics
+    model and includes an explicit "not a guaranteed root-cause tool" limit. Strict overclaim scan found no
+    positive cause assertion or promise that the switches will reveal why a GPO failed. This pass left the
+    task unticked because `docs\tiermodel-logging.md` still lacked the retention/membership-script contrast
+    and still contradicted T009's added Audit `-Logging`.
+  - **Final re-verification 2026-09-08 (Wolverine)**: **COMPLETED.** The
+    `docs\tiermodel-logging.md` blocker is fixed. Measured false-claim count for
+    `does NOT/does not use the logging system` is **0**. `docs\tiermodel-logging.md:5` now says `-Logging`
+    is supported by both entry scripts; `:16-26` and `:92-94` distinguish Audit reports from Audit logs
+    without claiming Audit is outside the logging system. The new `:144-169` retention section states
+    Deploy/Audit have **no** log-file retention, contrasts that with
+    `optional\Update-TierModelMembership.ps1`, and records the bounded membership retention axes:
+    **7 days / 30 files / 200 MB**. Term counts in `tiermodel-logging.md`: `retention` = **3**,
+    `7 days` = **2**, `Update-TierModelMembership` = **2**, `30 files` = **2**, `200 MB` = **2**.
+    Re-reading `tiermodel-logging.md`, `quick-deployment-guide.md`, and `detailed-deployment-guide.md`
+    found no positive cause assertion for the two-GPO incident and no promise that the switches will reveal
+    why a GPO failed; the only matched root-cause line is the negative disclaimer at
+    `docs\detailed-deployment-guide.md:697`.
   - **Satisfies**: spec "Docs to Update"
 
 - [x] ✅ T024 **Comment hygiene sweep — remove bug numbers and bug history from product code.**
@@ -242,7 +300,7 @@ unticked, even where a conversation suggested otherwise.
   - **Evidence**: 91 product files scanned (2026-09-07 18:30), 0 `BUG-\d+` matches. Prior estimate (2026-09-06) of 155 mentions / 36 files superseded by measured result.
   - **Satisfies**: D13, D14
 
-- [ ] T025 Release-readiness sweep: version numbers and stray files.
+- [x] T025 Release-readiness sweep: version numbers and stray files.
   - **Version — measured 2026-09-06, and it is largely already done:** `modules/TierModel/TierModel.psd1`
     `ModuleVersion = '2.1.0'`; `Deploy-TierModel.ps1:200` `Version: 2.1.0`; `Audit-TierModel.ps1:169`
     `Version: 2.1.0`; `README.md:165` `**Version**: 2.1.0`. No stale `2.0.0` reference survives outside
@@ -255,6 +313,13 @@ unticked, even where a conversation suggested otherwise.
     `SECURITY.md`, `SUPPORT.md`. Re-check immediately before the PR, since the concurrent sweeps are still
     writing.
   - **Files**: repository root, `modules/TierModel/TierModel.psd1`, both entry scripts, `README.md`
+  - **Verification 2026-09-08 (Wolverine)**: version markers are current at
+    `modules\TierModel\TierModel.psd1:3`, `Deploy-TierModel.ps1:201`, `Audit-TierModel.ps1:170`, and
+    `README.md:161`. Repository-root file listing contains only the expected files:
+    `.gitattributes`, `.gitignore`, `Audit-TierModel.ps1`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`,
+    `CONTRIBUTING.md`, `Deploy-TierModel.ps1`, `es-metadata.yml`, `LICENSE`, `mkdocs.yml`, `README.md`,
+    `SECURITY.md`, `SUPPORT.md`. Remaining `2.0.0` references inspected outside `.squad`/`CHANGELOG` are
+    legitimate schema/history/versioned-config references, not stale release markers.
 
 ---
 
@@ -291,7 +356,35 @@ unticked, even where a conversation suggested otherwise.
     alongside); log `.research/lab-validation/LAB-RUN-PROGRESS.md` [17:12]–[17:17]
   - **Unchanged by the deferral**: `-Debug` MUST NEVER be forwarded as an explicit parameter to an AD or
     GroupPolicy cmdlet, and `@PSBoundParameters` MUST NEVER be splatted into one. Explicit `-Verbose` is not
-    prohibited. T018 enforces this in CI and is **not** deferred with T016.
+    prohibited. T018 is the required CI enforcement and is **not** deferred with T016.
+
+- **T017 — Author the Pester suite for the feature: DEFERRED TO v2.1.1.**
+  **Status: DEFERRED by Joel on 2026-09-08.** Joel chose: *"Mark as deferred to v2.1.1 with reasons in the
+  spec."* This is no longer outstanding v2.1.0 work.
+
+  **Reason for deferral:** the diagnostics feature itself is implemented and lab-validated. What is missing is
+  **test coverage**, not function. This is coverage debt, not a product defect.
+
+  **Measured gap for the v2.1.1 owner:** across all **1,994** tests, the suite has:
+  - `transcript`: **0** occurrences
+  - `DebugPreference`: **0** occurrences
+  - `FR-020` / `no-inert-switch`: **0** occurrences
+  - `Debug\` path resolution: **1** occurrence
+  - only **7 `It` blocks** whose names mention the diagnostics switches
+
+  **Sharp edge — untested AND unmeasured:** the transcript logic lives in `Deploy-TierModel.ps1` and
+  `Audit-TierModel.ps1`, but those entry scripts are outside `CodeCoverage.Path` in `.github\workflows\ci.yml`
+  (the CI coverage population is the module paths plus `optional\Update-TierModelMembership.ps1`). Therefore
+  this gap is invisible to the coverage percentage; no coverage number will reveal it. The safety-critical
+  guard in `Deploy-TierModel.ps1:469-494` warns that an unpaired `Stop-Transcript` can silently stop the
+  operator's own transcript, and that guard has no test.
+
+  **Original T017 scope preserved for v2.1.1:** parameter surface parity; default-off regression;
+  **non-modification** (not restoration) of global preferences on every exit path; module-scope reach;
+  `Debug\` path resolution including the relative case; transcript gating; transcript failure is non-fatal;
+  `Stop-Transcript` pairing asserted on the state flag; `-WhatIf` does not suppress diagnostics; success is
+  not inferred from a missing exception; D8 auto-logging never prompts; the re-run hint round-trips; and the
+  FR-020 no-inert-switch gate.
 
 ---
 
@@ -299,17 +392,14 @@ unticked, even where a conversation suggested otherwise.
 
 | State | Count | Tasks |
 |-------|-------|-------|
-| ✅ Complete | 15 | T001 – T015 (T014 verified on disk 2026-09-06; T015 = lab RUN 1, 50 rows, 0 FAIL) |
-| 🔄 In progress | 2 | T017 (Wolverine — new coverage), T024 (Rogue — comment hygiene, D13/D14) |
-| ⬜ Not started | 8 | T018, T019, T020, T021, T023, T025, T026, T027 |
-| 🟡 Not started, low priority | 1 | T022 (`ci.yml` PSScriptAnalyzer scope) |
-| ⛔ Deferred — not v2.1.0 | 1 | T016 (WI-18 / D9 — see spec D11) |
+| ✅ Complete | 25 | T001 – T015, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027 |
+| 🔄 In progress / unchecked | 0 | — |
+| ⬜ Not started | 0 | — |
+| 🟡 Not started, low priority | 0 | — |
+| ⛔ Deferred — not v2.1.0 | 2 | T016 (WI-18 / D9 — see spec D11), T017 (coverage debt → v2.1.1) |
 | **Total** | **27** | |
 
-**Remaining v2.1.0 work is T017 – T027 (excluding the deferred T016).** T016 is out of the v2.1.0 count
-entirely.
+**Remaining verified-open v2.1.0 work: none.** T016 and T017 are out of the v2.1.0 count entirely.
 
-**Genuinely blocking a lab test** (as distinct from blocking the *release*): only **T026** — a red suite is a
-stop sign — and, if Joel wants to trust what the audit report tells him in the lab, **T027**. Everything else
-in the list above blocks the **release**, not the lab session. T024 is in flight and touches comments only,
-but it touches 36 product files, so the lab build should be taken *after* it settles rather than mid-sweep.
+**Genuinely blocking a lab test** (as distinct from blocking the *release*): none remain under Joel's
+2026-09-08 lab-pass assumption. No unchecked v2.1.0 task remains.

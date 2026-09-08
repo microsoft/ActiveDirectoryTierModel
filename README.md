@@ -44,19 +44,19 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ 1,988 passing / 0 failures (100%)** *(Last run: 2026-09-08)*
+**Current Test Status: ✅ 1,994 passing / 0 failures (100%)** *(Last run: 2026-09-08)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | **25 files** (Pester) | **1,658 tests** | ✅ All pass | **~90.9%** |
-| **Integration Tests** | **7 files** (Pester) | **330 tests** | ✅ All pass | **90.9%** |
+| **Unit Tests** | **26 files** (Pester) | **1,664 tests** | ✅ All pass | **87.36%** *(CI-scoped 82-file module population)* |
+| **Integration Tests** | **7 files** (Pester) | **330 tests** | ✅ All pass | **87.36%** *(CI-scoped 82-file module population)* |
 | **Manual Integration Tests** | **1 file** (Excel workbook) | **384 tests** | ✅ 100% Pass | **N/A** |
-| **Total** | **33 files** | **2,372 tests** | ✅ **100% passing** | **~90.9%** |
+| **Total** | **34 files** | **2,378 tests** | ✅ **100% passing** | **87.36%** *(CI-scoped 82-file module population)* |
 
 ### Test Coverage Highlights
-- ✅ **72/72** production files have comprehensive test coverage
-- ✅ **1,988 / 1,988** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-08)
-- ✅ **~90.9%** overall Pester-measured command coverage (aggregate meets 80% CI gate)
+- ✅ **86/86** production PowerShell files in the product surface counted: 2 root `*-TierModel.ps1`, 82 under `modules\`, and 2 under `optional\`; CI coverage measures the CI-scoped 82-file module population
+- ✅ **1,994 / 1,994** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-08)
+- ✅ **87.36%** overall Pester-measured command coverage across the CI-scoped 82-file module population (aggregate clears the 80% CI gate; the gate is not per-file)
 
 ### Running Tests
 ```powershell

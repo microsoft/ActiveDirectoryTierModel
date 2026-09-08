@@ -617,3 +617,39 @@ Searched specs/006-verbose-debug-logging for similar framing:
 2. **Provenance precision matters in specs.** Conflating "exists in Deploy" with "exists in both scripts" looks like a tiny detail but masks a material difference in implementation scope. The spec now reflects the actual facts: this release adds feature to Audit, preserves it in Deploy.
 
 3. **Regex pattern selection for verification is crucial.** Using [regex]::Matches() with IgnoreCase and ReadAllText (not Select-String) gives trustworthy absence proofs. Absence queries need positive evidence of full-text search, not best-effort grep.
+
+---
+
+## Session 2026-09-08 — README CI Coverage Population Correction
+
+**Status:** ✅ COMPLETE
+**Date:** 2026-09-08T17:09:29.4248450+08:00
+**Requested by:** Joel Platek
+
+- Corrected README coverage from stale `~90.9%`/`90.9%` to `87.36%` and named the CI-scoped 82-file module population beside every figure.
+- Replaced stale `72/72` production-file claim with the measured 86-file product surface: 2 root `*-TierModel.ps1`, 82 files under `modules\`, and 2 files under `optional\`.
+- Preserved the manual integration-test count and did not add non-CI coverage figures for root scripts.
+
+---
+
+## Session 2026-09-08 — Quick Guide Diagnostics Section
+
+**Status:** ✅ COMPLETE
+**Date:** 2026-09-08T17:29:59.2979388+08:00
+**Requested by:** Joel Platek
+
+- Added a concise diagnostics escalation section to `docs\quick-deployment-guide.md` covering `-EnableVerbose`, `-EnableDebug`, the composed deployment command, `Debug\`, no retention, accepted console noise, and the unredacted transcript warning.
+- Cross-linked to `docs\tiermodel-logging.md` for the full treatment without duplicating the page.
+- Verified keyword counts are no longer zero and `mkdocs build --strict` exits 0.
+
+---
+
+## Session 2026-09-08 — README and Coverage Count Refresh After FR-017 Guard
+
+**Status:** ✅ COMPLETE
+**Date:** 2026-09-08T17:35:38.2394155+08:00
+**Requested by:** Joel Platek
+
+- Updated `README.md` and `docs\test-coverage.md` from measured full-suite totals: 1,994 automated tests, 26 unit files, 1,664 unit tests, 34 total files, and 2,378 total tests.
+- Kept the manual integration row at Joel's hand-entered 384 tests.
+- Kept coverage at measured 87.36% over the CI-scoped 82-file module population and documented that the FR-017 AST guard improves safety, not execution coverage.

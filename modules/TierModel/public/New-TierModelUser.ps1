@@ -36,7 +36,7 @@ function New-TierModelUser {
     Write-TierModelLog -Level Info -Message "UserExecutionStart" -Data @{
         TotalActions = $Plan.Actions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

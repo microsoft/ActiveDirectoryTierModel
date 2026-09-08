@@ -119,7 +119,7 @@ function New-TierModelGpo {
     Write-TierModelLog -Level Info -Message "GPO creation start" -Data @{
         TotalActions = $createActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

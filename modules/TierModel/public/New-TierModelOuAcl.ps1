@@ -42,7 +42,7 @@ function New-TierModelOuAcl {
     Write-TierModelLog -Level Info -Message "OuAclExecutionStart" -Data @{
         TotalActions = $Plan.Actions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

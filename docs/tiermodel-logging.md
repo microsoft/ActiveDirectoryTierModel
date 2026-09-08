@@ -2,7 +2,7 @@
 
 ## Overview
 
-The TierModel module includes a comprehensive structured logging system designed for enterprise environments. Logging is controlled via the `-Logging` switch in the `Deploy-TierModel.ps1` script. When enabled, deployment operations are logged with correlation IDs, security redaction, and multiple output formats.
+The TierModel module includes a comprehensive structured logging system designed for enterprise environments. Logging is controlled via the `-Logging` switch, which is supported by **both** `Deploy-TierModel.ps1` and `Audit-TierModel.ps1`. When enabled, operations are logged with correlation IDs, security redaction, and multiple output formats.
 
 ## Deployment Logging vs. Audit Reporting
 
@@ -14,11 +14,16 @@ The TierModel module includes a comprehensive structured logging system designed
 - Purpose: Track what changes were made during deployment
 
 **Audit Reporting (`Audit-TierModel.ps1`)**
-- Controlled by the `-OutputFormat` parameter (Text, Json, Html, NUnitXml)
+- Compliance reports are controlled by the `-OutputFormat` parameter (Text, Json, Html, NUnitXml)
 - Generates compliance and drift detection reports
-- Does NOT use the logging system
-- Reports stored in directory specified by `-LogPath` parameter
+- Also supports `-Logging`, which is a separate concern from the report: it records the audit
+  run itself — execution details and every `-Level Error` raised inside the TierModel module —
+  to a structured log file, rather than leaving those on the console alone
+- Reports and logs stored in the directory specified by `-LogPath` parameter
 - Purpose: Document current state compliance vs. desired configuration
+
+The distinction to hold on to is that a **report** describes the environment, while a **log**
+describes the run that produced it. An audit produces both, and they answer different questions.
 
 For audit reporting documentation, see [Drift Detection Details](drift-detection-details.md).
 
@@ -84,7 +89,10 @@ The deployment script will log:
 - Action execution details and results
 - Summary statistics and completion status
 
-**Note**: The `Audit-TierModel.ps1` script generates audit reports but does not use the logging system. Use `-OutputFormat` and `-LogPath` parameters for audit report generation.
+**Note**: `Audit-TierModel.ps1` supports `-Logging` as well. Use `-OutputFormat` to control the
+compliance **report**, and `-Logging` to capture a structured record of the audit **run** —
+including errors raised inside the TierModel module, which would otherwise only reach the console.
+Both are written to the directory given by `-LogPath`.
 
 ### Enabling Diagnostic Output — Verbose and Debug Logging
 
@@ -132,6 +140,32 @@ Capture a full unredacted transcript for detailed failure analysis. Use this onl
 ```
 
 The transcript captures every command and output from the PowerShell console session. Review it carefully before sharing—it may contain sensitive object names, DNs, SIDs, SDDL, and group memberships.
+
+#### Log File Retention — There Is None
+
+`Deploy-TierModel.ps1` and `Audit-TierModel.ps1` apply **no retention policy and keep no rolling
+history**. Every run writes a new timestamped file and nothing is ever rotated, pruned or
+overwritten. Old files remain until someone removes them.
+
+This is a deliberate difference from `optional\Update-TierModelMembership.ps1`, which **does** prune
+itself. That script bounds its debug output on three axes at once — files older than **7 days**, more
+than **30 files**, or a total exceeding **200 MB**. The reason for the difference is how each script
+is used:
+
+| | Deploy / Audit | `Update-TierModelMembership.ps1` |
+|---|---|---|
+| How it runs | Interactively, on demand | Scheduled task, unattended |
+| How often | Occasionally, to make or confirm a change | Frequently, on a timer |
+| Log growth | Bounded by how often an operator runs it | Unbounded without pruning |
+| Retention | **None** — files kept until removed | Bounded: 7 days / 30 files / 200 MB |
+
+A scheduled task left alone will fill a disk, so it has to prune itself. An operator-invoked run
+will not, and silently deleting the evidence of a deployment would be worse than keeping it — the
+log of a tier-model change is exactly the artifact you want to still have months later.
+
+The practical consequence: if you run with `-EnableDebug` repeatedly while chasing a problem, the
+`Debug\` subfolder will accumulate files, including any unredacted transcripts. **Clean it out
+yourself once the investigation is finished**, and treat the contents as sensitive until you do.
 
 ### Direct Function Usage (Advanced)
 

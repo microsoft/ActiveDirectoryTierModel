@@ -39,7 +39,7 @@ function Import-TierModelGpo {
     Write-TierModelLog -Level Info -Message "GPO import start" -Data @{
         TotalActions = $importActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

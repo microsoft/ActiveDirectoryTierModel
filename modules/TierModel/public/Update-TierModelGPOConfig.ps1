@@ -41,7 +41,7 @@ function Update-TierModelGPOConfig {
     Write-TierModelLog -Level Info -Message "GPO configuration start" -Data @{
         TotalActions = $configActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     

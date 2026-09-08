@@ -634,3 +634,64 @@ For additional documentation, see:
 - [Deployment Methodology](deployment-methodology.md)
 - [Drift Detection Details](drift-detection-details.md)
 - [GPO Management Strategy](gpo-management-strategy.md)
+
+---
+
+## Appendix: Troubleshooting Diagnostic Output
+
+Use the v2.1.0 diagnostic switches when a normal deployment or audit does not give enough information to understand what happened during a run. Start with verbose output for most operator questions. Use debug output only when verbose output is not enough, because debug mode is noticeably slower and much noisier by design.
+
+Use `-EnableVerbose` and `-EnableDebug` on `Deploy-TierModel.ps1` or `Audit-TierModel.ps1`. These names are deliberate: they raise the script preference variables while leaving PowerShell's common `-Verbose` and `-Debug` parameters available and unshadowed.
+
+For the full logging reference, see [Tier Model Logging](tiermodel-logging.md).
+
+### Escalation ladder
+
+Replace `-GposOnly` with the component switch you are troubleshooting. For a deployment plan, omit `-ConfirmApply`.
+
+1. **Normal run** — use first when you expect the standard summary to be enough.
+
+    ```powershell
+    .\Deploy-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com -ConfirmApply
+    .\Audit-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com
+    ```
+
+2. **Verbose run** — use for most stalls, unexpected skips, or unclear audit output.
+
+    ```powershell
+    .\Deploy-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com -ConfirmApply -EnableVerbose
+    .\Audit-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com -EnableVerbose
+    ```
+
+3. **Verbose + debug run** — last rung. Use only when you need a deeper support artifact and accept the slower, noisier run.
+
+    ```powershell
+    .\Deploy-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com -ConfirmApply -EnableVerbose -EnableDebug
+    .\Audit-TierModel.ps1 -GposOnly -PreferredDc DC01.contoso.com -EnableVerbose -EnableDebug
+    ```
+
+### Where diagnostic output is written
+
+Either diagnostic switch automatically enables `-Logging`; the script announces that logging was enabled for the diagnostic run. Diagnostic files are written under a `Debug\` subfolder beside the script, separate from the normal log output.
+
+A PowerShell transcript starts only when **both** `-EnableVerbose` and `-EnableDebug` are supplied together. A single diagnostic switch does not start a transcript. The transcript adds a console-level record of the run, including prompts, command output, warnings, verbose messages, and debug messages that crossed the console.
+
+Deploy and Audit do **not** apply log retention to normal or diagnostic log files. Unlike `optional\Update-TierModelMembership.ps1`, which keeps 7 days for scheduled operation, Deploy and Audit are normally run once, interactively, to confirm a deployment or audit result. Collect or remove the diagnostic files when the investigation is complete.
+
+> 🔴 **WARNING — transcripts are unredacted.**
+>
+> A transcript captures whatever crossed the console. Review the transcript yourself before attaching it to a public GitHub issue, support case, email, or chat. Do not share it until you are satisfied it contains no sensitive tenant, domain, account, path, or operational data.
+
+### Symptom → what to try
+
+| Symptom | What to try |
+|---------|-------------|
+| A deployment or audit phase appears to stall or sits on one phase longer than expected | Re-run that same scoped command with `-EnableVerbose` first. Verbose output usually shows the current phase, object, or validation step. Escalate to both switches only if the verbose run still leaves the stall unclear. |
+| An expected OU, group, user, GPO, or delegation does not appear to have been created | Re-run the same deployment scope with `-EnableVerbose`, then audit the same scope with `-EnableVerbose`. Compare the standard summary with the `Debug\` output to confirm whether the item was planned, skipped, failed, or still awaiting a dependency. |
+| An audit result looks wrong or does not match what you see in Active Directory or Group Policy Management | Re-run the audit with `-EnableVerbose` against the same `-PreferredDc`. If the mismatch remains and you need to provide evidence for review, run both switches together and review the transcript before sharing it. |
+| The script says it enabled logging even though you did not pass `-Logging` | This is expected when either diagnostic switch is used. The diagnostic switch auto-enables logging and writes its diagnostic artifacts under `Debug\`. |
+| Debug output is slow or extremely noisy | This is expected. `-EnableDebug` raises the debug preference and should be reserved for the final escalation rung, especially when combined with transcript capture. |
+
+### What these switches will not tell you
+
+These switches surface more diagnostic output; they are not a guaranteed root-cause tool. They do not prove why Active Directory or Group Policy accepted, rejected, delayed, or replicated a change. They also do not redact output, replace prerequisite validation, or guarantee that a missing object or unexpected audit result can be explained from a single run.

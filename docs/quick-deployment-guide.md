@@ -109,7 +109,7 @@ The audit should report:
 
 If the audit identifies drift immediately after deployment, review the deployment logs and investigate the discrepancies.
 
-## Optional: Enable Logging
+## Optional: Enable Logging and Diagnostics
 
 For troubleshooting or audit trails, enable detailed logging:
 
@@ -122,6 +122,23 @@ For troubleshooting or audit trails, enable detailed logging:
 ```
 
 Logs are saved to the current directory or the path specified by `-LogPath`.
+
+### Escalate a misbehaving run
+
+When normal output is not enough, re-run the same deployment with TierModel diagnostics enabled:
+
+```powershell
+.\Deploy-TierModel.ps1 -FullDeployment -PreferredDc DC01.contoso.com -ConfirmApply -EnableVerbose -EnableDebug -LogPath "C:\Logs"
+```
+
+- `-EnableVerbose` adds higher-level progress and decision detail.
+- `-EnableDebug` adds lower-level diagnostics. Expect slower execution and noisier console output; that noise is accepted during a diagnostic run.
+- Diagnostic files are written to a `Debug\` subfolder under the resolved log directory, separate from the normal log.
+- Deploy and Audit keep no rolling retention history. They run once, interactively, to confirm a specific deployment or audit; unlike the scheduled `optional\Update-TierModelMembership.ps1`, they do not keep 7 days of logs.
+
+> 🔴 **Unredacted transcript warning:** When `-EnableVerbose -EnableDebug` are supplied together, PowerShell starts a transcript in `Debug\`. The transcript is **unredacted** and captures whatever crosses the console. Review and redact it before sharing; never paste an unredacted transcript into a public issue.
+
+See [Tier Model Logging](tiermodel-logging.md) for the full diagnostics model.
 
 ## Troubleshooting
 

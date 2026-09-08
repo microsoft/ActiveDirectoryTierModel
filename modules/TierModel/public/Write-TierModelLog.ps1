@@ -125,7 +125,12 @@ function Write-TierModelLog {
                 # Scope is deliberately this call only. Do NOT set $WhatIfPreference here and do
                 # NOT put -WhatIf:$false anywhere near an AD or GroupPolicy cmdlet - that would
                 # make -WhatIf perform real directory writes.
-                $jsonEntry = $logEntry | ConvertTo-Json -Compress
+                # -Depth is load-bearing. ConvertTo-Json defaults to 2, and $logEntry spends both
+                # levels on its own shape (Data, then Data's keys), so ANY structured value a
+                # caller passes is silently truncated and emits a console warning mid-deployment.
+                # 5 matches the depth already used by the fast-fail log writers in the two
+                # entry scripts.
+                $jsonEntry = $logEntry | ConvertTo-Json -Compress -Depth 5
                 Add-Content -Path $logFile -Value $jsonEntry -Encoding UTF8 -WhatIf:$false
             } catch {
                 Write-Warning "Failed to write to log file '$logFile': $($_.Exception.Message)"
