@@ -663,7 +663,51 @@ Describe "Test-TierModelUser" -Tag "Unit", "User", "Audit" {
             $missingFindings[0].ActualValue | Should -Be 'Missing'
         }
     }
-    
+
+    Context "User Read Failure Handling" {
+
+        # The User producer's read-failure branch had NO test of any kind before this Context.
+        # Its sibling in the Group producer had one, which is why only the Group suite went red
+        # when the defect was fixed - the User half of the same fix was landed unexercised and
+        # would survive being reverted with a green suite.
+        It "Should report an unreadable user as unverified rather than compliant" {
+            Mock -ModuleName TierModel Get-ADUser {
+                throw [System.InvalidOperationException]::new("Query failure")
+            }
+
+            $result = Test-TierModelUser -Config $script:MockConfig -DomainController $script:MockDomainController -Silent
+
+            $expected = @($script:MockConfig.users).Count
+
+            # A read failure is a could-NOT-determine state. It is reported as 'Error' and
+            # deliberately NOT as 'Missing' - the user may well exist; we simply failed to ask.
+            $readFailures = @($result.DriftFindings | Where-Object { $_.Type -eq 'Error' })
+            $readFailures.Count | Should -Be $expected
+            @($readFailures | Where-Object { $_.Identifier -like '*/ReadFailure' }).Count | Should -Be $expected
+            $readFailures[0].ResourceType | Should -Be 'User'
+            $readFailures[0].Details | Should -Match 'could not be read'
+
+            $result.Summary.MissingCount    | Should -Be 0 -Because 'an unreadable user is not a confirmed absence'
+            $result.Summary.UnverifiedCount | Should -Be $expected
+
+            # The load-bearing consequence: unverified must reach the drift total, because that
+            # total is what decides whether the section renders as compliant.
+            $result.Summary.DriftCount | Should -BeGreaterThan 0 -Because 'a user whose state is unknown must never render as compliant'
+        }
+
+        It "Should keep the unverified count reconciled with the findings it emits" {
+            Mock -ModuleName TierModel Get-ADUser {
+                throw [System.InvalidOperationException]::new("Query failure")
+            }
+
+            $result = Test-TierModelUser -Config $script:MockConfig -DomainController $script:MockDomainController -Silent
+
+            $errorFindings = @($result.DriftFindings | Where-Object { $_.Type -eq 'Error' })
+            $result.Summary.UnverifiedCount | Should -Be $errorFindings.Count
+            $result.Summary.DriftCount | Should -Be ($result.Summary.MissingCount + $result.Summary.MismatchCount + $result.Summary.UnverifiedCount)
+        }
+    }
+
     Context "User Location Validation" {
         
         BeforeEach {

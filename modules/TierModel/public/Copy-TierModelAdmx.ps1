@@ -71,13 +71,77 @@ function Copy-TierModelAdmx {
             AdmlSkipped = @()
         }
         
-        # Check for errors in analysis
-        if ($Analysis.Errors.Count -gt 0) {
+        # Classify analysis errors.
+        #
+        # PER-FILE (recoverable): a single source ADMX/ADML file is missing or fails its
+        # recorded MD5 source hash (commonly a CRLF/LF line-ending difference introduced by
+        # downloading GitHub "Source code (zip)"). Only that file is untrustworthy, so it is
+        # skipped and every other file still deploys.
+        #
+        # FATAL (abort): anything else - an unreadable/missing config file, an unreachable
+        # domain controller or central store, or an exception thrown by Get-TierModelAdmx.
+        # In those cases the analysis as a whole cannot be trusted, so we must NOT silently
+        # continue and deploy from a half-built plan.
+        $perFileErrorPattern = '^Source (ADMX|ADML) file (not found|hash mismatch)'
+        $analysisErrors = @($Analysis.Errors)
+        $perFileErrors  = @($analysisErrors | Where-Object { $_ -match $perFileErrorPattern })
+        $fatalErrors    = @($analysisErrors | Where-Object { $_ -notmatch $perFileErrorPattern })
+
+        if ($fatalErrors.Count -gt 0) {
             Write-Host "Analysis errors detected:" -ForegroundColor Red
-            foreach ($analysisError in $Analysis.Errors) {
+            foreach ($analysisError in $fatalErrors) {
                 Write-Host "  ❌ $analysisError" -ForegroundColor Red
+                Write-TierModelLog -Level Error -Message "ADMX analysis error (fatal)" -Data @{
+                    Error = "$analysisError"
+                    CorrelationId = $CorrelationId
+                } | Out-Null
             }
             throw "Cannot proceed with deployment due to analysis errors"
+        }
+
+        if ($perFileErrors.Count -gt 0) {
+            Write-Host "Source file validation warnings - the following files will be SKIPPED:" -ForegroundColor Yellow
+            foreach ($analysisError in $perFileErrors) {
+                $errorText = "$analysisError"
+                Write-Host "  ⚠️  $errorText" -ForegroundColor Yellow
+                Write-TierModelLog -Level Warning -Message "ADMX/ADML source file skipped" -Data @{
+                    Reason = $errorText
+                    CorrelationId = $CorrelationId
+                } | Out-Null
+
+                # Recover the file name for the skipped-file record
+                $skippedName = if ($errorText -match 'hash mismatch for (.+?)\. Expected') {
+                    $Matches[1]
+                } elseif ($errorText -match 'not found:\s*(.+)$') {
+                    Split-Path $Matches[1] -Leaf
+                } else {
+                    'Unknown'
+                }
+
+                $skipRecord = [PSCustomObject]@{
+                    Name       = $skippedName
+                    ActionType = 'Skipped'
+                    Reason     = $errorText
+                }
+                if ($errorText -match '^Source ADML file') {
+                    $deploymentResult.AdmlSkipped = @($deploymentResult.AdmlSkipped) + @($skipRecord)
+                } else {
+                    $deploymentResult.AdmxSkipped = @($deploymentResult.AdmxSkipped) + @($skipRecord)
+                }
+            }
+            Write-Host "  All remaining files will still be deployed." -ForegroundColor Yellow
+            Write-Host "  Tip: a source hash mismatch is usually a CRLF/LF line-ending difference." -ForegroundColor Gray
+            Write-Host "       Use the TierModel-<version>.zip release asset rather than GitHub 'Source code (zip)'." -ForegroundColor Gray
+        }
+
+        # Friendly advisory: this tool overwrites central-store files in place and does NOT
+        # take backups. Operators should keep their own copy before an overwrite.
+        $overwriteCount = @($Analysis.AdmxToUpdate | Where-Object { $_.ActionType -ne 'Import' }).Count +
+                          @($Analysis.AdmlToUpdate | Where-Object { $_.ActionType -ne 'Import' }).Count
+        if ($overwriteCount -gt 0) {
+            Write-Host "  ℹ️  $overwriteCount existing central-store file(s) will be OVERWRITTEN." -ForegroundColor Cyan
+            Write-Host "      This tool does not create backups - please save a copy of your existing" -ForegroundColor Cyan
+            Write-Host "      PolicyDefinitions files before proceeding if you need to roll back." -ForegroundColor Cyan
         }
         
         # Deploy ADMX files that need updates
@@ -139,7 +203,7 @@ function Copy-TierModelAdmx {
             }
         } else {
             Write-Host "  All ADMX files are up to date" -ForegroundColor Green
-            $deploymentResult.AdmxSkipped = $Analysis.AdmxUpToDate
+            $deploymentResult.AdmxSkipped = @($deploymentResult.AdmxSkipped) + @($Analysis.AdmxUpToDate)
         }
         
         # Deploy ADML files that need updates
@@ -202,7 +266,7 @@ function Copy-TierModelAdmx {
             }
         } else {
             Write-Host "  All ADML files ($AdmlLanguage) are up to date" -ForegroundColor Green
-            $deploymentResult.AdmlSkipped = $Analysis.AdmlUpToDate
+            $deploymentResult.AdmlSkipped = @($deploymentResult.AdmlSkipped) + @($Analysis.AdmlUpToDate)
         }
         
         $durationMs = ((Get-Date) - $startTime).TotalMilliseconds
@@ -214,6 +278,7 @@ function Copy-TierModelAdmx {
             TotalSuccessful = $totalSuccessful
             TotalFailed = $totalFailed
             TotalSkipped = $totalSkipped
+            SkippedDueToValidation = $perFileErrors.Count
             AdmxSuccessful = $deploymentResult.AdmxSuccessful.Count
             AdmlSuccessful = $deploymentResult.AdmlSuccessful.Count
             AdmxFailed = $deploymentResult.AdmxFailed.Count
@@ -231,6 +296,7 @@ function Copy-TierModelAdmx {
                 Successful = $totalSuccessful
                 Failed = $totalFailed
                 Skipped = $totalSkipped
+                SkippedDueToValidation = $perFileErrors.Count
                 Success = ($totalFailed -eq 0)
             }
             AdmlLanguage = $AdmlLanguage
@@ -258,6 +324,7 @@ function Copy-TierModelAdmx {
                 Successful = 0
                 Failed = 1
                 Skipped = 0
+                SkippedDueToValidation = 0
                 Success = $false
             }
             AdmlLanguage = $AdmlLanguage

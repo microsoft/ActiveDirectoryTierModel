@@ -164,7 +164,7 @@ function New-TierModelOu {
                 continue
             }
 
-            Write-Host "  `u{2705} Creating OU: $ouName" -ForegroundColor Green
+            Write-Host "  Creating OU: $ouName" -ForegroundColor Cyan
 
             $newOU = $null
             try {
@@ -178,13 +178,19 @@ function New-TierModelOu {
                 if ($ouDescription) { $newOuParams['Description'] = $ouDescription }
                 # NOTE: ProtectedFromAccidentalDeletion intentionally omitted here — applied in Phase 1 final step.
 
-                $newOU = New-ADOrganizationalUnit @newOuParams
+                $newOU = New-ADOrganizationalUnit @newOuParams -ErrorAction Stop
+                # Verify the write before recording success. A failed AD write can return $null
+                # without terminating; defensive null-check regardless of platform or root cause.
+                if ($null -eq $newOU) {
+                    throw (Get-TierModelWriteFailureDetail -Operation 'New-ADOrganizationalUnit' -Target $ouName).Summary
+                }
                 $createdSoFar.Add($newOU.DistinguishedName)
 
                 Write-TierModelLog -Level Info -Message "OuCreateSuccess" -Data @{
                     Name = $ouName; DistinguishedName = $newOU.DistinguishedName
                     CorrelationId = $CorrelationId
                 } | Out-Null
+                Write-Host "  `u{2705} Created OU: $ouName" -ForegroundColor Green
             } catch {
                 $errMsg = "Failed to create OU '$ouName': $($_.Exception.Message)"
                 $errors.Add(@{
@@ -201,7 +207,10 @@ function New-TierModelOu {
                 }
                 Write-TierModelLog -Level Error -Message "OuCreateError" -Data @{
                     Name = $ouName; Path = $ouPath
-                    ExceptionMessage = $_.Exception.Message; CorrelationId = $CorrelationId
+                    ExceptionMessage = $_.Exception.Message
+                    FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                    CategoryInfo = $_.CategoryInfo.ToString()
+                    CorrelationId = $CorrelationId
                 } | Out-Null
                 # Hard-stop Phase 1 on create failure.
                 throw "Phase1Abort:$ouName"
@@ -248,7 +257,10 @@ function New-TierModelOu {
 
             $dn = $appliedEntry.DistinguishedName
             try {
-                Set-ADOrganizationalUnit -Identity $dn -ProtectedFromAccidentalDeletion $true -Server $PreferredDc -Confirm:$false
+                $pfadResult = Set-ADOrganizationalUnit -Identity $dn -ProtectedFromAccidentalDeletion $true -Server $PreferredDc -Confirm:$false -PassThru -ErrorAction Stop
+                if ($null -eq $pfadResult) {
+                    throw (Get-TierModelWriteFailureDetail -Operation 'Set-ADOrganizationalUnit (ProtectedFromAccidentalDeletion)' -Target $ouName).Summary
+                }
             } catch {
                 $errMsg = "Failed to apply ProtectedFromAccidentalDeletion to OU '$ouName' ($dn): $($_.Exception.Message)"
                 $errors.Add(@{

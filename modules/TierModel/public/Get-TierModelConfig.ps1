@@ -13,7 +13,7 @@ function Get-TierModelConfig {
     - tiermodel-gpos.json
     - tiermodel-admx.json
     
-    Merges them into a single logical configuration object and validates schema.
+    Merges them into a single logical configuration object. No schema validation is performed.
     
     .PARAMETER ConfigPath
     Override path to config directory. Defaults to module-relative config path.

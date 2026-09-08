@@ -11,29 +11,83 @@ $script:ConfigPath = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -P
 $script:LoggingEnabled = $false
 $script:DefaultLogPath = $null
 
+function Initialize-TierModelLogging {
+    <#
+    .SYNOPSIS
+    Enables TierModel module-scope file logging for the current session.
+
+    .DESCRIPTION
+    Sets the two module-scope logging variables declared above
+    ($script:LoggingEnabled and $script:DefaultLogPath) that Write-TierModelLog
+    consults when a caller supplies no explicit -LogPath.
+
+    Without this initialiser those variables keep their declared defaults
+    ($false / $null), so every Write-TierModelLog call made inside the module
+    writes to the console streams only and never reaches disk.
+
+    WHY THIS LIVES INLINE IN THE .psm1 AND NOT IN public\
+    This is a module-scope helper that must NOT be exported. It cannot live in
+    public\ because tests\Unit.ModuleManifest.Tests.ps1 (L188-216) derives its
+    expectation from the *contents of the public\ folder* — every *.ps1 file
+    there must have a matching entry in FunctionsToExport — rather than from the
+    module's runtime exported list. Adding an unexported file to public\ fails
+    three assertions in that test (measured 2026-09-03: 'Number of declared
+    functions matches number of public function files' expected 84 got 83, plus
+    'All public function files are declared in manifest' and 'Declared functions
+    list matches actual functions list exactly'). That test belongs to Wolverine
+    and is not editable here. Defining the function inline keeps it dot-sourced
+    into module scope, unexported, and invisible to that test's three hard-coded
+    inline-function regexes. Do not move this into public\ without first changing
+    that test to assert on exported functions instead of on folder contents.
+
+    Entry scripts call it inside the module's scope:
+
+        & $module { param($p) Initialize-TierModelLogging -LogFilePath $p } $path
+
+    Logging remains opt-in: nothing calls this unless the operator asked for it.
+
+    .PARAMETER LogFilePath
+    Full path of the log file to append structured JSON entries to. A relative
+    path is resolved against the current working directory. The parent directory
+    is created if it does not already exist.
+
+    .OUTPUTS
+    System.String. The fully-qualified log file path that was configured.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string]$LogFilePath
+    )
+
+    $resolvedPath = $LogFilePath
+    if (-not [System.IO.Path]::IsPathRooted($resolvedPath)) {
+        $resolvedPath = Join-Path (Get-Location).Path $resolvedPath
+    }
+
+    $logDirectory = Split-Path -Path $resolvedPath -Parent
+    if ($logDirectory -and -not (Test-Path -LiteralPath $logDirectory)) {
+        New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    $script:DefaultLogPath = $resolvedPath
+    $script:LoggingEnabled = $true
+
+    Write-Verbose "TierModel module file logging enabled: $resolvedPath"
+
+    return $resolvedPath
+}
+
 # Cache variables for domain resolution (used by Resolve-TierModelDomainDN)
 $script:CachedDomainDN = $null
 $script:CachedDomainController = $null
 
-# Import internal functions (skip .old files - essential functions now in public)
-$InternalPath = Join-Path $PSScriptRoot 'internal'
-Write-Verbose "Looking for internal files in: $InternalPath"
-if (Test-Path $InternalPath) {
-    $internalFiles = @(Get-ChildItem -Path $InternalPath -Filter '*.ps1' | Where-Object { $_.Name -notlike '*.old' })
-    $internalFileCount = $internalFiles.Count
-    Write-Verbose "Found $internalFileCount active internal files (excluding .old files)"
-    $internalFiles | ForEach-Object {
-        try {
-            Write-Verbose "Loading: $($_.FullName)"
-            . $_.FullName
-            Write-Verbose "Successfully loaded: $($_.Name)"
-        } catch {
-            Write-Error "Failed to load $($_.Name): $($_.Exception.Message)"
-            throw
-        }
-    }
-}
-# Note: Internal path is optional - essential functions have been moved to public modules
+# NOTE: There is deliberately no 'internal' folder in this module. A previous migration
+# moved every function to public\ (see the removed loader's own comments: "essential
+# functions now in public" / "essential functions have been moved to public modules").
+# All functions live in public\, one per file; a function is EXPORTED only if its name
+# appears in FunctionsToExport in TierModel.psd1. Do not reintroduce an internal\ folder.
 
 # Import public functions
 $PublicPath = Join-Path $PSScriptRoot 'public'
@@ -90,7 +144,7 @@ function Test-TierModelConfig {
         [Parameter(Mandatory, ParameterSetName = 'FromConfig')][psobject]$Config,
         [Parameter(ParameterSetName = 'FromPath')][string]$SchemaPath = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config' 'tiermodel.schema.json'),
         [Parameter(ParameterSetName = 'FromPath')][switch]$Raw,
-        [Parameter()][string]$Scope = 'FullDeployment'
+        [Parameter()][ValidateSet('OuOnly','GroupOnly','UserOnly','GposOnly','OuAclsOnly','AdmxOnly','FullDeployment')][string]$Scope = 'FullDeployment'
     )
     
     # T0054: Add logging for configuration validation start
@@ -123,6 +177,19 @@ function Test-TierModelConfig {
         }
     } else {
         $config = $Config
+        # Load schema for FromConfig so validation is not silently skipped.
+        # $SchemaPath is only bound for FromPath, so resolve the path explicitly here.
+        $schemaPathForConfig = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'config' 'tiermodel.schema.json'
+        if (!(Test-Path -LiteralPath $schemaPathForConfig)) {
+            Write-TierModelLog -Level Error -Message "Schema file not found for FromConfig validation" -Data @{ SchemaPath = $schemaPathForConfig } | Out-Null
+            return [PSCustomObject]@{ Valid = $false; Errors = @("Schema file not found: $schemaPathForConfig"); Warnings = @(); Raw = $null }
+        }
+        try {
+            $schema = Get-Content -Raw -LiteralPath $schemaPathForConfig | ConvertFrom-Json -Depth 50
+        } catch {
+            Write-TierModelLog -Level Error -Message "Schema file could not be parsed for FromConfig validation" -Data @{ SchemaPath = $schemaPathForConfig; ParseError = $_.Exception.Message } | Out-Null
+            return [PSCustomObject]@{ Valid = $false; Errors = @("Schema file could not be parsed: $($_.Exception.Message)"); Warnings = @(); Raw = $null }
+        }
     }
     
     # Generate correlation ID for tracking validation across logs
@@ -140,8 +207,8 @@ function Test-TierModelConfig {
         InvalidAdmxPaths = 0
     }
     
-    # Schema validation if loading from path
-    if ($PSCmdlet.ParameterSetName -eq 'FromPath' -and $schema) {
+    # Schema validation — runs for both FromPath and FromConfig
+    if ($schema) {
         foreach ($req in $schema.required) {
             if (-not ($config.PSObject.Properties.Name -contains $req)) {
                 $errors += "Missing required top-level property: $req"
@@ -152,7 +219,12 @@ function Test-TierModelConfig {
         function _validateArrayItems($array, $definition, $name) {
             $localErrors = @()
             if ($null -eq $array) { return $localErrors }
-            $req = $definition.items.required
+            $itemsDef = $definition.PSObject.Properties['items']
+            if (-not $itemsDef) { return $localErrors }
+            # Prefer x-psm1-required (custom annotation for runtime checks) over JSON Schema required
+            $reqNode = $itemsDef.Value.PSObject.Properties['x-psm1-required']
+            if (-not $reqNode) { $reqNode = $itemsDef.Value.PSObject.Properties['required'] }
+            $req = if ($reqNode) { $reqNode.Value } else { @() }
             foreach ($item in $array) {
                 foreach ($r in $req) {
                     if (-not ($item.PSObject.Properties.Name -contains $r)) {
@@ -187,28 +259,28 @@ function Test-TierModelConfig {
         # Scope-based validation - only validate components relevant to the deployment scope
         # Based on user requirements:
         # -OuOnly = No other checks (only OUs)
-        # -GroupsOnly = Ou Checks (OUs + Groups)  
-        # -UsersOnly = Ou and Group checks (OUs + Groups + Users)
-        # -OuAclsOnly = Ou and Group checks (OUs + Groups + ACLs)
-        # -ImportAdmxOnly = No other checks (only ADMX)
+        # -GroupOnly = OU checks (OUs + Groups)
+        # -UserOnly = OU and Group checks (OUs + Groups + Users)
+        # -OuAclsOnly = OU and Group checks (OUs + Groups + ACLs)
+        # -AdmxOnly = No other checks (only ADMX)
         
-        # OU validation - required for all scopes except ImportAdmxOnly
-        if ($Scope -ne 'ImportAdmxOnly') {
+        # OU validation - required for all scopes except AdmxOnly
+        if ($Scope -ne 'AdmxOnly') {
             $errors += _validateArrayItems $organizationUnits $schema.properties.organizationUnits 'organizationUnits'
         }
         
-        # Groups validation - required for GroupsOnly, UsersOnly, OuAclsOnly, and FullDeployment
-        if ($Scope -in @('GroupsOnly', 'UsersOnly', 'OuAclsOnly', 'FullDeployment')) {
+        # Groups validation - required for GroupOnly, UserOnly, OuAclsOnly, and FullDeployment
+        if ($Scope -in @('GroupOnly', 'UserOnly', 'OuAclsOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $groups $schema.properties.groups 'groups'
         }
         
-        # Users validation - required for UsersOnly and FullDeployment
-        if ($Scope -in @('UsersOnly', 'FullDeployment')) {
+        # Users validation - required for UserOnly and FullDeployment
+        if ($Scope -in @('UserOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $users $schema.properties.users 'users'
         }
         
-        # GPOs validation - only for FullDeployment
-        if ($Scope -eq 'FullDeployment') {
+        # GPOs validation - required for GposOnly and FullDeployment
+        if ($Scope -in @('GposOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $gpos $schema.properties.gpos 'gpos'
         }
         
@@ -217,8 +289,8 @@ function Test-TierModelConfig {
             $errors += _validateArrayItems $aclDelegations $schema.properties.aclDelegations 'aclDelegations'
         }
         
-        # ADMX validation - only for ImportAdmxOnly and FullDeployment
-        if ($Scope -in @('ImportAdmxOnly', 'FullDeployment')) {
+        # ADMX validation - only for AdmxOnly and FullDeployment
+        if ($Scope -in @('AdmxOnly', 'FullDeployment')) {
             $errors += _validateArrayItems $admx $schema.properties.admx 'admx'
         }
 
@@ -234,50 +306,73 @@ function Test-TierModelConfig {
     }
     
     # Enhanced deep validation
-    # 1. GPO Mode Validation - Only for FullDeployment scope
-    if ($Scope -eq 'FullDeployment') {
-        $validGpoModes = @('createAndImport', 'createImportAndConfigure')
+    # 1. GPO Mode Validation - Only for GposOnly and FullDeployment scopes
+    if ($Scope -in @('GposOnly', 'FullDeployment')) {
+        $validGpoModes = @('create', 'createAndImport', 'createImportAndConfigure')
         # Use safe property access for gpos
         $configGpos = if ($config -is [hashtable]) {
             if ($config.ContainsKey('gpos')) { $config['gpos'] } else { $null }
         } else {
             if ($config.PSObject.Properties.Name -contains 'gpos') { $config.gpos } else { $null }
         }
-        if ($configGpos) {
-        foreach ($gpo in $configGpos) {
-            # Check if mode property exists (support both hashtables and PSCustomObjects)
-            $hasModeProperty = if ($gpo -is [hashtable]) { 
-                $gpo.ContainsKey('mode') 
-            } else { 
-                $gpo.PSObject.Properties.Name -contains 'mode' 
-            }
-            
-            # Get GPO name safely
-            $gpoName = if ($gpo -is [hashtable]) { 
-                $gpo['name'] 
-            } else { 
-                if ($gpo.PSObject.Properties.Name -contains 'name') { 
-                    $gpo.name 
-                } else { 
-                    'Unknown GPO' 
+
+        # Build a flat list of GPO leaf items regardless of config shape.
+        # @(...) with pipeline emission prevents PowerShell from unwrapping 1-element arrays.
+        $flatGpos = @(
+            if ($null -eq $configGpos) {
+                # nothing to emit
+            } elseif ($configGpos -is [array]) {
+                # Already a flat array (multi-element test format)
+                $configGpos
+            } elseif (($configGpos -is [hashtable] -and ($configGpos.ContainsKey('mode') -or $configGpos.ContainsKey('name'))) -or
+                      ($configGpos -isnot [hashtable] -and ($configGpos.PSObject.Properties['mode'] -or $configGpos.PSObject.Properties['name']))) {
+                # Single flat GPO item — 1-element test array was unwrapped by PowerShell
+                $configGpos
+            } else {
+                # Nested OU structure (real merged config):
+                # gpos[<OU-DN>][<ImportOnlyGpo|PostConfigureGpo>] = [{ name, mode, ... }, ...]
+                # displayName is a scalar string at the OU level — skip string-valued properties
+                foreach ($ouProp in $configGpos.PSObject.Properties) {
+                    $ouValue = $ouProp.Value
+                    if ($null -eq $ouValue) { continue }
+                    foreach ($containerProp in $ouValue.PSObject.Properties) {
+                        if ($containerProp.Value -is [string]) { continue }
+                        $container = $containerProp.Value
+                        if ($null -eq $container) { continue }
+                        if ($container -is [array]) {
+                            foreach ($item in $container) { if ($null -ne $item) { $item } }
+                        } else {
+                            foreach ($gpoProp in $container.PSObject.Properties) {
+                                if ($null -ne $gpoProp.Value) { $gpoProp.Value }
+                            }
+                        }
+                    }
                 }
             }
-            
+        )
+
+        # 1. GPO Mode Validation
+        if ($configGpos) {
+        foreach ($gpo in $flatGpos) {
+            $hasModeProperty = if ($gpo -is [hashtable]) {
+                $gpo.ContainsKey('mode')
+            } else {
+                $gpo.PSObject.Properties.Name -contains 'mode'
+            }
+            $gpoName = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('name')) { $gpo['name'] } else { 'Unknown GPO' }
+            } else {
+                if ($gpo.PSObject.Properties.Name -contains 'name') { $gpo.name } else { 'Unknown GPO' }
+            }
             if (-not $hasModeProperty) {
                 $errors += "GPO '$gpoName' is missing required 'mode' property"
                 $validationDetails.InvalidGpoModes++
             } else {
-                # Get mode value safely
-                $gpoMode = if ($gpo -is [hashtable]) { 
-                    $gpo['mode'] 
-                } else { 
-                    if ($gpo.PSObject.Properties.Name -contains 'mode') { 
-                        $gpo.mode 
-                    } else { 
-                        $null 
-                    }
+                $gpoMode = if ($gpo -is [hashtable]) {
+                    $gpo['mode']
+                } else {
+                    $gpo.PSObject.Properties['mode'].Value
                 }
-                
                 if ($gpoMode -notin $validGpoModes) {
                     $errors += "GPO '$gpoName' has invalid mode '$gpoMode'. Valid modes: $($validGpoModes -join ', ')"
                     $validationDetails.InvalidGpoModes++
@@ -288,65 +383,45 @@ function Test-TierModelConfig {
         }
     }
     
-    # 2. DenyApplyGroups Reference Validation
-    $groupNames = @()
-    # Use safe property access for groups
-    $configGroups = if ($config -is [hashtable]) {
-        if ($config.ContainsKey('groups')) { $config['groups'] } else { $null }
-    } else {
-        if ($config.PSObject.Properties.Name -contains 'groups') { $config.groups } else { $null }
-    }
-    if ($configGroups) {
-        $groupNames = $configGroups | ForEach-Object { $_.name }
-    }
-    
+    # 2. denyApplyGroupPolicy shape validation
+    # Validates shape only: must be an array of non-empty strings when present.
+    # Entries may reference built-in AD principals (e.g. 'Domain Controllers', 'Read-only Domain Controllers')
+    # that are not defined in config groups — asserting group-membership would be a false positive.
     if ($configGpos) {
-        foreach ($gpo in $configGpos) {
-            # Check if denyApplyGroups property exists (support both hashtables and PSCustomObjects)
-            $hasDenyApplyGroups = if ($gpo -is [hashtable]) { 
-                $gpo.ContainsKey('denyApplyGroups') 
-            } else { 
-                $gpo.PSObject.Properties.Name -contains 'denyApplyGroups' 
+        foreach ($gpo in $flatGpos) {
+            $gpoName = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('name')) { $gpo['name'] } else { 'Unknown GPO' }
+            } else {
+                if ($gpo.PSObject.Properties.Name -contains 'name') { $gpo.name } else { 'Unknown GPO' }
             }
-            
-            # Get denyApplyGroups value safely
-            $denyApplyGroups = if ($gpo -is [hashtable]) { 
-                $gpo['denyApplyGroups'] 
-            } else { 
-                if ($gpo.PSObject.Properties.Name -contains 'denyApplyGroups') { 
-                    $gpo.denyApplyGroups 
-                } else { 
-                    $null 
-                }
+            $denyProp = if ($gpo -is [hashtable]) {
+                if ($gpo.ContainsKey('denyApplyGroupPolicy')) { $gpo['denyApplyGroupPolicy'] } else { $null }
+            } else {
+                $node = $gpo.PSObject.Properties['denyApplyGroupPolicy']
+                if ($node) { $node.Value } else { $null }
             }
-            
-            if ($hasDenyApplyGroups -and $denyApplyGroups) {
-                # Get GPO name safely for error messages
-                $gpoName = if ($gpo -is [hashtable]) { 
-                    $gpo['name'] 
-                } else { 
-                    if ($gpo.PSObject.Properties.Name -contains 'name') { 
-                        $gpo.name 
-                    } else { 
-                        'Unknown GPO' 
+            if ($null -ne $denyProp) {
+                if ($denyProp -isnot [array]) {
+                    $warnings += "GPO '$gpoName' denyApplyGroupPolicy must be an array of strings, got: $($denyProp.GetType().Name)"
+                    $validationDetails.InvalidDenyApplyGroups++
+                } else {
+                    $valid = $true
+                    foreach ($entry in $denyProp) {
+                        if ([string]::IsNullOrWhiteSpace($entry)) {
+                            $warnings += "GPO '$gpoName' denyApplyGroupPolicy contains an empty or whitespace entry"
+                            $validationDetails.InvalidDenyApplyGroups++
+                            $valid = $false
+                        }
                     }
-                }
-                
-                foreach ($groupRef in $denyApplyGroups) {
-                    if ($groupRef -in $groupNames) {
-                        $validationDetails.ValidDenyApplyGroups++
-                    } else {
-                        $warnings += "GPO '$gpoName' references denyApplyGroup '$groupRef' which is not defined in groups configuration"
-                        $validationDetails.InvalidDenyApplyGroups++
-                    }
+                    if ($valid) { $validationDetails.ValidDenyApplyGroups += $denyProp.Count }
                 }
             }
         }
     }
     } # End GPO validation scope check
     
-    # 3. ADMX Source Path Validation - Only for ImportAdmxOnly and FullDeployment scopes
-    if ($Scope -in @('ImportAdmxOnly', 'FullDeployment')) {
+    # 3. ADMX Source Path Validation - Only for AdmxOnly and FullDeployment scopes
+    if ($Scope -in @('AdmxOnly', 'FullDeployment')) {
         # Use safe property access for admx
         $configAdmx = if ($config -is [hashtable]) {
             if ($config.ContainsKey('admx')) { $config['admx'] } else { $null }
@@ -354,48 +429,56 @@ function Test-TierModelConfig {
             if ($config.PSObject.Properties.Name -contains 'admx') { $config.admx } else { $null }
         }
         if ($configAdmx) {
-        foreach ($admxEntry in $configAdmx) {
-            # Safe property access for ADMX path
+        # @($configAdmx) normalises both multi-entry arrays and single-entry objects
+        # (including 1-element arrays that PowerShell unwrapped via if-else assignment).
+        # Each entry supports test format ('path') and real-config format ('sourcePath').
+        foreach ($admxEntry in @($configAdmx)) {
+            # Resolve path: prefer 'path' (test format) then 'sourcePath' (real config)
             $admxPath = if ($admxEntry -is [hashtable]) {
-                if ($admxEntry.ContainsKey('path')) { $admxEntry['path'] } else { $null }
+                if ($admxEntry.ContainsKey('path')) { $admxEntry['path'] }
+                elseif ($admxEntry.ContainsKey('sourcePath')) {
+                    $rp = $admxEntry['sourcePath']
+                    if ([System.IO.Path]::IsPathRooted($rp)) { $rp }
+                    else { Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $rp }
+                } else { $null }
             } else {
-                if ($admxEntry.PSObject.Properties.Name -contains 'path') { $admxEntry.path } else { $null }
+                $pathNode = $admxEntry.PSObject.Properties['path']
+                $srcNode  = $admxEntry.PSObject.Properties['sourcePath']
+                if ($pathNode -and $pathNode.Value) { $pathNode.Value }
+                elseif ($srcNode -and $srcNode.Value) {
+                    $rp = $srcNode.Value
+                    if ([System.IO.Path]::IsPathRooted($rp)) { $rp }
+                    else { Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $rp }
+                } else { $null }
             }
-            
+
             if (-not $admxPath) {
                 $errors += "ADMX entry missing required 'path' property"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
             $language = if ($admxEntry -is [hashtable]) {
                 if ($admxEntry.ContainsKey('language')) { $admxEntry['language'] } else { "en-US" }
             } else {
                 if ($admxEntry.PSObject.Properties.Name -contains 'language') { $admxEntry.language } else { "en-US" }
             }
-            
             if (-not (Test-Path -LiteralPath $admxPath -PathType Container)) {
                 $errors += "ADMX source path '$admxPath' does not exist"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
-            # Check for .admx files
             $admxFiles = Get-ChildItem -Path $admxPath -Filter "*.admx" -ErrorAction SilentlyContinue
             if (-not $admxFiles) {
                 $warnings += "ADMX path '$admxPath' contains no .admx files"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
-            # Check for default locale folder
             $localePath = Join-Path $admxPath $language
             if (-not (Test-Path -LiteralPath $localePath -PathType Container)) {
                 $warnings += "ADMX path '$admxPath' missing default locale folder '$language'"
                 $validationDetails.InvalidAdmxPaths++
                 continue
             }
-            
             $validationDetails.ValidAdmxPaths++
         }
     }

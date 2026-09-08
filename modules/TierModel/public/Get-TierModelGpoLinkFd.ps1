@@ -55,7 +55,11 @@ function Get-TierModelGpoLinkFd {
                 $targetOUPath = $action.Path
                 
                 # Extract settings with defaults (matching original working code)
-                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { $gpoData.enforced } else { 'No' }
+                # Aligned with Get-TierModelGPOLink.ps1 / New-TierModelGPOLink.ps1: $null means
+                # "config did not declare enforcement". This planner never compares enforcement, but
+                # RequiredState.Enforced is reported to callers and must not disagree with the other
+                # two. Do NOT use [bool]: [bool]'No' is $true.
+                $requiredEnforced = if ($gpoData.PSObject.Properties.Name -contains 'enforced') { ($gpoData.enforced -eq 'Yes' -or $gpoData.enforced -eq $true) } else { $null }
 
                 # Check if GPO exists first - show green check if it does (with rename key support)
                 $gpo = $null
@@ -63,6 +67,9 @@ function Get-TierModelGpoLinkFd {
                 
                 # First try direct name lookup
                 try {
+                    # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                    # case for a direct-name lookup during planning; the rename-key wildcard search
+                    # below re-checks with -ErrorAction Stop. Do not change to Stop.
                     $gpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                 } catch {
                     # GPO doesn't exist with direct name, try rename key if present
@@ -72,7 +79,7 @@ function Get-TierModelGpoLinkFd {
                 if (-not $gpo -and $gpoData.PSObject.Properties.Name -contains 'rename') {
                     try {
                         $renamePattern = $gpoData.rename
-                        $allGPOs = @(Get-GPO -All -Server $DomainController)
+                        $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                         
                         # Try direct pattern match first
                         $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })

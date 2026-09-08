@@ -53,6 +53,10 @@ function Test-TierModelUser {
         $totalChecked = 0
         $missingCount = 0
         $mismatchCount = 0
+        # Users whose state could NOT be determined. A read failure is neither "missing" nor a
+        # "mismatch", so without this counter an unreadable user would render as
+        # "All Users are compliant". Unverified users feed $driftCount.
+        $unverifiedCount = 0
         $resolvedPaths = @()
         
         # Get domain DN for placeholder replacement
@@ -126,13 +130,26 @@ function Test-TierModelUser {
                         } | Out-Null
                         continue
                     } catch {
-                        Write-Host "    ❌ User query failed: $($_.Exception.Message)" -ForegroundColor Red
-                        Write-TierModelLog -Level Warning -Message "Failed to query user" -Data @{
+                        # Not an identity-not-found, so this is a genuine read failure rather than
+                        # absence. The user's state is unknown - it must not be reported as either
+                        # missing or compliant.
+                        Write-Host "    ❌ User Read: FAILED - $($_.Exception.Message)" -ForegroundColor Red
+                        $driftFindings += [PSCustomObject]@{
+                            Type = 'Error'
+                            ResourceType = 'User'
+                            Identifier = "$userName/ReadFailure"
+                            ExpectedValue = 'User readable'
+                            ActualValue = 'Read failed'
+                            Details = "User '$userName' ($expectedSamAccountName) could not be read from '$DomainController' - its state could NOT be verified: $($_.Exception.Message)"
+                        }
+                        Write-TierModelLog -Level Error -Message "UserAuditReadFailed" -Data @{
                             UserName = $userName
                             SamAccountName = $expectedSamAccountName
                             Exception = $_.Exception.Message
                             CorrelationId = $CorrelationId
                         } | Out-Null
+                        # "could not verify" must never render as "compliant".
+                        $unverifiedCount++
                         continue
                     }
                     
@@ -237,15 +254,20 @@ function Test-TierModelUser {
                         Exception = $_.Exception.Message
                         CorrelationId = $CorrelationId
                     } | Out-Null
+                    # Same class as the read-failure catch above - a user whose audit threw was
+                    # counted nowhere, so a wholly failed audit still reported "All Users are
+                    # compliant". It is unverified, not compliant.
+                    $unverifiedCount++
                 }
             }
         }
         
-        $driftCount = $missingCount + $mismatchCount
+        $driftCount = $missingCount + $mismatchCount + $unverifiedCount
         $summary = @{
             TotalChecked = $totalChecked
             MissingCount = $missingCount
             MismatchCount = $mismatchCount
+            UnverifiedCount = $unverifiedCount
             DriftCount = $driftCount
         }
 
@@ -262,6 +284,12 @@ function Test-TierModelUser {
                 Write-Host "Configuration Mismatches: $mismatchCount ✅" -ForegroundColor Green
             } else {
                 Write-Host "Configuration Mismatches: $mismatchCount ❌" -ForegroundColor Red
+            }
+            # Surfaced explicitly. A user we could not read is not a pass.
+            if ($unverifiedCount -eq 0) {
+                Write-Host "Unverified Users (read failures): $unverifiedCount ✅" -ForegroundColor Green
+            } else {
+                Write-Host "Unverified Users (read failures): $unverifiedCount ⚠️  - state could NOT be determined" -ForegroundColor Red
             }
             if ($driftCount -eq 0) {
                 Write-Host "Overall Status: All Users are compliant ✅" -ForegroundColor Green
@@ -297,9 +325,9 @@ function Test-TierModelUser {
         } | Out-Null
         
         return [PSCustomObject]@{
-            DriftFindings = @()
-            Summary = @{ TotalChecked = 0; MissingCount = 0; MismatchCount = 0; DriftCount = 0 }
-            Warnings = @()
+            DriftFindings = $driftFindings
+            Summary = @{ TotalChecked = $totalChecked; MissingCount = $missingCount; MismatchCount = $mismatchCount; UnverifiedCount = $unverifiedCount; DriftCount = $missingCount + $mismatchCount + $unverifiedCount }
+            Warnings = $warnings
             Errors = @(@{
                 Timestamp = Get-Date
                 Category = 'Critical'

@@ -1,3 +1,95 @@
+function Get-TierModelGpoExistenceState {
+    <#
+    .SYNOPSIS
+    Internal helper. Classifies whether a Test-TierModelGpo result means the GPO is absent from AD.
+
+    .DESCRIPTION
+    Returns 'Found', 'NotFound', 'Ambiguous' or 'Unknown'. Prefers the explicit ExistenceState
+    emitted by Test-TierModelGpo and falls back to inspecting the 'GPO Existence' check record so
+    that older or substituted result shapes are still classified rather than silently counted as
+    present.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [object]$GpoTestResult
+    )
+
+    if (-not $GpoTestResult) { return 'Unknown' }
+
+    $props = @($GpoTestResult.PSObject.Properties.Name)
+
+    if ($props -contains 'ExistenceState' -and -not [string]::IsNullOrWhiteSpace([string]$GpoTestResult.ExistenceState)) {
+        return [string]$GpoTestResult.ExistenceState
+    }
+
+    if ($props -contains 'Exists' -and $null -ne $GpoTestResult.Exists) {
+        return $(if ([bool]$GpoTestResult.Exists) { 'Found' } else { 'NotFound' })
+    }
+
+    $existenceChecks = @()
+    if ($props -contains 'Checks' -and $GpoTestResult.Checks) {
+        $existenceChecks = @($GpoTestResult.Checks | Where-Object { $_ -and $_.Check -eq 'GPO Existence' })
+    }
+    if ($existenceChecks.Count -eq 0) { return 'Unknown' }
+    if (@($existenceChecks | Where-Object { $_.Status -eq 'Fail' }).Count -gt 0) { return 'NotFound' }
+    if (@($existenceChecks | Where-Object { $_.Status -eq 'Error' }).Count -gt 0) { return 'Unknown' }
+
+    return 'Found'
+}
+
+function Get-TierModelGpoDeliveryIssue {
+    <#
+    .SYNOPSIS
+    Internal helper. Returns ADVISORY notes explaining why a present GPO would deliver no settings.
+
+    .DESCRIPTION
+    Detect-and-report only, and deliberately never a compliance finding. Both of the states it
+    describes - a GPO with its settings disabled, and a disabled OU link - are supported
+    customer choices (for example choosing the SHF baseline over the Microsoft SCT baseline,
+    or leaving a baseline GPO linked but link-disabled). The caller must treat the returned
+    strings as information for the operator, not as issues, and must not let them affect the
+    Pass/Fail verdict or the issue totals.
+
+    The link note is suppressed when the configuration itself expects the link to be disabled,
+    since in that case there is nothing to tell the operator.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [object]$GpoTestResult,
+
+        [Parameter()]
+        [object]$LinkTestResult,
+
+        [Parameter()]
+        [string]$TargetOU,
+
+        [Parameter()]
+        [bool]$ExpectedLinkEnabled = $true
+    )
+
+    $reasons = @()
+
+    if ($GpoTestResult) {
+        $gpoProps = @($GpoTestResult.PSObject.Properties.Name)
+        if ($gpoProps -contains 'SettingsDisabled' -and $GpoTestResult.SettingsDisabled) {
+            $observed = if ($gpoProps -contains 'GpoStatus' -and $GpoTestResult.GpoStatus) { $GpoTestResult.GpoStatus } else { 'AllSettingsDisabled' }
+            $reasons += "GPO settings are disabled (GpoStatus: $observed) - the GPO delivers no configuration"
+        }
+    }
+
+    if ($LinkTestResult -and $ExpectedLinkEnabled) {
+        $linkProps = @($LinkTestResult.PSObject.Properties.Name)
+        if (($linkProps -contains 'LinkExists') -and $LinkTestResult.LinkExists -and
+            ($linkProps -contains 'CurrentEnabled') -and ($LinkTestResult.CurrentEnabled -eq $false)) {
+            $reasons += "GPO link to '$TargetOU' is disabled - no settings are applied to that OU"
+        }
+    }
+
+    return $reasons
+}
+
 function Test-TierModelGPOAudit {
     <#
     .SYNOPSIS
@@ -52,7 +144,16 @@ function Test-TierModelGPOAudit {
     
     try {
         # Get current domain DN for placeholder resolution
-        $domain = Get-ADDomain -Server $DomainController
+        try {
+            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
+        } catch {
+            Write-TierModelLog -Level Error -Message "Failed to read domain information" -Data @{
+                DomainController = $DomainController
+                Error            = $_.Exception.Message
+                CorrelationId    = $CorrelationId
+            } | Out-Null
+            throw "Failed to read domain information from '$DomainController': $($_.Exception.Message)"
+        }
         $domainDN = $domain.DistinguishedName
         
         $auditResults = @()
@@ -73,7 +174,12 @@ function Test-TierModelGPOAudit {
                     TotalGpos = 0
                     Compliant = 0
                     Drift = 0
+                    MissingGpos = 0
+                    NotDeliveringSettings = 0
+                    ConfigurationMismatches = 0
                     Errors = 0
+                    AuditErrors = 0
+                    TotalIssues = 0
                     CompliancePercentage = 100
                 }
                 Findings = @()
@@ -128,6 +234,7 @@ function Test-TierModelGPOAudit {
                         
                         # Step 2: Test GPO linking (only if GPO should be linked - has linkOrder)
                         $linkTest = $null
+                        $expectedEnabled = $true
                         $shouldBeLinked = $gpoConfig.PSObject.Properties.Name -contains 'linkOrder'
                         
                         if ($shouldBeLinked) {
@@ -141,7 +248,12 @@ function Test-TierModelGPOAudit {
                             $linkTest = Test-TierModelGPOLink -GPOName $gpoNameForLinking -TargetOU $resolvedOUPath -DomainController $DomainController -ExpectedOrder $gpoConfig.linkOrder -ExpectedEnforced $expectedEnforced -ExpectedEnabled $expectedEnabled
                             
                             if ($linkTest.Status -eq 'Pass') {
-                                Write-Host "    ✅ GPO correctly linked with order $($gpoConfig.linkOrder), enabled=$expectedEnabled" -ForegroundColor Green
+                                # Report the OBSERVED link state, not the expected value - printing the
+                                # expectation here previously implied a state that had not been verified.
+                                $linkProps = @($linkTest.PSObject.Properties.Name)
+                                $observedOrder = if (($linkProps -contains 'CurrentOrder') -and $null -ne $linkTest.CurrentOrder) { $linkTest.CurrentOrder } else { $gpoConfig.linkOrder }
+                                $observedEnabled = if (($linkProps -contains 'CurrentEnabled') -and $null -ne $linkTest.CurrentEnabled) { $linkTest.CurrentEnabled } else { $expectedEnabled }
+                                Write-Host "    ✅ GPO correctly linked with order $observedOrder, enabled=$observedEnabled" -ForegroundColor Green
                             } else {
                                 Write-Host "    ✗ GPO linking check failed: $($linkTest.Issues -join '; ')" -ForegroundColor Red
                             }
@@ -166,6 +278,22 @@ function Test-TierModelGPOAudit {
                             Write-Host "    Step 3: Skipping content validation - No mock content configured" -ForegroundColor Gray
                         }
                         
+                        # Classify existence and settings-delivery before aggregation so that
+                        # "missing" is never inferred from, or merged into, the mismatch bucket.
+                        # Delivery notes are ADVISORY - they are not issues and must not affect
+                        # the Pass/Fail verdict or the issue totals.
+                        $existenceState = Get-TierModelGpoExistenceState -GpoTestResult $gpoTest
+                        $deliveryIssues = @(Get-TierModelGpoDeliveryIssue -GpoTestResult $gpoTest -LinkTestResult $linkTest -TargetOU $resolvedOUPath -ExpectedLinkEnabled ([bool]$expectedEnabled) |
+                            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+
+                        if ($existenceState -eq 'NotFound') {
+                            Write-Host "    ❌ GPO does not exist in Active Directory: $gpoName" -ForegroundColor Red
+                        } elseif ($deliveryIssues.Count -gt 0) {
+                            foreach ($reason in $deliveryIssues) {
+                                Write-Host "    ℹ Note (not a finding): $reason" -ForegroundColor Gray
+                            }
+                        }
+
                         # Combine results
                         $actualGpoName = if ($gpoTest.ActualGPOName) { $gpoTest.ActualGPOName } else { $gpoName }
                         $combinedResult = [PSCustomObject]@{
@@ -176,6 +304,11 @@ function Test-TierModelGPOAudit {
                             GPOTest = $gpoTest
                             LinkTest = $linkTest
                             ContentTest = $contentTest
+                            ExistenceState = $existenceState
+                            IsMissing = ($existenceState -eq 'NotFound')
+                            DeliversSettings = ($existenceState -eq 'Found' -and $deliveryIssues.Count -eq 0)
+                            DeliveryNotes = $deliveryIssues
+                            DeliveryIssues = $deliveryIssues  # Retained for compatibility; advisory only
                             OverallStatus = 'Unknown'
                             Issues = @()
                             Recommendations = @()
@@ -202,6 +335,10 @@ function Test-TierModelGPOAudit {
                         if ($contentTest -and $contentTest.Recommendations) {
                             $combinedResult.Recommendations += $contentTest.Recommendations
                         }
+                        
+                        # NOTE: settings-delivery notes are deliberately NOT appended to
+                        # $combinedResult.Issues. A disabled GPO or a disabled link is a
+                        # supported customer choice, so it must not read as a finding.
                         
                         # Determine overall status (handle null test results)
                         $gpoTestPass = ($gpoTest -and $gpoTest.Status -eq 'Pass')
@@ -273,14 +410,21 @@ function Test-TierModelGPOAudit {
             CorrelationId = $CorrelationId
         } | Out-Null
         
-        # Create findings for failed/error GPOs only (matches expected structure)
+        # Create findings for failed/error GPOs only. GPOs that pass their configured checks
+        # but deliver no settings are NOT findings - that state is a supported customer choice
+        # and is surfaced informationally (Summary.NotDeliveringSettings and the per-result
+        # DeliveryNotes property) instead.
         $findings = @()
         foreach ($result in $auditResults) {
             if ($result.OverallStatus -ne 'Pass') {
-                $issueType = switch ($result.OverallStatus) {
-                    'Error' { 'Error' }
-                    'Fail' { 'Mismatch' }
-                    default { 'Unknown' }
+                $issueType = if ($result.IsMissing) {
+                    'Missing'
+                } else {
+                    switch ($result.OverallStatus) {
+                        'Error' { 'Error' }
+                        'Fail' { 'Mismatch' }
+                        default { 'Unknown' }
+                    }
                 }
                 
                 $issueDetails = @()
@@ -298,25 +442,51 @@ function Test-TierModelGPOAudit {
             }
         }
         
+        # Real, mutually exclusive FAILURE counts: Missing -> Error -> Mismatch. Nothing is
+        # double counted and no figure is a hardcoded literal or derived by subtraction.
+        $missingGpoCount = @($auditResults | Where-Object { $_.IsMissing }).Count
+        $gpoErrorCount = @($auditResults | Where-Object {
+            -not $_.IsMissing -and $_.OverallStatus -eq 'Error'
+        }).Count
+        $mismatchCount = @($auditResults | Where-Object {
+            -not $_.IsMissing -and $_.OverallStatus -ne 'Error' -and $_.OverallStatus -eq 'Fail'
+        }).Count
+        # INFORMATIONAL, and deliberately outside the failure buckets: a GPO can legitimately
+        # have its settings disabled or its link disabled (for example when a customer uses the
+        # SHF baseline instead of the Microsoft SCT baseline). This count overlaps the buckets
+        # above by design and is NEVER added to the issue total or used to set Overall Status.
+        $disabledGpoCount = @($auditResults | Where-Object { -not $_.IsMissing -and @($_.DeliveryNotes).Count -gt 0 }).Count
+        # $errors holds GPOs that threw before a result object could be produced - they are not
+        # represented in $auditResults, so they are added rather than merged.
+        $auditErrorCount = $gpoErrorCount + $errors.Count
+        $totalIssueCount = $missingGpoCount + $auditErrorCount + $mismatchCount
+        
         # Display audit summary (blue header section)
-        $driftCount = $totalFailed + $errors.Count
         if (-not $Silent) {
             Write-Host "`n=== GPO Audit Summary ===" -ForegroundColor Blue
             Write-Host "Total GPOs Checked: $totalChecked" -ForegroundColor White
-            if ($driftCount -eq 0) {
-                Write-Host "Missing GPOs: 0 ✅" -ForegroundColor Green
+            if ($missingGpoCount -eq 0) {
+                Write-Host "Missing GPOs: $missingGpoCount ✅" -ForegroundColor Green
             } else {
-                Write-Host "Missing GPOs: 0 ❌" -ForegroundColor Red
+                Write-Host "Missing GPOs: $missingGpoCount ❌" -ForegroundColor Red
             }
-            if ($driftCount -eq 0) {
-                Write-Host "Configuration Mismatches: 0 ✅" -ForegroundColor Green
+            if ($disabledGpoCount -gt 0) {
+                Write-Host "Present but Delivering No Settings (informational, not a finding): $disabledGpoCount ℹ" -ForegroundColor Gray
+            }
+            if ($mismatchCount -eq 0) {
+                Write-Host "Configuration Mismatches (existing GPOs): $mismatchCount ✅" -ForegroundColor Green
             } else {
-                Write-Host "Configuration Mismatches: $driftCount ❌" -ForegroundColor Red
+                Write-Host "Configuration Mismatches (existing GPOs): $mismatchCount ❌" -ForegroundColor Red
             }
-            if ($driftCount -eq 0) {
+            if ($auditErrorCount -eq 0) {
+                Write-Host "Audit Errors: $auditErrorCount ✅" -ForegroundColor Green
+            } else {
+                Write-Host "Audit Errors: $auditErrorCount ❌" -ForegroundColor Red
+            }
+            if ($totalIssueCount -eq 0) {
                 Write-Host "Overall Status: All GPOs are compliant ✅" -ForegroundColor Green
             } else {
-                Write-Host "Overall Status: $driftCount issues found ❌" -ForegroundColor Red
+                Write-Host "Overall Status: $totalIssueCount issues found ❌" -ForegroundColor Red
             }
         }
         
@@ -344,7 +514,12 @@ function Test-TierModelGPOAudit {
                 TotalGpos = $totalChecked
                 Compliant = $totalPassed
                 Drift = $totalFailed
+                MissingGpos = $missingGpoCount
+                NotDeliveringSettings = $disabledGpoCount
+                ConfigurationMismatches = $mismatchCount
                 Errors = $errors.Count
+                AuditErrors = $auditErrorCount
+                TotalIssues = $totalIssueCount
                 CompliancePercentage = if ($totalChecked -gt 0) { [math]::Round(($totalPassed / $totalChecked) * 100, 2) } else { 100 }
             }
             Findings = $findings
@@ -362,12 +537,30 @@ function Test-TierModelGPOAudit {
         
         return [PSCustomObject]@{
             Results = @()
-            Summary = @{
+            # The failure shape mirrors the success shape key-for-key so consumers never
+            # have to defend against two different contracts. The original four keys are
+            # retained (something may already consume them) - this adds, it does not replace.
+            Summary = [PSCustomObject]@{
+                # Mirrored from the success shape
+                TotalGpos = 0
+                Compliant = 0
+                Drift = 0
+                MissingGpos = 0
+                NotDeliveringSettings = 0
+                ConfigurationMismatches = 0
+                Errors = 1
+                AuditErrors = 1
+                TotalIssues = 1
+                # Nothing was checked, so compliance was not determined. Never 100.
+                CompliancePercentage = 0
+                # Original keys, preserved for existing consumers
                 TotalChecked = 0
                 TotalPassed = 0
                 TotalFailed = 1
                 PassRate = 0
             }
+            # Present and empty so callers can read .Findings without throwing under StrictMode
+            Findings = @()
             Errors = @(@{
                 Timestamp = Get-Date
                 Category = 'Critical'

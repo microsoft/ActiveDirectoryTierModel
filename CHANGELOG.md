@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-08
+
+### Added
+- Added `-EnableVerbose` and `-EnableDebug` diagnostic switches to `Deploy-TierModel.ps1` and `Audit-TierModel.ps1`. `-EnableVerbose` raises `$VerbosePreference` so verbose output is emitted throughout the run; `-EnableDebug` raises `$DebugPreference` for deeper diagnostics and is intentionally slower and noisier.
+- The switch names are deliberate: PowerShell's common `-Verbose` and `-Debug` parameters remain available and unshadowed.
+- Either diagnostic switch auto-enables `-Logging`, and the script announces that it has done so. Diagnostic artifacts are written to a `Debug\` subfolder beside the script, separate from normal logs.
+- When both switches are supplied together, the scripts also start a PowerShell transcript. A transcript is not started by either switch alone.
+- 🔴 **Transcript warning:** transcripts are not redacted. Review them before attaching one to a public GitHub issue or other external thread.
+
+### Fixed
+- Includes a reliability and reporting-accuracy sweep across deployment and audit paths. Per-change engineering detail belongs in the pull request rather than this changelog.
+
+### Tests
+- Added regression coverage for diagnostic logging behavior and the reliability/reporting sweep.
+
+### Documentation
+- Updated operator documentation for diagnostic escalation, output locations, transcript handling, and the logging reference.
+
+## [2.0.0] - 2026-09-02
+
+Authentication Policy Silos support (#50). Major version because the previous GPO-deployed
+Authentication Silo tooling under `optional/TierModel-AuthSilos/` was removed and replaced —
+see **Removed** below.
+
+### Added
+- **Authentication Policies and Authentication Policy Silos deployment (`-IncludeAuthSilos`)** on `Deploy-TierModel.ps1` (Phase 12) and the matching `-IncludeAuthSilos` scope on `Audit-TierModel.ps1`. Like the other `-Include*` switches it runs standalone or combined with `-FullDeployment`, and cannot be combined with the `-*Only` scopes.
+- **New configuration segment `config/tiermodel-authsilos.json`** defining **4 Authentication Policies** and **4 Authentication Policy Silos** — Tier 0, Tier 1, Tier 2 and Tier 2 EUD. Every object is created with `enforce: false` (**audit mode**) and `protectedFromAccidentalDeletion: true`, so a deployment can never lock accounts out on day one. The Tier 0 policy sets `userTGTLifetimeMinutes: 120`.
+- **13 new public cmdlets** (all exported from TierModel 2.0.0):
+  - Planners: `Get-TierModelAuthPolicy`, `Get-TierModelAuthSilo`
+  - FullDeployment wrappers: `Get-TierModelAuthPolicyFd`, `Get-TierModelAuthSiloFd`, `Get-TierModelAuthSiloMembershipFd`
+  - Appliers: `New-TierModelAuthPolicy`, `New-TierModelAuthSilo`, `Set-TierModelAuthSiloMembership`
+  - Audit / drift: `Test-TierModelAuthPolicy`, `Test-TierModelAuthSilo`, `Compare-TierModelAuthSddl`
+  - Supporting: `Build-TierModelAuthSddl`, `Test-TierModelAuthSiloPrerequisite`
+- **Plan-based deployment API**: `Get-TierModelAuthPolicyFd` / `Get-TierModelAuthSiloFd` return plan objects that are passed to `New-TierModelAuthPolicy -Plan` / `New-TierModelAuthSilo -Plan`. `Set-TierModelAuthSiloMembership` is the exception — it takes `-Config` directly and re-evaluates membership on every run, with an optional `-OnlyForSilos` filter so `Deploy-TierModel.ps1` assigns membership only for silos created in that run.
+- **Runtime SDDL generation with OR-logic** (`Build-TierModelAuthSddl`): SDDL is deliberately **not** authored in configuration. Each device group name is resolved to a SID at runtime and emitted as `O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(...), ...}))`, so a device that belongs to **any** listed group satisfies the condition. `Compare-TierModelAuthSddl` performs the drift comparison.
+- **`optional/Update-TierModelMembership.ps1`** (new, 2,285 lines): a single reconciliation script covering all three tiers, with tier-level aggregate switches (`-All`, `-AllTier0`, `-AllTier1`, `-AllTier2`), granular per-collection switches (`-Tier0Operators`, `-Tier0PawDevices`, `-Tier2Eud`, `-Tier2EudDevices`, …), exclusion control (`-ExclusionAttribute`, `-ExclusionValue`, `-NoExclusions`), and `-EnableLogging` / `-EnableDebug` / `-EnableEventLog` / `-JobId`. It carries a built-in mapping of the three domain-join service accounts to their tiers (`svc-pawdomainjoin` → Tier 0, `svc-t1srvdomainjoin` → Tier 1, `svc-t2euddomainjoin` → Tier 2); those accounts and the RID-500 built-in Administrator are exempted at runtime rather than being enumerated in configuration.
+- **New Tier 2 EUD objects** in the shipped configuration: security groups `Tier2EUDDevices`, `Tier2EUDDomainJoin` and `Tier2PAWDevices` (`config/tiermodel-groups.json`), the `svc-t2euddomainjoin` service account (`config/tiermodel-users.json`), and matching OU ACL delegation (`config/tiermodel-acls.json`).
+- **GPO updates**: the *Tier Model Account Restrictions* and *Authentication Silo* GPO backups were replaced with new backup GUIDs carrying updated `registry.pol` and Group Policy Preferences registry settings (`config/tiermodel-gpos.json` updated accordingly).
+- **New documentation**: `docs/auth-silos-operations-guide.md` — what gets deployed, how policies/silos/devices are linked, how auth silos complement User Rights Assignment and Restricted Groups, how to read the event log before enforcing, manual maintenance, automation with the reconciliation script, exclusions, logging, limitations, and an **"Appendix: Upgrading from v1.x to v2.0.0"** with ordered migration steps. Added to `docs/index.md`.
+- **Specification set** `specs/005-auth-silos/` (`spec.md`, `plan.md`, `tasks.md`, `checklists/requirements.md`).
+
+### Removed
+- **The entire `optional/TierModel-AuthSilos/` tree** — `Deploy-TierModelAuthSilo.ps1`, the six per-tier maintenance scripts (`Update-Tier0AuthSiloUsers.ps1`, `Update-Tier0MemberServers.ps1`, `Update-Tier0PAWDevices.ps1` and their Tier 1 equivalents), the `ScheduleTask-GPO` backup containing `ScheduledTasks.xml`, and the two `ScheduleTask-Local` task definitions. This is the **breaking change** behind the major version bump: silo deployment moved into the module and `-IncludeAuthSilos`, and the six maintenance scripts were consolidated into the single `optional/Update-TierModelMembership.ps1`. Anyone running the v1.x scripts or the GPO-delivered scheduled task must follow the migration appendix in the new operations guide.
+- The scheduled-task delivery mechanism changed with it: reconciliation is now documented to run as a **local scheduled task on a writable, Global-Catalog domain controller**, not as a GPO-delivered scheduled task or startup script.
+
+### Changed
+- Module version 1.3.3 → **2.0.0** (+13 exported cmdlets).
+- `Get-TierModelConfig` loads the new `tiermodel-authsilos.json` segment.
+
+### Tests
+- New `tests/Unit.AuthSiloOperations.Tests.ps1` and `tests/Unit.MembershipReconciliation.Tests.ps1`, with supporting additions to `tests/helpers/ADStubs.ps1`, `tests/Unit.ModuleManifest.Tests.ps1` and `tests/Integration.Module.Tests.ps1`.
+
 ## [1.3.3] - 2026-08-31
 
 ### Fixed
@@ -25,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.3.1] - 2026-08-18
 
 ### Fixed
+- **Non-canonical domain-root DACL hard-stops Deploy and Audit with `-SkipRootCanonicalCheck` audit workaround (BUG-006)**: `Test-TierModelCanonicalAcl` and a `Test-TierModelPrerequisites` gate hard-stop `Deploy-TierModel.ps1` and `Audit-TierModel.ps1` (all deployment modes, zero actions) when the domain root DACL is not in canonical form — a non-canonical order (e.g., explicit Allow before explicit Deny) triggers a .NET `System.DirectoryServices.ActiveDirectory.ObjectSecurity.AddAccessRule` exception. This is a prerequisite failure, not a deployable bug. The gate is detect-only (never rewrites ACLs); the operator resolves manually using ADUC Reorder or the new `Repair-TierModelCanonicalAcl` cmdlet (added in this release). `Audit-TierModel.ps1` has an escape hatch: pass `-SkipRootCanonicalCheck` so it reports the non-canonical root as a Case 1 audit finding instead of halting, allowing audits to proceed and surface all drift (not just the root ACL). `Deploy-TierModel.ps1` does not pass this switch, so deployments must resolve the root ACL first.
 - **OU deployment failure on domains with an inherited Deny ACE above the Tier OUs (issue #41)**: `New-TierModelOu` threw `"This access control list is not in canonical form and therefore cannot be modified"` when disabling security inheritance on a Tier OU promoted the inherited Deny to an explicit copy and wrote it back below existing explicit Allow entries — producing a non-canonical DACL. The fix rewrites OU creation as a **phased flow**: Phase 2 disables inheritance via a DC-pinned `System.DirectoryServices.Protocols` write, then immediately reads the DACL back and checks canonical order. If the DACL is non-canonical (which it is on essentially every disable-inheritance OU under an inherited-Deny condition), the new `Repair-TierModelCanonicalAcl` primitive re-sorts it before Phase 3 (accidental-deletion protection) runs. This verify-and-remediate step is the load-bearing fix — not a backstop. Lab validation: remediation fired on all disable-inheritance OUs under the Deny condition; deployment completed clean with all OUs canonical; zero remediations when no inherited Deny is present.
 - **`-FullDeployment` now hard-stops before the Groups phase on any OU error** (previously only inheritance-verification errors triggered the stop).
 

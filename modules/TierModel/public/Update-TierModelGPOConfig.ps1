@@ -41,7 +41,7 @@ function Update-TierModelGPOConfig {
     Write-TierModelLog -Level Info -Message "GPO configuration start" -Data @{
         TotalActions = $configActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     
@@ -68,13 +68,28 @@ function Update-TierModelGPOConfig {
                 if ($PSCmdlet.ShouldProcess("GPO: $gpoName", "Configure GPO")) {
                     
                     # Get the GPO object to determine SYSVOL path
-                    $gpo = Get-GPO -Name $gpoName -Server $DomainController
+                    # The not-found branch throws: this function configures an existing GPO and
+                    # cannot proceed without it. A genuine read failure is reported as such, with
+                    # the underlying message, rather than masquerading as absence.
+                    $gpo = $null
+                    try {
+                        $gpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop
+                    } catch {
+                        $exTypeName = $_.Exception.GetType().FullName
+                        $isNotFound = $exTypeName -like '*ADIdentityNotFoundException' -or
+                                      $_.Exception -is [System.ArgumentException] -or
+                                      $_.CategoryInfo.Category -eq 'ObjectNotFound'
+                        if ($isNotFound) {
+                            throw "GPO '$gpoName' not found"
+                        }
+                        throw "Failed to read GPO '$gpoName' from '$DomainController' - existence could not be determined: $($_.Exception.Message)"
+                    }
                     if (-not $gpo) {
                         throw "GPO '$gpoName' not found"
                     }
                     
                     # Get domain information for SYSVOL path construction
-                    $domain = Get-ADDomain -Server $DomainController
+                    $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                     $domainName = $domain.DNSRoot
                     $domainController = $domain.PDCEmulator  # Use PDC for SYSVOL operations
                     

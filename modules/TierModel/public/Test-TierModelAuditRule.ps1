@@ -160,8 +160,15 @@ function Test-TierModelAuditRule {
 
         $isCompliant = ($managedAces.Count -eq 1) -and ($missingInt -eq 0)
 
-        # Per-right granular output — model: Test-TierModelGPOContent URA validation
-        # Always compute; emit to host only when not -Silent
+        # Per-right granular console output. Each configured right is tested against the
+        # rights present in the managed ACEs and reported individually to the operator.
+        #
+        # These per-right results are console-only and are deliberately NOT appended to
+        # $findings. One drifted object produces one finding, matching every other audit
+        # producer, and the complete list of absent rights is carried in the Details of the
+        # MissingAuditRule finding emitted below. Emitting a row per right as well would
+        # publish the same information twice and make the section's finding count disagree
+        # with its Drift counter, which counts objects.
         foreach ($right in $ruleConfig.rights) {
             $rightBit     = [int][System.DirectoryServices.ActiveDirectoryRights]$right
             $rightPresent = ($rightBit -band $presentInt) -ne 0
@@ -172,16 +179,6 @@ function Test-TierModelAuditRule {
                 } else {
                     Write-Host "        ❌ Right '$right' - missing" -ForegroundColor Red
                 }
-            }
-
-            $findings += [PSCustomObject]@{
-                Type          = 'AuditRight'
-                ResourceType  = 'DomainAuditRule'
-                Identifier    = "DomainRoot → $targetDn"
-                Property      = $right
-                ExpectedValue = 'Present'
-                ActualValue   = if ($rightPresent) { 'Present' } else { 'Missing' }
-                Status        = if ($rightPresent) { 'Pass' } else { 'Fail' }
             }
         }
 

@@ -24,7 +24,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 ### 📖 Core Documentation
 - **[Deployment Methodology](https://microsoft.github.io/ActiveDirectoryTierModel/deployment-methodology/)** - Understanding the deployment approach
 - **[Drift Detection Details](https://microsoft.github.io/ActiveDirectoryTierModel/drift-detection-details/)** - Comprehensive drift auditing and remediation
-- **[Tier Model Logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/)** - Structured logging and diagnostics
+- **[Tier Model Logging](https://microsoft.github.io/ActiveDirectoryTierModel/tiermodel-logging/)** - Structured logging, diagnostics, and the new v2.1.0 `-EnableVerbose` and `-EnableDebug` switches for troubleshooting deployment and audit failures
 - **[GPO Management Strategy](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-strategy/)** - Group Policy Object management
 - **[GPO Management Guidance](https://microsoft.github.io/ActiveDirectoryTierModel/gpo-management-guidance/)** - Best practices, baseline selection, the SOE override model, firewall lockdown, and upgrade lifecycle
 - **[Best Practices & Hardening](https://microsoft.github.io/ActiveDirectoryTierModel/best-practices/)** - Governance rules (group manager tiering) and post-deployment AD hardening guidance
@@ -36,6 +36,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[Test Coverage](https://microsoft.github.io/ActiveDirectoryTierModel/test-coverage/)** - Comprehensive test coverage analysis and roadmap
 - **[Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/)** - Supported languages (English only today) and the localization roadmap
 - **[Sentinel Monitoring](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
+- **[Event ID Schema](https://microsoft.github.io/ActiveDirectoryTierModel/event-id-schema/)** - Windows Event Log schema for SIEM integration and operational monitoring
 
 ### 🔧 Technical Specifications
 - **[Feature Specification](specs/001-tier-model-module/spec.md)** - Complete requirements and user stories
@@ -43,24 +44,19 @@ To get started with TierModel, please refer to our comprehensive documentation:
 
 ## 🧪 Testing & Quality Assurance
 
-**Current Test Status: ✅ 1,891 passing / 0 failures (100%)** *(Last run: 2026-09-02)*
+**Current Test Status: ✅ 1,994 passing / 0 failures (100%)** *(Last run: 2026-09-08)*
 
 | Test Suite | Test Files | Test Cases | Status | Coverage |
 |------------|-----------|------------|--------|----------|
-| **Unit Tests** | 24 files | 1,573 tests | ✅ All pass | **~90.9%** |
-| **Integration Tests** | 7 files | 318 tests | ✅ All pass | **90.9%** |
-| **Manual Integration Tests** | 1 file | 378 tests | ✅ 100% Pass | **N/A** |
-| **Total** | **32 files** | **2,269 tests** | ✅ **100% passing** | **~90.9%** |
+| **Unit Tests** | **26 files** (Pester) | **1,664 tests** | ✅ All pass | **87.36%** *(CI-scoped 82-file module population)* |
+| **Integration Tests** | **7 files** (Pester) | **330 tests** | ✅ All pass | **87.36%** *(CI-scoped 82-file module population)* |
+| **Manual Integration Tests** | **1 file** (Excel workbook) | **384 tests** | ✅ 100% Pass | **N/A** |
+| **Total** | **34 files** | **2,378 tests** | ✅ **100% passing** | **87.36%** *(CI-scoped 82-file module population)* |
 
 ### Test Coverage Highlights
-- ✅ **72/72** production files have comprehensive test coverage
-- ✅ **1,891 / 1,891** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-02)
-- ✅ **~90.9%** overall Pester-measured command coverage (all files above 80% CI gate)
-- ✅ **New canonical-ACL resilience (#41):** OU deploy uses a phased verify-and-remediate loop — after each disable-inheritance write, `New-TierModelOu` reads back the DACL and auto-sorts if non-canonical (via `Repair-TierModelCanonicalAcl`); lab-validated at 7/7 OUs corrected per deploy under an inherited-Deny condition. New public cmdlet `Repair-TierModelCanonicalAcl` (**95.40%** coverage) available for standalone use. `Audit-TierModel.ps1` now reports Case 1 (non-canonical domain root, deployment blocker) and Case 2 (non-canonical Tier OU, pre-fix artifact) as structured drift findings.
-- ✅ **New in v1.3.0:** `-EnableAuditing` domain audit rule (SACL) support — 4 new cmdlets (`Get-TierModelAuditRule` **100%**, `Get-TierModelAuditRuleFd` **97.73%**, `Test-TierModelAuditRule` **98.41%**, `New-TierModelAuditRule` **84.14%**) covered by `Unit.AuditRuleOperations.Tests.ps1` (47 unit tests) plus `-EnableAuditing` integration tests in Audit and Deploy orchestrators; `Audit-TierModel.ps1` **77.16%**, `Deploy-TierModel.ps1` **81.53%**
-- ✅ **Authentication Policy Silos (`-IncludeAuthSilos`):** create-once deploy + audit pipeline — 13 cmdlets covered by `Unit.AuthSiloOperations.Tests.ps1` (131 unit tests, all mock-based): `Build-TierModelAuthSddl` **100%**, `Compare-TierModelAuthSddl` **96.2%**, `Test-TierModelAuthSiloPrerequisite` **98.5%**, `New-TierModelAuthSilo` **99.1%**, `Get-TierModelAuthPolicy`/`Get-TierModelAuthSilo` **95.5%**, `Get-TierModelAuthSiloMembershipFd` **87.8%**, `Set-TierModelAuthSiloMembership` **87.8%**, `Test-TierModelAuthPolicy` **81.3%**, `Test-TierModelAuthSilo` **83.4%**, `Get-TierModelAuthSiloFd` **85.6%**, `Get-TierModelAuthPolicyFd` **83.7%**, `New-TierModelAuthPolicy` **82.9%**; deferred-SDDL, `RequireSubset` audit, create-once, and outer-catch paths fully covered.
-- ✅ **Tier Model Membership Reconciliation (`optional/Update-TierModelMembership.ps1` v1.7.2):** 107-test suite `Unit.MembershipReconciliation.Tests.ps1` (dot-source seam, all mock-based, no live AD): `Resolve-ActiveSwitches` all-15 + order, `Test-IsBuiltInExcluded`/`Test-IsCustomerExcluded`, `Write-TmEvent` (opt-in/no-throw), `Initialize-Logging`/`Write-Log`/`Write-DebugLog` (WhatIf immunity), `Invoke-TierReconciliation` (counters/exclusion/WhatIf/ExcludeChildOuDn), `Invoke-Tier2Operators`/`Invoke-Tier2Eud` (operator-wins disambiguation). Script added to CI code-coverage measurement.
-- ✅ Mock-based testing (no Active Directory connectivity required)
+- ✅ **86/86** production PowerShell files in the product surface counted: 2 root `*-TierModel.ps1`, 82 under `modules\`, and 2 under `optional\`; CI coverage measures the CI-scoped 82-file module population
+- ✅ **1,994 / 1,994** automated test cases passing — 0 failures (Pester 5.9.0, 2026-09-08)
+- ✅ **87.36%** overall Pester-measured command coverage across the CI-scoped 82-file module population (aggregate clears the 80% CI gate; the gate is not per-file)
 
 ### Running Tests
 ```powershell
@@ -162,7 +158,7 @@ Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model is availa
 
 ---
 
-**Version**: 1.2.3 | **License**: MIT | **Status**: ✅ Production Ready
+**Version**: 2.1.0 | **License**: MIT | **Status**: ✅ Production Ready
 
 ## 🚀 Releasing
 

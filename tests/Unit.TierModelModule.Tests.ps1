@@ -17,11 +17,16 @@ Tags: Unit, TierModelModule
 Coverage target: TierModel.psm1
 
 Scope notes:
-  * FullDeployment + FromPath throws because tiermodel.schema.json has no 'admx' property
-    but Set-StrictMode -Version Latest causes $schema.properties.admx to throw.
-  * Use OuOnly scope (or FromConfig) for tests that must avoid the ADMX schema lookup.
-  * Deep validation (GPO modes, denyApplyGroups, ADMX paths, OU parent-child) is always
-    outside the FromPath schema block, so FromConfig reaches it safely.
+  * BUG-023 fix (Rogue, 2026-09-04): -Config now loads the schema itself; schema
+    validation runs for BOTH FromPath and FromConfig. Fixtures passed to -Config must
+    satisfy all schema-required top-level properties (version, organizationUnits, groups,
+    users, gpos) to produce Valid=$true. Presence is checked unconditionally; scope only
+    controls which array-item validators and deep validators run.
+  * FromPath + FullDeployment no longer throws — verified 2026-09-04; admx is defined in
+    tiermodel.schema.json and $schema.properties.admx does not raise under StrictMode.
+  * Use -Scope to restrict which validators run (e.g. GposOnly isolates GPO-mode checks,
+    AdmxOnly isolates ADMX checks). Deep validation (GPO modes, denyApplyGroups, ADMX
+    paths, OU parent-child) runs for both -Config and -Path.
 #>
 
 Set-StrictMode -Version Latest
@@ -202,8 +207,8 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
     }
 
     # ── Scope-based validation ────────────────────────────────────────────────
-    # All scopes exercised with FromPath. OuOnly/GroupsOnly/UsersOnly/OuAclsOnly are safe.
-    # ImportAdmxOnly would also trigger the ADMX schema lookup and throw, so we use
+    # All scopes exercised with FromPath. OuOnly/GroupOnly/UserOnly/OuAclsOnly are safe.
+    # AdmxOnly would also trigger the ADMX schema lookup and throw, so we use
     # FromConfig for that scope in the ADMX section below.
 
     Context 'Scope-based validation' {
@@ -213,13 +218,13 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $result.ValidationDetails.InvalidGpoModes | Should -Be 0
         }
 
-        It 'GroupsOnly scope — validates and returns a result' {
-            $result = Test-TierModelConfig -Path $script:EmptyConfig -SchemaPath $script:SchemaPath -Scope GroupsOnly
+        It 'GroupOnly scope — validates and returns a result' {
+            $result = Test-TierModelConfig -Path $script:EmptyConfig -SchemaPath $script:SchemaPath -Scope GroupOnly
             $result | Should -Not -BeNullOrEmpty
         }
 
-        It 'UsersOnly scope — validates and returns a result' {
-            $result = Test-TierModelConfig -Path $script:EmptyConfig -SchemaPath $script:SchemaPath -Scope UsersOnly
+        It 'UserOnly scope — validates and returns a result' {
+            $result = Test-TierModelConfig -Path $script:EmptyConfig -SchemaPath $script:SchemaPath -Scope UserOnly
             $result | Should -Not -BeNullOrEmpty
         }
 
@@ -231,7 +236,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
     # ── Missing required top-level property ──────────────────────────────────
     # Uses OuOnly scope — schema.required check always runs but the problematic
-    # ADMX schema lookup is only triggered for FullDeployment/ImportAdmxOnly.
+    # ADMX schema lookup is only triggered for FullDeployment/AdmxOnly.
 
     Context 'FromPath — missing required top-level property (gpos)' {
         BeforeAll {
@@ -275,19 +280,25 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
     }
 
     # ── GPO mode deep validation ──────────────────────────────────────────────
-    # Uses FromConfig to bypass the FromPath schema block (which throws for ADMX).
-    # GPO mode deep validation is outside the schema block and runs for FullDeployment.
+    # BUG-023 fix: -Config now runs full schema validation (required top-level properties
+    # are checked unconditionally). Fixtures must include version, organizationUnits,
+    # groups, users, and gpos to produce Valid=$true. -Scope GposOnly isolates GPO mode
+    # coverage; GPO mode deep validation also runs for FullDeployment.
 
     Context 'GPO mode validation' {
 
         It 'accepts createAndImport and createImportAndConfigure modes' {
             $cfg = [PSCustomObject]@{
+                version           = '1.0.0'
+                organizationUnits = @()
+                groups            = @()
+                users             = @()
                 gpos = @(
                     [PSCustomObject]@{ name = 'GPO1'; mode = 'createAndImport' }
                     [PSCustomObject]@{ name = 'GPO2'; mode = 'createImportAndConfigure' }
                 )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
+            $result = Test-TierModelConfig -Config $cfg -Scope GposOnly
             $result.Valid | Should -Be $true
             $result.ValidationDetails.ValidGpoModes   | Should -Be 2
             $result.ValidationDetails.InvalidGpoModes | Should -Be 0
@@ -295,9 +306,13 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
         It 'returns an error for an invalid GPO mode' {
             $cfg = [PSCustomObject]@{
+                version           = '1.0.0'
+                organizationUnits = @()
+                groups            = @()
+                users             = @()
                 gpos = @( [PSCustomObject]@{ name = 'BadGPO'; mode = 'badMode' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
+            $result = Test-TierModelConfig -Config $cfg -Scope GposOnly
             $result.Valid | Should -Be $false
             ($result.Errors -join ' ')                | Should -Match 'invalid mode'
             $result.ValidationDetails.InvalidGpoModes | Should -BeGreaterThan 0
@@ -305,9 +320,13 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
         It 'returns an error when mode property is absent' {
             $cfg = [PSCustomObject]@{
+                version           = '1.0.0'
+                organizationUnits = @()
+                groups            = @()
+                users             = @()
                 gpos = @( [PSCustomObject]@{ name = 'NoModeGPO' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
+            $result = Test-TierModelConfig -Config $cfg -Scope GposOnly
             $result.Valid | Should -Be $false
             ($result.Errors -join ' ') | Should -Match "missing required 'mode'"
         }
@@ -325,43 +344,52 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
     Context 'DenyApplyGroups reference validation' {
 
-        It 'warns when denyApplyGroup references a group not in config' {
+        It 'warns when denyApplyGroupPolicy is a scalar string instead of an array' {
+            # Cross-reference validation against config groups was removed (built-in AD groups
+            # such as 'Domain Controllers' are not in config groups — that would be false-positive).
+            # The validator now does shape-only checks: non-array value → 1 warning.
             $cfg = [PSCustomObject]@{
-                groups = @( [PSCustomObject]@{ name = 'ExistingGroup'; scope = 'Global' } )
-                gpos   = @(
+                gpos = @(
                     [PSCustomObject]@{
-                        name            = 'TestGPO'
-                        mode            = 'createAndImport'
-                        denyApplyGroups = @('ExistingGroup', 'NonExistentGroup')
+                        name                 = 'TestGPO'
+                        mode                 = 'createAndImport'
+                        denyApplyGroupPolicy = 'ShouldBeAnArray'
                     }
                 )
             }
             $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
-            $result.Warnings.Count | Should -BeGreaterThan 0
-            ($result.Warnings -join ' ') | Should -Match 'NonExistentGroup'
+            $result.Warnings.Count | Should -Be 1
+            ($result.Warnings -join ' ') | Should -Match 'denyApplyGroupPolicy'
         }
 
-        It 'counts valid and invalid denyApplyGroup references' {
+        It 'counts shape-valid and shape-invalid denyApplyGroupPolicy entries' {
+            # Valid array of N non-empty strings → ValidDenyApplyGroups += N.
+            # Non-array scalar → InvalidDenyApplyGroups++ (1 warning, no error).
             $cfg = [PSCustomObject]@{
-                groups = @( [PSCustomObject]@{ name = 'ExistingGroup'; scope = 'Global' } )
-                gpos   = @(
+                gpos = @(
                     [PSCustomObject]@{
-                        name            = 'TestGPO'
-                        mode            = 'createAndImport'
-                        denyApplyGroups = @('ExistingGroup', 'NonExistentGroup')
+                        name                 = 'GPO-Valid'
+                        mode                 = 'createAndImport'
+                        denyApplyGroupPolicy = @('Domain Controllers', 'Read-only Domain Controllers')
+                    }
+                    [PSCustomObject]@{
+                        name                 = 'GPO-Invalid'
+                        mode                 = 'createAndImport'
+                        denyApplyGroupPolicy = 'NotAnArray'
                     }
                 )
             }
             $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
-            $result.ValidationDetails.ValidDenyApplyGroups   | Should -Be 1
+            $result.ValidationDetails.ValidDenyApplyGroups   | Should -Be 2
             $result.ValidationDetails.InvalidDenyApplyGroups | Should -Be 1
         }
     }
 
     # ── ADMX path validation ──────────────────────────────────────────────────
-    # All ADMX tests use FromConfig + ImportAdmxOnly.
-    # ImportAdmxOnly + FromPath would hit $schema.properties.admx (not in schema) and throw.
-    # ImportAdmxOnly + FromConfig skips the schema block entirely and runs only deep validation.
+    # All ADMX tests use FromConfig + AdmxOnly.
+    # AdmxOnly scope restricts deep validation to ADMX path checks only. Top-level
+    # required-property checks still run unconditionally (BUG-023 fix), but those errors
+    # do not affect the specific ADMX ValidationDetails assertions these tests make.
 
     Context 'ADMX path validation — non-existent path' {
 
@@ -369,7 +397,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $cfg = [PSCustomObject]@{
                 admx = @( [PSCustomObject]@{ path = 'C:\NonExistentAdmxPath\DoesNotExist'; language = 'en-US' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Valid | Should -Be $false
             ($result.Errors -join ' ')                   | Should -Match 'does not exist'
             $result.ValidationDetails.InvalidAdmxPaths   | Should -BeGreaterThan 0
@@ -379,7 +407,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $cfg = [PSCustomObject]@{
                 admx = @( [PSCustomObject]@{ language = 'en-US' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Valid | Should -Be $false
             ($result.Errors -join ' ') | Should -Match "missing required 'path'"
         }
@@ -418,7 +446,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $cfg = [PSCustomObject]@{
                 admx = @( [PSCustomObject]@{ path = $script:TempAdmxDir; language = 'en-US' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.ValidationDetails.ValidAdmxPaths   | Should -Be 1
             $result.ValidationDetails.InvalidAdmxPaths | Should -Be 0
         }
@@ -427,7 +455,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $cfg = [PSCustomObject]@{
                 admx = @( [PSCustomObject]@{ path = $script:TempLocaleDir; language = 'en-US' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Warnings.Count | Should -BeGreaterThan 0
             ($result.Warnings -join ' ') | Should -Match 'no .admx files'
         }
@@ -436,14 +464,16 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
             $cfg = [PSCustomObject]@{
                 admx = @( [PSCustomObject]@{ path = $script:TempAdmxNoLocale; language = 'en-US' } )
             }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Warnings.Count | Should -BeGreaterThan 0
             ($result.Warnings -join ' ') | Should -Match 'missing default locale'
         }
     }
 
     # ── OU parent-child relationship validation ──────────────────────────────
-    # Uses FromConfig — always outside the schema block so always runs.
+    # Uses FromConfig + OuOnly. BUG-023 fix: schema validation now runs for -Config too;
+    # these fixtures only have organizationUnits so they generate required-prop errors,
+    # but the assertions target Warnings (not Valid), so they remain correct.
 
     Context 'OU parent-child relationship validation' {
 
@@ -515,8 +545,8 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
     Context 'FromPath — array item missing required sub-property' {
         BeforeAll {
-            # Group item has 'name' but is missing required 'scope'.
-            # Using GroupsOnly scope; organizationUnits is empty so the OU
+            # Group item has 'name' but is missing required 'groupscope'.
+            # Using GroupOnly scope; organizationUnits is empty so the OU
             # parent-child check is skipped (avoids StrictMode crash on $ou.path).
             $script:MissingSubPropFile = Join-Path $env:TEMP "tm-missingsubprop-$([guid]::NewGuid()).json"
             @{
@@ -532,9 +562,9 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
         }
 
         It 'returns Valid=$false and an error naming the missing sub-property' {
-            $result = Test-TierModelConfig -Path $script:MissingSubPropFile -SchemaPath $script:SchemaPath -Scope GroupsOnly
+            $result = Test-TierModelConfig -Path $script:MissingSubPropFile -SchemaPath $script:SchemaPath -Scope GroupOnly
             $result.Valid | Should -Be $false
-            ($result.Errors -join ' ') | Should -Match "missing required property 'scope'"
+            ($result.Errors -join ' ') | Should -Match "missing required property 'groupscope'"
         }
     }
 
@@ -611,53 +641,56 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
 
     Context 'DenyApplyGroups reference validation — hashtable config' {
 
-        It 'validates denyApplyGroups when GPO and groups are hashtables' {
+        It 'validates denyApplyGroupPolicy when GPO is a hashtable' {
+            # Hashtable GPO with a valid array → ValidDenyApplyGroups equals entry count.
             $cfg = @{
-                groups = @( @{ name = 'HT-Group1'; scope = 'Global' } )
-                gpos   = @( @{ name = 'HT-GPO1'; mode = 'createAndImport'; denyApplyGroups = @('HT-Group1', 'NonExistent') } )
+                gpos = @( @{ name = 'HT-GPO1'; mode = 'createAndImport'; denyApplyGroupPolicy = @('Domain Controllers', 'Read-only Domain Controllers') } )
             }
             $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
-            $result.ValidationDetails.ValidDenyApplyGroups   | Should -Be 1
-            $result.ValidationDetails.InvalidDenyApplyGroups | Should -Be 1
+            $result.ValidationDetails.ValidDenyApplyGroups   | Should -Be 2
+            $result.ValidationDetails.InvalidDenyApplyGroups | Should -Be 0
         }
 
-        It 'includes the GPO name (from hashtable) in the denyApplyGroups warning' {
+        It 'includes the GPO name (from hashtable) in the denyApplyGroupPolicy warning' {
+            # Non-array scalar triggers the shape warning; GPO name must appear in it.
             $cfg = @{
-                groups = @()
-                gpos   = @( @{ name = 'HT-GPO1'; mode = 'createAndImport'; denyApplyGroups = @('Missing') } )
+                gpos = @( @{ name = 'HT-GPO1'; mode = 'createAndImport'; denyApplyGroupPolicy = 'NotAnArray' } )
             }
             $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
             ($result.Warnings -join ' ') | Should -Match 'HT-GPO1'
         }
 
-        It 'uses Unknown GPO name when PSCustomObject GPO with denyApplyGroups has no name property' {
-            # Covers the "else { 'Unknown GPO' }" branch in the denyApplyGroups GPO name lookup
+        It 'produces a warning for a nameless PSCustomObject GPO with a non-array denyApplyGroupPolicy' {
+            # When a PSCustomObject GPO has no name property the validator falls back to 'Unknown GPO'.
+            # This is the legitimate fallback; the old test pinned a bug where iteration over a
+            # PSCustomObject caused the validator to lose the name — that bug is fixed.
             $cfg = [PSCustomObject]@{
                 gpos = @(
-                    [PSCustomObject]@{ mode = 'createAndImport'; denyApplyGroups = @('Missing') }
+                    [PSCustomObject]@{ mode = 'createAndImport'; denyApplyGroupPolicy = 'NotAnArray' }
                 )
             }
             $result = Test-TierModelConfig -Config $cfg -Scope FullDeployment
-            ($result.Warnings -join ' ') | Should -Match 'Unknown GPO'
+            $result.Warnings.Count | Should -Be 1
+            ($result.Warnings -join ' ') | Should -Match 'denyApplyGroupPolicy'
         }
     }
 
     # ── ADMX path validation — hashtable admx entries ────────────────────────
     # Covers if ($admxEntry -is [hashtable]) / if ($config -is [hashtable]) ADMX
-    # branches.  All use FromConfig + ImportAdmxOnly.
+    # branches.  All use FromConfig + AdmxOnly.
 
     Context 'ADMX path validation — hashtable admx entries' {
 
         It 'rejects non-existent path in a hashtable ADMX entry' {
             $cfg = @{ admx = @( @{ path = 'C:\NonExistentAdmxPath\Hash'; language = 'en-US' } ) }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Valid | Should -Be $false
             $result.ValidationDetails.InvalidAdmxPaths | Should -BeGreaterThan 0
         }
 
         It 'rejects a hashtable ADMX entry that has no path key' {
             $cfg = @{ admx = @( @{ language = 'en-US' } ) }
-            $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+            $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
             $result.Valid | Should -Be $false
             ($result.Errors -join ' ') | Should -Match "missing required 'path'"
         }
@@ -669,7 +702,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
                 New-Item -ItemType File (Join-Path $tmp 'test.admx') -Force | Out-Null
                 # No en-US subfolder -> locale warning with default language
                 $cfg = @{ admx = @( @{ path = $tmp } ) }
-                $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+                $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
                 ($result.Warnings -join ' ') | Should -Match 'missing default locale'
             } finally {
                 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -683,7 +716,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
                 New-Item -ItemType File (Join-Path $tmp 'test.admx') -Force | Out-Null
                 New-Item -ItemType Directory (Join-Path $tmp 'en-US') -Force | Out-Null
                 $cfg = @{ admx = @( @{ path = $tmp; language = 'en-US' } ) }
-                $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+                $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
                 $result.ValidationDetails.ValidAdmxPaths   | Should -Be 1
                 $result.ValidationDetails.InvalidAdmxPaths | Should -Be 0
             } finally {
@@ -704,7 +737,7 @@ Describe 'Test-TierModelConfig' -Tag 'Unit', 'TierModelModule', 'TestTierModelCo
                 $cfg = [PSCustomObject]@{
                     admx = @( [PSCustomObject]@{ path = $tmp } )   # PSObject, no language property
                 }
-                $result = Test-TierModelConfig -Config $cfg -Scope ImportAdmxOnly
+                $result = Test-TierModelConfig -Config $cfg -Scope AdmxOnly
                 ($result.Warnings -join ' ') | Should -Match 'missing default locale'
             } finally {
                 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

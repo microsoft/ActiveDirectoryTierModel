@@ -455,15 +455,66 @@ Describe "Domain Audit Rule Operations" -Tag "Unit", "AuditRule" {
             $missingFinding.ActualValue | Should -Be 'MULTI-ACE'
         }
 
-        It "Emits one granular AuditRight finding per configured right" {
+        It "One finding per counted object: Compliant, Drift and Errors reconcile with Findings" {
+            # Replaces a test that asserted nine granular per-right AuditRight findings. Those
+            # rows were removed deliberately: they republished what the summary finding already
+            # carries in Details, and they made the section's finding count disagree with its
+            # Drift counter, which counts objects rather than rights.
+            #
+            # Pinning the reconciliation rather than the literal 9 is what survives that ruling
+            # and still catches the regression: a producer that emits one row per right again
+            # pushes Findings to 10 while Drift stays 1, and this fails.
             $script:mockAcl = New-MockAcl -Aces @(New-MockAuditAce -Rights 'CreateChild')
 
             $result = Test-TierModelAuditRule -Config $script:AuditConfig -DomainController $script:TestDC -Silent
 
-            $rightFindings = @($result.Findings | Where-Object { $_.Type -eq 'AuditRight' })
-            $rightFindings.Count | Should -Be 9
-            ($rightFindings | Where-Object { $_.Property -eq 'CreateChild' }).Status | Should -Be 'Pass'
-            ($rightFindings | Where-Object { $_.Property -eq 'DeleteChild' }).Status | Should -Be 'Fail'
+            $result.Drift             | Should -Be 1
+            @($result.Findings).Count | Should -Be 1
+            ($result.Compliant + $result.Drift + $result.Errors) |
+                Should -Be @($result.Findings).Count -Because 'every counted object contributes exactly one finding'
+
+            $only = @($result.Findings)[0]
+            $only.Type | Should -Be 'MissingAuditRule'
+
+            # The per-right detail the removed rows carried is still reported, in the summary row.
+            $only.Details | Should -Match 'Missing rights:'
+            $only.Details | Should -Match 'DeleteChild'
+        }
+
+        It "Reconciles in all three verdict states, not just the drifted one" {
+            # Compliant, drifted and could-not-determine each produce exactly one finding, so the
+            # invariant above cannot be satisfied by a producer that simply never emits anything.
+            $cases = @(
+                @{ Label = 'compliant'; Aces = @(New-MockAuditAce -Rights ($script:AllRights -join ',')) }
+                @{ Label = 'drifted';   Aces = @(New-MockAuditAce -Rights 'CreateChild') }
+            )
+
+            foreach ($case in $cases) {
+                $script:mockAcl = New-MockAcl -Aces $case.Aces
+                $result = Test-TierModelAuditRule -Config $script:AuditConfig -DomainController $script:TestDC -Silent
+
+                @($result.Findings).Count | Should -Be 1 -Because "the $($case.Label) state audits exactly one object"
+                ($result.Compliant + $result.Drift + $result.Errors) |
+                    Should -Be @($result.Findings).Count -Because "counters and findings must agree in the $($case.Label) state"
+                @($result.Findings | Where-Object { $_.Type -eq 'AuditRight' }).Count |
+                    Should -Be 0 -Because 'per-right rows were ruled out of the findings collection'
+            }
+        }
+
+        It "Keeps the per-right console output, which the findings rows did not replace" {
+            # The ruling removed the per-right rows from the FINDINGS collection only. The
+            # operator-facing per-right console output is a separate surface and was explicitly
+            # kept. Nothing else pins it now that the findings test is retired, so without this
+            # the next tidy-up of that loop removes it with a green suite.
+            $producer = (Resolve-Path (Join-Path $PSScriptRoot '..' 'modules' 'TierModel' 'public' 'Test-TierModelAuditRule.ps1')).Path
+            $src = [IO.File]::ReadAllText($producer)
+
+            $src | Should -Match 'foreach \(\$right in \$ruleConfig\.rights\)' -Because 'the report walks every configured right'
+            $src | Should -Match "Right '\`$right' - present"
+            $src | Should -Match "Right '\`$right' - missing"
+
+            # And it is still gated on -Silent rather than always printing.
+            $src | Should -Match 'if \(-not \$Silent\)'
         }
 
         It "TotalChecked is always 1 when domainAuditRule is configured" {

@@ -78,7 +78,14 @@
                         Confirm                         = $false
                     }
 
-                    $newSilo = New-ADAuthenticationPolicySilo @newParams -PassThru
+                    $newSilo = New-ADAuthenticationPolicySilo @newParams -PassThru -ErrorAction Stop
+
+                    # Verify the write before claiming success. A failed AD write can return $null
+                    # without terminating; defensive null-check regardless of platform or root cause.
+                    if ($null -eq $newSilo) {
+                        throw (Get-TierModelWriteFailureDetail -Operation 'New-ADAuthenticationPolicySilo' -Target $siloName).Summary
+                    }
+
                     Write-Host "  `u{2705} Created Authentication Policy Silo: $siloName" -ForegroundColor Green
                     Write-TierModelLog -Level Info -Message "AuthSiloCreated" -Data @{
                         SiloName = $siloName; PolicyName = $policyName; Dn = $newSilo.DistinguishedName; CorrelationId = $CorrelationId
@@ -98,7 +105,9 @@
                     Write-Host "  `u{274C} Failed to create Authentication Policy Silo: $siloName - $($_.Exception.Message)" -ForegroundColor Red
                     $errors += @{ Timestamp = Get-Date; Category = 'Execution'; Code = 'AuthSiloCreateFailed'
                                   Message = "Failed to create silo '$siloName': $($_.Exception.Message)"
-                                  Context = @{ SiloName = $siloName; CorrelationId = $CorrelationId } }
+                                  Context = @{ SiloName = $siloName; CorrelationId = $CorrelationId
+                                               FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                                               CategoryInfo = $_.CategoryInfo.ToString() } }
                     $converged = $false
                 }
             }

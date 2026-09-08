@@ -53,7 +53,11 @@ function Test-TierModelCanonicalAcl {
     # --- Obtain SD bytes ---
     if ($PSCmdlet.ParameterSetName -eq 'ByServer') {
         if (-not $PSBoundParameters.ContainsKey('DistinguishedName') -or [string]::IsNullOrEmpty($DistinguishedName)) {
-            $DistinguishedName = (Get-ADDomain -Server $PreferredDc).DistinguishedName
+            # -ErrorAction Stop is stated explicitly. The function-scope
+            # $ErrorActionPreference = 'Stop' above already makes this terminating; the explicit
+            # parameter keeps that guarantee local to the call and survives any future refactor
+            # that moves this code out from under that preference.
+            $DistinguishedName = (Get-ADDomain -Server $PreferredDc -ErrorAction Stop).DistinguishedName
         }
 
         Add-Type -AssemblyName System.DirectoryServices.Protocols

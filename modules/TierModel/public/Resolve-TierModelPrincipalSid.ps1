@@ -81,7 +81,7 @@ function Resolve-TierModelPrincipalSid {
         if ($Principal -ieq "Administrator") {
             try {
                 # Get the domain SID from specified domain controller
-                $domainSid = (Get-ADDomain -Server $DomainController).DomainSID.Value
+                $domainSid = ConvertTo-TierModelSidString -InputSid (Get-ADDomain -Server $DomainController -ErrorAction Stop).DomainSID -Context "the domain SID of '$DomainController'"
                 
                 # Build the Administrator SID (RID 500)
                 $adminSid = "$domainSid-500"
@@ -93,7 +93,7 @@ function Resolve-TierModelPrincipalSid {
                 
                 return @{
                     Principal = $Principal
-                    Sid = $adminUser.SID.Value
+                    Sid = ConvertTo-TierModelSidString -InputSid $adminUser.SID -Context "built-in Administrator account (RID 500)"
                     Source = "ADUser-RID500"
                     Success = $true
                     Error = $null
@@ -234,6 +234,89 @@ function Resolve-TierModelPrincipalSid {
     }
 }
 
+function ConvertTo-TierModelSidString {
+    <#
+    .SYNOPSIS
+    Normalises a "SID-ish" value returned by an AD cmdlet into a validated SID string.
+
+    .DESCRIPTION
+    Private helper (not exported). AD cmdlets normally return a live
+    [System.Security.Principal.SecurityIdentifier] for .SID / .objectSid. On platforms where
+    the ActiveDirectory module loads through the Windows PowerShell Compatibility shim
+    (WinPSCompatSession — platform-dependent; not reproduced on Windows Server 2025 /
+    PowerShell 7.5.1), the objects are DESERIALIZED and those properties come back as plain
+    [String]. Reading .Value off a String yields $null, which previously produced BLANK
+    principals in GPO GptTmpl.inf (User Rights Assignment and Restricted Groups) - a silent
+    security-configuration failure. The helper also defends against any other code path that
+    returns a SID as a string rather than as a SecurityIdentifier.
+
+    This helper accepts every shape safely (SecurityIdentifier, String, byte[],
+    deserialized PSObject exposing .Value) and THROWS when the result cannot be
+    validated as a real SID, so callers fail loudly instead of writing empty values.
+
+    .PARAMETER InputSid
+    The raw value read from .SID / .objectSid / .DomainSID.
+
+    .PARAMETER Context
+    Human-readable description of what was being resolved, used in the error message.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        $InputSid,
+
+        [Parameter(Mandatory)]
+        [string]$Context
+    )
+
+    $candidate = $null
+
+    if ($null -eq $InputSid) {
+        $candidate = $null
+    }
+    elseif ($InputSid -is [System.Security.Principal.SecurityIdentifier]) {
+        $candidate = $InputSid.Value
+    }
+    elseif ($InputSid -is [string]) {
+        # String shape (deserialized on some platforms, or returned directly by certain cmdlets):
+        $candidate = $InputSid
+    }
+    elseif ($InputSid -is [byte[]]) {
+        try { $candidate = ([System.Security.Principal.SecurityIdentifier]::new($InputSid, 0)).Value } catch { $candidate = $null }
+    }
+    else {
+        # PSObject / deserialized wrapper: prefer an explicit .Value property, else ToString().
+        $valueProperty = $InputSid.PSObject.Properties['Value']
+        if ($valueProperty -and -not [string]::IsNullOrWhiteSpace([string]$valueProperty.Value)) {
+            $candidate = [string]$valueProperty.Value
+        }
+        else {
+            $candidate = [string]$InputSid
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        throw "SID resolution returned an empty value for $Context (a deserialized [String] was received where a live [System.Security.Principal.SecurityIdentifier] was expected; cause undetermined). Refusing to emit a blank SID into security policy."
+    }
+
+    $candidate = $candidate.Trim()
+
+    if ($candidate -notmatch '^S-1-\d+(-\d+)+$') {
+        throw "SID resolution returned a malformed value ('$candidate') for $Context. Refusing to emit an invalid SID into security policy."
+    }
+
+    try {
+        $null = [System.Security.Principal.SecurityIdentifier]::new($candidate)
+    }
+    catch {
+        throw "SID resolution returned a value ('$candidate') for $Context that is not a valid security identifier: $($_.Exception.Message)"
+    }
+
+    return $candidate
+}
+
 function Get-WellKnownSid {
     <#
     .SYNOPSIS
@@ -339,48 +422,68 @@ function Resolve-ADPrincipalSid {
         
         Import-Module ActiveDirectory -ErrorAction Stop
         
-        # Try to resolve as user first
+        # Try to resolve as user first.
+        # The lookup itself is allowed to fail (fall through to group), but SID
+        # NORMALISATION is done outside the swallowing catch so a blank/deserialized SID
+        # surfaces as a loud ADError instead of being mistaken for "not a user".
+        $adUser = $null
         try {
             $adUser = Get-ADUser -Identity $Principal -Server $DomainController -ErrorAction Stop
+        }
+        catch {
+            # Not a user, try as group
+            $adUser = $null
+        }
+
+        if ($adUser) {
             return @{
-                Sid = $adUser.SID.Value
+                Sid = ConvertTo-TierModelSidString -InputSid $adUser.SID -Context "user '$Principal'"
                 Source = "ADUser"
                 Success = $true
                 Error = $null
             }
         }
-        catch {
-            # Not a user, try as group
-        }
         
         # Try to resolve as group
+        $adGroup = $null
         try {
             $adGroup = Get-ADGroup -Identity $Principal -Server $DomainController -ErrorAction Stop
+        }
+        catch {
+            # Not a group either
+            $adGroup = $null
+        }
+
+        if ($adGroup) {
             return @{
-                Sid = $adGroup.SID.Value
+                Sid = ConvertTo-TierModelSidString -InputSid $adGroup.SID -Context "group '$Principal'"
                 Source = "ADGroup" 
                 Success = $true
                 Error = $null
             }
         }
-        catch {
-            # Not a group either
-        }
         
         # Try generic AD object search
+        $adObject = $null
         try {
-            $adObject = Get-ADObject -Filter "Name -eq '$Principal' -or SamAccountName -eq '$Principal'" -Properties objectSid -Server $DomainController | Select-Object -First 1
-            if ($adObject -and $adObject.objectSid) {
-                return @{
-                    Sid = $adObject.objectSid.Value
-                    Source = "ADObject"
-                    Success = $true
-                    Error = $null
-                }
-            }
+            $adObject = Get-ADObject -Filter "Name -eq '$Principal' -or SamAccountName -eq '$Principal'" -Properties objectSid -Server $DomainController -ErrorAction Stop | Select-Object -First 1
         }
         catch {
-            # Generic search also failed
+            # Do NOT add a not-found heuristic here. Get-ADObject -Filter has no not-found
+            # case - a filter that matches nothing returns an EMPTY RESULT SET, never an
+            # exception - so every exception reaching this catch is a genuine read failure.
+            # Re-throw to the outer handler, which returns Source='ADError'. The real
+            # not-found path still falls through to Source='NotFound'.
+            throw
+        }
+
+        if ($adObject -and $adObject.objectSid) {
+            return @{
+                Sid = ConvertTo-TierModelSidString -InputSid $adObject.objectSid -Context "directory object '$Principal'"
+                Source = "ADObject"
+                Success = $true
+                Error = $null
+            }
         }
         
         # Principal not found in AD

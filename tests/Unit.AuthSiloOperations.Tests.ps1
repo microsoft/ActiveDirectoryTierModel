@@ -859,8 +859,44 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
                     @()
                 }
             }
-            Mock Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel { }
-            Mock Set-ADAccountAuthenticationPolicySilo  -ModuleName TierModel { }
+            # Faithful mocks for the two write cmdlets.
+            #
+            # The real Grant-ADAuthenticationPolicySiloAccess and Set-ADAccountAuthenticationPolicySilo
+            # emit NOTHING unless -PassThru is supplied; with -PassThru they emit the silo object and
+            # the modified account object respectively. A mock that can never return anything makes a
+            # silent no-op write indistinguishable from a successful write — which is exactly how the
+            # "green tick on a failed write" class of bug stayed hidden. So model both arms:
+            #   - no -PassThru  → no output (matches today's call sites, keeps the pipeline clean)
+            #   - with -PassThru → a non-null, structurally realistic AD object for the null check
+            Mock Grant-ADAuthenticationPolicySiloAccess -ModuleName TierModel {
+                if (-not ($PesterBoundParameters.ContainsKey('PassThru') -and $PesterBoundParameters['PassThru'])) { return }
+                $silo = $PesterBoundParameters['Identity']
+                $acct = $PesterBoundParameters['Account']
+                return [PSCustomObject]@{
+                    Name              = "$silo"
+                    DistinguishedName = "CN=$silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local"
+                    ObjectClass       = 'msDS-AuthNPolicySilo'
+                    ObjectGUID        = [System.Guid]::NewGuid()
+                    Enforce           = $true
+                    Members           = @("CN=$acct,OU=Computers,DC=test,DC=local")
+                }
+            }
+
+            Mock Set-ADAccountAuthenticationPolicySilo  -ModuleName TierModel {
+                if (-not ($PesterBoundParameters.ContainsKey('PassThru') -and $PesterBoundParameters['PassThru'])) { return }
+                $sam  = $PesterBoundParameters['Identity']
+                $silo = $PesterBoundParameters['AuthenticationPolicySilo']
+                return [PSCustomObject]@{
+                    SamAccountName    = "$sam"
+                    Name              = "$sam"
+                    DistinguishedName = "CN=$sam,OU=Computers,DC=test,DC=local"
+                    ObjectClass       = 'computer'
+                    ObjectGUID        = [System.Guid]::NewGuid()
+                    SID               = 'S-1-5-21-1111111111-2222222222-3333333333-1104'
+                    Enabled           = $true
+                    'msDS-AssignedAuthNPolicySilo' = "CN=$silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local"
+                }
+            }
 
             # Computer-only silo config helper (no memberAccountGroups, no exemptAccounts)
             function OneSiloConfig {
@@ -879,8 +915,30 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
         It "computer member is assigned — Grant then Set both called" {
             InModuleScope TierModel {
                 $script:SiloMemberCallOrder = [System.Collections.Generic.List[string]]::new()
-                Mock Grant-ADAuthenticationPolicySiloAccess { $script:SiloMemberCallOrder.Add('Grant') }
-                Mock Set-ADAccountAuthenticationPolicySilo  { $script:SiloMemberCallOrder.Add('Set') }
+                # These call-order overrides return the object unconditionally: they must be declared
+                # inside InModuleScope so $script:SiloMemberCallOrder resolves to the module scope the
+                # assertions below read, and $PesterBoundParameters is not injected into mock bodies
+                # registered that way — so -PassThru cannot be detected here. Returning the object
+                # always is the safe side: it satisfies a null/result check on the write, and this
+                # test asserts only call order, never the function's output object.
+                Mock Grant-ADAuthenticationPolicySiloAccess {
+                    $script:SiloMemberCallOrder.Add('Grant')
+                    return [PSCustomObject]@{
+                        Name              = 'T0 Silo'
+                        DistinguishedName = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                        ObjectClass       = 'msDS-AuthNPolicySilo'
+                        Members           = @('CN=PAW01,OU=PAWs,DC=test,DC=local')
+                    }
+                }
+                Mock Set-ADAccountAuthenticationPolicySilo  {
+                    $script:SiloMemberCallOrder.Add('Set')
+                    return [PSCustomObject]@{
+                        SamAccountName    = 'PAW01$'
+                        DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                        ObjectClass       = 'computer'
+                        'msDS-AssignedAuthNPolicySilo' = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                    }
+                }
             }
             $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
             InModuleScope TierModel {
@@ -976,8 +1034,26 @@ Describe "Authentication Silo Deploy Operations" -Tag "Unit", "AuthSilo" {
             InModuleScope TierModel {
                 $script:GrantCallCount = 0
                 $script:SetCallCount   = 0
-                Mock Grant-ADAuthenticationPolicySiloAccess { $script:GrantCallCount++ }
-                Mock Set-ADAccountAuthenticationPolicySilo  { $script:SetCallCount++ }
+                # Unconditional return — see the call-order test above for why -PassThru cannot be
+                # detected in mocks declared inside InModuleScope. This test asserts call counts only.
+                Mock Grant-ADAuthenticationPolicySiloAccess {
+                    $script:GrantCallCount++
+                    return [PSCustomObject]@{
+                        Name              = 'T0 Silo'
+                        DistinguishedName = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                        ObjectClass       = 'msDS-AuthNPolicySilo'
+                        Members           = @('CN=PAW01,OU=PAWs,DC=test,DC=local')
+                    }
+                }
+                Mock Set-ADAccountAuthenticationPolicySilo  {
+                    $script:SetCallCount++
+                    return [PSCustomObject]@{
+                        SamAccountName    = 'PAW01$'
+                        DistinguishedName = 'CN=PAW01,OU=PAWs,DC=test,DC=local'
+                        ObjectClass       = 'computer'
+                        'msDS-AssignedAuthNPolicySilo' = 'CN=T0 Silo,CN=AuthN Policy Configuration,CN=Services,CN=Configuration,DC=test,DC=local'
+                    }
+                }
             }
             $result = Set-TierModelAuthSiloMembership -Config (OneSiloConfig) -DomainController $script:TestDC
             InModuleScope TierModel {

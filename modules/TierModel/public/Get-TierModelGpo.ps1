@@ -28,6 +28,8 @@ function Get-TierModelGpo {
     
     .OUTPUTS
     PSCustomObject with deployment plan including actions, summary, and analysis details.
+    Also includes SkippedGpos (GPOs excluded from the plan by an unmet dependency, with the
+    blocking reason) and SkippedGpoSummary (the same information grouped by reason).
     #>
     [CmdletBinding()]
     param(
@@ -56,6 +58,13 @@ function Get-TierModelGpo {
         $planErrors = @()
         $warnings = @()
         $errors = @()
+        # Attribution collections (BUG: dropped GPOs were never named to the operator).
+        # $skippedGpos records every GPO removed from the plan by an unmet dependency,
+        # together with the specific blocking reason, so the caller can report it.
+        $skippedGpos = @()
+        # $existingGpoNames counts GPOs that were actually FOUND in AD. This replaces the
+        # previous (dimensionally invalid) "total GPOs minus total actions" arithmetic.
+        $existingGpoNames = @()
         $riskSummary = [PSCustomObject]@{
             Create = [int]0
             Import = [int]0
@@ -86,7 +95,11 @@ function Get-TierModelGpo {
         }
         
         # Get domain DN for placeholder replacement
-        $domainDN = (Get-ADDomain -Server $DomainController).DistinguishedName
+        try {
+            $domainDN = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DistinguishedName
+        } catch {
+            throw "Failed to resolve domain DN from '$DomainController' - GPO plan cannot be generated: $($_.Exception.Message)"
+        }
         
         # Check if GPOs are configured
         if ($Config.PSObject.Properties['gpos']) {
@@ -140,6 +153,24 @@ function Get-TierModelGpo {
                 
                 # Skip entire OU section if OU doesn't exist, but only for non-template GPOs (template GPOs don't need linking)
                 if (-not $ouExists -and -not $isTemplate) {
+                    # Name every GPO dropped with this OU section so the operator can see
+                    # exactly which GPOs were not planned, and why.
+                    $ouSkipReason = "Target OU '$resolvedOUPath' does not exist - create OUs first"
+                    $sectionGpos = @()
+                    if ($ouGpoData.PSObject.Properties['ImportOnlyGpo'] -and $ouGpoData.ImportOnlyGpo) {
+                        $sectionGpos += @($ouGpoData.ImportOnlyGpo)
+                    }
+                    if ($ouGpoData.PSObject.Properties['PostConfigureGpo'] -and $ouGpoData.PostConfigureGpo) {
+                        $sectionGpos += @($ouGpoData.PostConfigureGpo)
+                    }
+                    foreach ($skippedGpo in $sectionGpos) {
+                        $skippedGpos += [PSCustomObject]@{
+                            GPOName = $skippedGpo.name
+                            OUPath  = $resolvedOUPath
+                            Mode    = $skippedGpo.mode
+                            Reason  = $ouSkipReason
+                        }
+                    }
                     continue
                 }
                 
@@ -156,6 +187,10 @@ function Get-TierModelGpo {
                             
                             # First try direct name lookup
                             try {
+                                # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                                # case for a direct-name lookup during planning, and it is not the final word: the
+                                # rename-key wildcard search below re-checks with -ErrorAction Stop and records a
+                                # real plan error if the domain cannot be enumerated. Do not change to Stop.
                                 $existingGPO = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                             } catch {
                                 # GPO doesn't exist with direct name, try rename key if present
@@ -165,7 +200,7 @@ function Get-TierModelGpo {
                             if (-not $existingGPO -and $gpo.PSObject.Properties.Name -contains 'rename') {
                                 try {
                                     $renamePattern = $gpo.rename
-                                    $allGPOs = @(Get-GPO -All -Server $DomainController)
+                                    $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                                     
                                     # Try direct pattern match first
                                     $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })
@@ -182,12 +217,26 @@ function Get-TierModelGpo {
                                         $actualGpoName = $existingGPO.DisplayName
                                     }
                                 } catch {
-                                    # Wildcard search failed, GPO doesn't exist
+                                    # A genuine enumeration failure is NOT "the GPO does not exist". Get-GPO -All
+                                    # has no not-found case - an empty domain returns an EMPTY COLLECTION, never an
+                                    # exception - so every exception reaching this catch is a genuine read failure
+                                    # and must be logged and warned. Do NOT add a not-found heuristic here: Get-GPO
+                                    # throws ArgumentException for an unreachable or invalid -Server, so classifying
+                                    # ArgumentException as "not found" would silently plan a create for a GPO that
+                                    # already exists. Log-then-continue is deliberate and has a regression test;
+                                    # converting it to a throw would break deployment planning.
+                                    Write-TierModelLog -Level Error -Message "GPO rename search failed - existence could not be determined" -Data @{
+                                        GPOName          = $gpoName
+                                        DomainController = $DomainController
+                                        Error            = $_.Exception.Message
+                                    } | Out-Null
+                                    Write-Warning "Could not enumerate GPOs on '$DomainController' while checking whether GPO '$gpoName' already exists - existence could NOT be determined: $($_.Exception.Message). Planning will continue and may plan a create for a GPO that already exists."
                                 }
                             }
                             
                             # Validate required groups exist if GPO mode requires configuration
                             $allGroupsExist = $true
+                            $missingGroups = @()
                             if ($gpoMode -in @('createImportAndConfigure')) {
                                 # For Template GPOs, we can skip group validation since they're just templates
                                 if (-not $isTemplate) {
@@ -215,6 +264,7 @@ function Get-TierModelGpo {
                                                         }
                                                     }
                                                     $allGroupsExist = $false
+                                                    if ($missingGroups -notcontains $groupName) { $missingGroups += $groupName }
                                                 }
                                             }
                                         }
@@ -240,6 +290,20 @@ function Get-TierModelGpo {
                             
                             # Skip this GPO if dependencies don't exist (except for Template GPOs which don't need dependencies)
                             if (-not $allGroupsExist -and -not $isTemplate) {
+                                # Record WHICH GPO is being dropped and WHY. The dependency errors
+                                # themselves are deduplicated per group/OU, so without this the
+                                # operator is never told which GPOs failed to be planned.
+                                $blockingReason = if ($missingGroups.Count -gt 0) {
+                                    "Required group(s) do not exist: $($missingGroups -join ', ') - create Groups first"
+                                } else {
+                                    'No groups configured but GPO requires configuration - create Groups first'
+                                }
+                                $skippedGpos += [PSCustomObject]@{
+                                    GPOName = $gpoName
+                                    OUPath  = $resolvedOUPath
+                                    Mode    = $gpoMode
+                                    Reason  = $blockingReason
+                                }
                                 continue
                             }
                             
@@ -306,9 +370,14 @@ function Get-TierModelGpo {
                                 $riskSummary.MediumRisk++
                             } else {
                                 # GPO exists, check if it's linked to the target OU
+                                # Count this GPO as pre-existing (real count, not derived arithmetic)
+                                if ($existingGpoNames -notcontains $actualGpoName) { $existingGpoNames += $actualGpoName }
                                 $gpoLinked = $false
                                 try {
                                     # Check if GPO is linked to this OU
+                                    # SilentlyContinue is INTENTIONAL here. The target OU may not exist yet -
+                                    # it is created in an earlier deployment phase - so an unreadable inheritance state
+                                    # must not block planning the link. Deliberately permissive. Do not change to Stop.
                                     $links = Get-GPInheritance -Target $resolvedOUPath -Server $DomainController -ErrorAction SilentlyContinue
                                     if ($links -and $links.GpoLinks) {
                                         $gpoLinked = $links.GpoLinks | Where-Object { $_.DisplayName -eq $actualGpoName } | Select-Object -First 1
@@ -377,6 +446,10 @@ function Get-TierModelGpo {
                             
                             # First try direct name lookup
                             try {
+                                # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                                # case for a direct-name lookup during planning, and it is not the final word: the
+                                # rename-key wildcard search below re-checks with -ErrorAction Stop and records a
+                                # real plan error if the domain cannot be enumerated. Do not change to Stop.
                                 $existingGPO = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                             } catch {
                                 # GPO doesn't exist with direct name, try rename key if present
@@ -386,7 +459,7 @@ function Get-TierModelGpo {
                             if (-not $existingGPO -and $gpo.PSObject.Properties.Name -contains 'rename') {
                                 try {
                                     $renamePattern = $gpo.rename
-                                    $allGPOs = @(Get-GPO -All -Server $DomainController)
+                                    $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                                     
                                     # Try direct pattern match first
                                     $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })
@@ -403,12 +476,26 @@ function Get-TierModelGpo {
                                         $actualGpoName = $existingGPO.DisplayName
                                     }
                                 } catch {
-                                    # Wildcard search failed, GPO doesn't exist
+                                    # A genuine enumeration failure is NOT "the GPO does not exist". Get-GPO -All
+                                    # has no not-found case - an empty domain returns an EMPTY COLLECTION, never an
+                                    # exception - so every exception reaching this catch is a genuine read failure
+                                    # and must be logged and warned. Do NOT add a not-found heuristic here: Get-GPO
+                                    # throws ArgumentException for an unreachable or invalid -Server, so classifying
+                                    # ArgumentException as "not found" would silently plan a create for a GPO that
+                                    # already exists. Log-then-continue is deliberate and has a regression test;
+                                    # converting it to a throw would break deployment planning.
+                                    Write-TierModelLog -Level Error -Message "GPO rename search failed - existence could not be determined" -Data @{
+                                        GPOName          = $gpoName
+                                        DomainController = $DomainController
+                                        Error            = $_.Exception.Message
+                                    } | Out-Null
+                                    Write-Warning "Could not enumerate GPOs on '$DomainController' while checking whether GPO '$gpoName' already exists - existence could NOT be determined: $($_.Exception.Message). Planning will continue and may plan a create for a GPO that already exists."
                                 }
                             }
                             
                             # Validate required groups exist if GPO mode requires configuration
                             $allGroupsExist = $true
+                            $missingGroups = @()
                             if ($gpoMode -in @('createImportAndConfigure', 'importAndConfigure')) {
                                 # For Template GPOs, we can skip group validation since they're just templates
                                 if (-not $isTemplate) {
@@ -436,6 +523,7 @@ function Get-TierModelGpo {
                                                         }
                                                     }
                                                     $allGroupsExist = $false
+                                                    if ($missingGroups -notcontains $groupName) { $missingGroups += $groupName }
                                                 }
                                             }
                                         }
@@ -461,6 +549,20 @@ function Get-TierModelGpo {
                             
                             # Skip this GPO if dependencies don't exist (except for Template GPOs which don't need dependencies)
                             if (-not $allGroupsExist -and -not $isTemplate) {
+                                # Record WHICH GPO is being dropped and WHY. The dependency errors
+                                # themselves are deduplicated per group/OU, so without this the
+                                # operator is never told which GPOs failed to be planned.
+                                $blockingReason = if ($missingGroups.Count -gt 0) {
+                                    "Required group(s) do not exist: $($missingGroups -join ', ') - create Groups first"
+                                } else {
+                                    'No groups configured but GPO requires configuration - create Groups first'
+                                }
+                                $skippedGpos += [PSCustomObject]@{
+                                    GPOName = $gpoName
+                                    OUPath  = $resolvedOUPath
+                                    Mode    = $gpoMode
+                                    Reason  = $blockingReason
+                                }
                                 continue
                             }
                             
@@ -540,9 +642,14 @@ function Get-TierModelGpo {
                                 $riskSummary.HighRisk++
                             } else {
                                 # GPO exists, check if it's linked to the target OU
+                                # Count this GPO as pre-existing (real count, not derived arithmetic)
+                                if ($existingGpoNames -notcontains $actualGpoName) { $existingGpoNames += $actualGpoName }
                                 $gpoLinked = $false
                                 try {
                                     # Check if GPO is linked to this OU
+                                    # SilentlyContinue is INTENTIONAL here. The target OU may not exist yet -
+                                    # it is created in an earlier deployment phase - so an unreadable inheritance state
+                                    # must not block planning the link. Deliberately permissive. Do not change to Stop.
                                     $links = Get-GPInheritance -Target $resolvedOUPath -Server $DomainController -ErrorAction SilentlyContinue
                                     if ($links -and $links.GpoLinks) {
                                         $gpoLinked = $links.GpoLinks | Where-Object { $_.DisplayName -eq $actualGpoName } | Select-Object -First 1
@@ -635,14 +742,38 @@ function Get-TierModelGpo {
         
         # Calculate action counts for the summary
         $totalActionCount = if ($planActions) { $planActions.Count } else { 0 }
-        $existingGpoCount = $totalGpoCount - $totalActionCount  # GPOs that need no action
-        
+        # GPOs that already exist in AD. Counted directly from the GPOs found during analysis.
+        # (Previously this was $totalGpoCount - $totalActionCount, which subtracted a count of
+        # ACTIONS from a count of GPOs - different units, so the figure was never meaningful.)
+        $existingGpoCount = @($existingGpoNames).Count
+
+        # Surface skipped GPOs grouped by their blocking reason for operator-friendly reporting
+        $skippedGpoSummary = @()
+        if (@($skippedGpos).Count -gt 0) {
+            $skippedGpoSummary = @(
+                $skippedGpos | Group-Object -Property Reason | ForEach-Object {
+                    [PSCustomObject]@{
+                        Reason   = $_.Name
+                        Count    = $_.Count
+                        GPONames = @($_.Group | ForEach-Object { $_.GPOName })
+                    }
+                }
+            )
+            Write-TierModelLog -Level Warning -Message "GPOs excluded from deployment plan due to unmet dependencies" -Data @{
+                SkippedGpoCount = @($skippedGpos).Count
+                CorrelationId = $CorrelationId
+            } | Out-Null
+        }
+
         return [PSCustomObject]@{
             Actions = $planActions
+            SkippedGpos = $skippedGpos
+            SkippedGpoSummary = $skippedGpoSummary
             Summary = @{
                 TotalInConfig = $totalGpoCount
                 ToCreate = @($planActions | Where-Object { $_.Action -eq 'CreateGPO' }).Count
                 ExistingCount = $existingGpoCount
+                SkippedCount = @($skippedGpos).Count
                 TotalActions = $totalActionCount
                 CreateActions = @($planActions | Where-Object { $_.Action -eq 'CreateGPO' } | ForEach-Object { $_ }).Count
                 ImportActions = @($planActions | Where-Object { $_.Action -eq 'ImportGPO' } | ForEach-Object { $_ }).Count
@@ -668,6 +799,8 @@ function Get-TierModelGpo {
         
         return [PSCustomObject]@{
             Actions = @()
+            SkippedGpos = @()
+            SkippedGpoSummary = @()
             Summary = @{
                 TotalActions = 0
                 CreateActions = 0

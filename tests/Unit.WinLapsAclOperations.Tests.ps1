@@ -168,7 +168,21 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
         Mock Set-LapsADComputerSelfPermission  -ModuleName TierModel { }
         Mock Set-LapsADReadPasswordPermission  -ModuleName TierModel { }
         Mock Set-LapsADResetPasswordPermission -ModuleName TierModel { }
-        Mock Set-GPRegistryValue               -ModuleName TierModel { }
+        # Set-GPRegistryValue emits the Microsoft.GroupPolicy.Gpo object it modified on success.
+        # The mock must return a non-null, structurally faithful GPO object so production code can
+        # distinguish a real write from a silent no-op.
+        Mock Set-GPRegistryValue               -ModuleName TierModel {
+            $gpo = $PesterBoundParameters['Name']
+            return [PSCustomObject]@{
+                DisplayName      = "$gpo"
+                Id               = [System.Guid]::NewGuid()
+                DomainName       = 'test.local'
+                Owner            = 'TEST\Domain Admins'
+                GpoStatus        = 'AllSettingsEnabled'
+                CreationTime     = [datetime]'2026-09-03T00:00:00Z'
+                ModificationTime = [datetime]'2026-09-03T00:00:00Z'
+            }
+        }
     }
 
     # ════════════════════════════════════════════════════════════════════════════
@@ -1193,15 +1207,121 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
             $result.TotalChecked | Should -Be 0
         }
 
-        It "GPO not found: Error status in findings, Errors > 0" {
+        It "GPO resolved but nothing matched: Missing status, and Errors stays at 0" {
+            # Get-GPO -All SUCCEEDED and the filter matched nothing. That is a determinate
+            # statement about the estate — the decryptor GPO is absent — and it must be
+            # reported in the same vocabulary Test-TierModelAuthPolicy uses for a policy that
+            # is not in the directory (Status='Missing', $missingCount++). An 'Error' here
+            # means "compliance could not be determined", which is a different and untrue
+            # claim, and it is the claim that drives the consolidated report's
+            # "COMPLIANCE COULD NOT BE FULLY DETERMINED" banner.
             Mock Get-GPO -ModuleName TierModel -ParameterFilter { $All -eq $true } {
                 return @()  # no matching GPO
             }
 
             $result = Test-TierModelWinLapsDecryptor -Config $script:DecryptorConfig1 -DomainController $script:TestDC -Silent
 
-            $result.Errors | Should -BeGreaterThan 0
-            @($result.Findings | Where-Object { $_.Status -eq 'Error' }).Count | Should -BeGreaterThan 0
+            $result.Missing | Should -Be 1
+            $result.Errors  | Should -Be 0
+            # The row moves between two counters that both feed Drift, so the section total
+            # is unchanged. Asserted so a future "simplification" cannot drop it entirely.
+            $result.Drift   | Should -Be 1
+
+            $finding = @($result.Findings)[0]
+            $finding.Status | Should -Be 'Missing'
+            $finding.Status | Should -Not -Be 'Error'
+            $finding.Actual | Should -Be 'No matching GPO'
+            @($result.Findings | Where-Object { $_.Status -eq 'Error' }).Count | Should -Be 0
+        }
+
+        It "Determinate absence and could-not-determine states are classified apart, in one table" {
+            # The other half of the guard above. Six branches in this producer construct a
+            # finding; exactly one of them changed. If someone later collapses the six into a
+            # single label — in EITHER direction — this fails, because it asserts the two
+            # classes AGAINST EACH OTHER rather than each in isolation.
+            #
+            # An Error->Missing blanket relabel would make an unreachable domain controller
+            # read as a clean-but-absent estate, which is worse than the bug being fixed.
+            $cases = @(
+                @{ Name = 'GPO query succeeded, nothing matched';        Determinate = $true  }
+                @{ Name = 'ambiguous multi-GPO match';                   Determinate = $false }
+                @{ Name = 'GPO enumeration threw';                       Determinate = $false }
+                @{ Name = 'decryptor group could not be resolved';       Determinate = $false }
+                @{ Name = 'domain could not be resolved';                Determinate = $false }
+            )
+
+            foreach ($case in $cases) {
+                # Mocks are declared literally in the It body rather than in a scriptblock the
+                # loop invokes: a Mock registered from inside `& { ... }` binds to that child
+                # scope and never reaches the call under test.
+                switch ($case.Name) {
+                    'GPO query succeeded, nothing matched' {
+                        Mock Get-GPO -ModuleName TierModel -ParameterFilter { $All -eq $true } { return @() }
+                    }
+                    'ambiguous multi-GPO match' {
+                        Mock Get-GPO -ModuleName TierModel -ParameterFilter { $All -eq $true } {
+                            return @(
+                                [PSCustomObject]@{ DisplayName = "A - Tier 0 Servers Windows LAPS - Computer"; Id = [Guid]::NewGuid() }
+                                [PSCustomObject]@{ DisplayName = "B - Tier 0 Servers Windows LAPS - Computer"; Id = [Guid]::NewGuid() }
+                            )
+                        }
+                    }
+                    'GPO enumeration threw' {
+                        Mock Get-GPO -ModuleName TierModel -ParameterFilter { $All -eq $true } { throw "GPO enumeration failed" }
+                    }
+                    'decryptor group could not be resolved' {
+                        Mock Get-GPO -ModuleName TierModel -ParameterFilter { $All -eq $true } {
+                            return @([PSCustomObject]@{ DisplayName = "*- Tier 0 Servers Windows LAPS - Computer"; Id = [Guid]::NewGuid() })
+                        }
+                        Mock Get-ADGroup -ModuleName TierModel { throw "Group not found" }
+                    }
+                    'domain could not be resolved' {
+                        Mock Get-ADDomain -ModuleName TierModel { throw "Domain not reachable" }
+                    }
+                }
+
+                $result = Test-TierModelWinLapsDecryptor -Config $script:DecryptorConfig1 -DomainController $script:TestDC -Silent
+                $errorFindings   = @($result.Findings | Where-Object { $_.Status -eq 'Error' })
+                $missingFindings = @($result.Findings | Where-Object { $_.Status -eq 'Missing' })
+
+                if ($case.Determinate) {
+                    $result.Errors        | Should -Be 0 -Because "$($case.Name) is a determinate finding about the estate"
+                    $errorFindings.Count  | Should -Be 0 -Because "$($case.Name) must not claim compliance was undeterminable"
+                    $result.Missing       | Should -Be 1 -Because "$($case.Name) is an absence"
+                    $missingFindings.Count | Should -Be 1 -Because "$($case.Name) is an absence"
+                } else {
+                    $result.Errors         | Should -Be 1 -Because "$($case.Name) genuinely could not determine compliance"
+                    $errorFindings.Count   | Should -Be 1 -Because "$($case.Name) genuinely could not determine compliance"
+                    $result.Missing        | Should -Be 0 -Because "$($case.Name) says nothing about whether the GPO exists"
+                    $missingFindings.Count | Should -Be 0 -Because "$($case.Name) says nothing about whether the GPO exists"
+                }
+
+                $result.Drift | Should -Be ($result.Missing + $result.Mismatched + $result.Errors) -Because "$($case.Name)"
+            }
+        }
+
+        It "Keeps five could-not-determine construction sites and two absence sites in the shipping producer" {
+            # An AST ratchet over the source, because the outer catch (the fifth Error site) is
+            # not reachable from a mock — every inner failure is already handled. Without this,
+            # a maintainer could delete or relabel that branch and nothing in the suite moves.
+            # A moved number here is a decision for a human, not a figure to nudge.
+            $producerPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'modules' 'TierModel' 'public' 'Test-TierModelWinLapsDecryptor.ps1')).Path
+            $parseErrors = $null
+            $producerAst = [System.Management.Automation.Language.Parser]::ParseFile($producerPath, [ref]$null, [ref]$parseErrors)
+            @($parseErrors).Count | Should -Be 0
+
+            $statusLiterals = foreach ($ht in $producerAst.FindAll({
+                    param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true)) {
+                foreach ($pair in $ht.KeyValuePairs) {
+                    if ($pair.Item1.Extent.Text -eq 'Status') { $pair.Item2.Extent.Text.Trim("'", '"') }
+                }
+            }
+
+            @($statusLiterals).Count | Should -Be 9
+            @($statusLiterals | Where-Object { $_ -eq 'Error' }).Count      | Should -Be 5
+            @($statusLiterals | Where-Object { $_ -eq 'Missing' }).Count    | Should -Be 2
+            @($statusLiterals | Where-Object { $_ -eq 'Mismatched' }).Count | Should -Be 1
+            @($statusLiterals | Where-Object { $_ -eq 'Compliant' }).Count  | Should -Be 1
         }
 
         It "Drift = Missing + Mismatched + Errors" {
@@ -1404,5 +1524,129 @@ Describe "Windows LAPS ACL Operations" -Tag "Unit", "WinLapsAcl" {
                 $action.Data.lapsOperation | Should -Not -Match 'ms.Mcs'
             }
         }
+    }
+}
+
+Describe "Windows LAPS decryptor errors reach the report as red [Error]" -Tag "Unit", "WinLapsAcl", "Reporting" {
+
+    # The lab estate no longer produces a single [Error] finding, because the one branch that
+    # emitted Error in that estate is exactly the branch that was relabelled to a missing-state.
+    # The colour rule for [Error] is therefore real but unexercised outside a unit test, and the
+    # five could-not-determine branches in this producer have no live fixture proving they still
+    # report as errors.
+    #
+    # This test uses the REAL producer rather than a hand-written finding shape, so it cannot
+    # drift away from what the producer actually emits, and it carries that output through the
+    # REAL normaliser and colour classifier lifted from the shipping report.
+
+    BeforeAll {
+        $ModulePath = Resolve-Path "$PSScriptRoot\..\Modules\TierModel"
+        Import-Module $ModulePath -Force
+
+        $script:ReportPath = (Resolve-Path (Join-Path $PSScriptRoot '..' 'Audit-TierModel.ps1')).Path
+        $reportAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            $script:ReportPath, [ref]$null, [ref]$null)
+
+        foreach ($fn in @('Get-TierModelFindingColor', 'ConvertTo-TierModelDriftFinding')) {
+            $found = @($reportAst.FindAll({
+                param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst]
+            }, $true) | Where-Object { $_.Name -eq $fn })
+            if ($found.Count -ne 1) {
+                throw "Expected exactly one definition of '$fn', found $($found.Count)"
+            }
+            . ([scriptblock]::Create($found[0].Extent.Text))
+        }
+
+        $script:DecryptorDC     = "DC01.test.local"
+        $script:DecryptorConfig = [PSCustomObject]@{
+            winLapsDelegations = @(
+                [PSCustomObject]@{
+                    ouDn             = "OU=Tier 0 Servers,{{DOMAIN_DN}}"
+                    readGroup        = "Tier 0 Admins"
+                    resetGroup       = "Tier 0 Admins"
+                    decryptorGroup   = "Tier 0 Admins"
+                    decryptorGpoName = "*- Tier 0 Servers Windows LAPS - Computer"
+                }
+            )
+        }
+
+        Mock Get-ADDomain -ModuleName TierModel {
+            [PSCustomObject]@{ DistinguishedName = "DC=test,DC=local"; NetBIOSName = "TEST" }
+        }
+        Mock Get-ADGroup -ModuleName TierModel {
+            [PSCustomObject]@{ Name = "Tier 0 Admins"; sAMAccountName = "Tier0Admins" }
+        }
+    }
+
+    It "A GPO query failure renders as a red [Error], end to end through the real report functions" {
+        Mock Get-GPO -ModuleName TierModel { throw "The server is not operational." }
+
+        $result = Test-TierModelWinLapsDecryptor -Config $script:DecryptorConfig `
+                    -DomainController $script:DecryptorDC -Silent
+
+        # The producer still calls this what it is: an inability to determine compliance.
+        $result.Errors | Should -BeGreaterThan 0 -Because 'a GPO query that threw cannot be reported as a clean estate'
+        $errorFindings = @($result.Findings | Where-Object { $_.Status -eq 'Error' })
+        @($errorFindings).Count | Should -BeGreaterThan 0
+
+        # The report classifies it as Error - this producer emits Status with no Type, so the
+        # normaliser's Status fallback is what has to carry it.
+        $normalised = @($errorFindings | ConvertTo-TierModelDriftFinding -DefaultResourceType 'LapsDecryptor')
+        @($normalised).Count | Should -Be @($errorFindings).Count -Because 'an error must never be silently dropped from the drift report'
+        @($normalised | Where-Object { $_.Type -eq 'Error' }).Count | Should -Be @($errorFindings).Count
+
+        # And it reaches the operator in red, not yellow. A hard error shown as a warning is
+        # the specific regression this pins.
+        foreach ($n in $normalised) {
+            Get-TierModelFindingColor $n.Type | Should -Be 'Red'
+            Get-TierModelFindingColor $n.Type | Should -Not -Be 'Yellow'
+        }
+
+        # The rendered marker the operator actually reads.
+        $rendered = @($normalised | ForEach-Object { "[$($_.Type)]" })
+        $rendered | Should -Contain '[Error]'
+    }
+
+    It "An ambiguous multi-GPO match is also a red [Error], not an absence" {
+        Mock Get-GPO -ModuleName TierModel {
+            @(
+                [PSCustomObject]@{ DisplayName = "Contoso - Tier 0 Servers Windows LAPS - Computer" }
+                [PSCustomObject]@{ DisplayName = "Legacy - Tier 0 Servers Windows LAPS - Computer" }
+            )
+        }
+
+        $result = Test-TierModelWinLapsDecryptor -Config $script:DecryptorConfig `
+                    -DomainController $script:DecryptorDC -Silent
+
+        $result.Errors | Should -BeGreaterThan 0
+        $ambiguous = @($result.Findings | Where-Object { $_.Actual -like 'Ambiguous matches:*' })
+        @($ambiguous).Count | Should -Be 1
+        $ambiguous[0].Status | Should -Be 'Error' -Because 'two GPOs matching one pattern is a could-not-determine state, not a missing GPO'
+        $ambiguous[0].Status | Should -Not -Be 'Missing'
+
+        $normalised = @($ambiguous | ConvertTo-TierModelDriftFinding -DefaultResourceType 'LapsDecryptor')
+        $normalised[0].Type | Should -Be 'Error'
+        Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Red'
+    }
+
+    It "The absence branch stays a missing-state and never becomes an error again" {
+        # The other half, in the same file as the two above, so that collapsing the branches in
+        # either direction fails something.
+        Mock Get-GPO -ModuleName TierModel {
+            @([PSCustomObject]@{ DisplayName = "Completely Unrelated GPO" })
+        }
+
+        $result = Test-TierModelWinLapsDecryptor -Config $script:DecryptorConfig `
+                    -DomainController $script:DecryptorDC -Silent
+
+        $result.Errors | Should -Be 0
+        $absent = @($result.Findings | Where-Object { $_.Actual -eq 'No matching GPO' })
+        @($absent).Count | Should -Be 1
+        $absent[0].Status | Should -Be 'Missing'
+
+        $normalised = @($absent | ConvertTo-TierModelDriftFinding -DefaultResourceType 'LapsDecryptor')
+        $normalised[0].Type | Should -Be 'Missing'
+        Get-TierModelFindingColor $normalised[0].Type | Should -Be 'Red'
     }
 }

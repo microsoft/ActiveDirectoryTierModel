@@ -68,6 +68,9 @@ function Get-TierModelGpoFd {
                 
                 # First try direct name lookup
                 try {
+                    # SilentlyContinue is INTENTIONAL here. Absence is the normal, expected
+                    # case for a direct-name lookup during planning; the rename-key wildcard search
+                    # below re-checks with -ErrorAction Stop. Do not change to Stop.
                     $existingGpo = Get-GPO -Name $gpoName -Server $DomainController -ErrorAction SilentlyContinue
                 } catch {
                     # GPO doesn't exist with direct name, try rename key if present
@@ -77,7 +80,7 @@ function Get-TierModelGpoFd {
                 if (-not $existingGpo -and $GpoConfig.PSObject.Properties.Name -contains 'rename') {
                     try {
                         $renamePattern = $GpoConfig.rename
-                        $allGPOs = @(Get-GPO -All -Server $DomainController)
+                        $allGPOs = @(Get-GPO -All -Server $DomainController -ErrorAction Stop)
                         
                         # Try direct pattern match first
                         $matchingGPOs = @($allGPOs | Where-Object { $_.DisplayName -like $renamePattern })
@@ -94,7 +97,21 @@ function Get-TierModelGpoFd {
                             $actualGpoName = $existingGpo.DisplayName
                         }
                     } catch {
-                        # Wildcard search failed, GPO doesn't exist
+                        # A genuine enumeration failure is NOT "the GPO does not exist". Get-GPO -All has
+                        # no not-found case - an empty domain returns an EMPTY COLLECTION, never an
+                        # exception - so every exception reaching this catch is a genuine read failure.
+                        # Do NOT add a not-found heuristic: Get-GPO throws ArgumentException for an
+                        # unreachable or invalid -Server, so classifying that as "not found" would
+                        # silently plan a create for a GPO that already exists. This helper is a nested
+                        # function and cannot append to the caller's $planErrors, so it logs, warns and
+                        # CONTINUES - covered by the test "Falls back gracefully when Get-GPO -All throws
+                        # during rename search". Do not convert it to a throw.
+                        Write-TierModelLog -Level Error -Message "GPO rename search failed - existence could not be determined" -Data @{
+                            GPOName          = $gpoName
+                            DomainController = $DomainController
+                            Error            = $_.Exception.Message
+                        } | Out-Null
+                        Write-Warning "Could not enumerate GPOs on '$DomainController' while checking whether GPO '$gpoName' already exists - existence could NOT be determined: $($_.Exception.Message). Planning will continue and may plan a create for a GPO that already exists."
                     }
                 }
                 
@@ -153,6 +170,9 @@ function Get-TierModelGpoFd {
                         if ($isDomainRoot -or $isBuiltinContainer) {
                             # Check if GPO is linked to the target OU (only for built-in OUs)
                             try {
+                                # SilentlyContinue is INTENTIONAL here. Full Deployment plans links for
+                                # OUs that may not exist yet, so an unreadable inheritance state must not block
+                                # planning. Deliberately permissive. Do not change to Stop.
                                 $existingLinks = Get-GPInheritance -Target $TargetOU -Server $DomainController -ErrorAction SilentlyContinue
                                 $isLinked = $false
                                 
@@ -171,15 +191,20 @@ function Get-TierModelGpoFd {
                                     }
                                 }
                             } catch {
-                                # If we can't check built-in container links, assume linking is needed
-                                $actions += [PSCustomObject]@{
-                                    Action = 'LinkGPO'
-                                    Name = $actualGpoName
-                                    Path = $TargetOU
-                                    Data = $GpoConfig
-                                    Risk = 'High'
-                                    IsTemplate = $IsTemplate
-                                }
+                                # An unreadable link state is NOT evidence that a link is missing, so no action
+                                # is planned here. The read above is deliberately -ErrorAction SilentlyContinue,
+                                # so the normal "not linked" case arrives as an EMPTY RESULT and still plans the
+                                # link; every exception reaching here is a genuine failure. This helper is a
+                                # nested function and cannot append to the caller's $planErrors, so it logs and
+                                # warns. An unplanned link is recoverable on the next run; an unrequested link
+                                # against a built-in container is not.
+                                Write-TierModelLog -Level Error -Message "GPO link check failed - link state could not be determined" -Data @{
+                                    GPOName          = $actualGpoName
+                                    TargetOU         = $TargetOU
+                                    DomainController = $DomainController
+                                    Error            = $_.Exception.Message
+                                } | Out-Null
+                                Write-Warning "Could not determine whether GPO '$actualGpoName' is linked to '$TargetOU': $($_.Exception.Message). No link action was planned; re-run planning once the link state can be read."
                             }
                         } else {
                             # For custom OUs, assume linking is needed (will be validated during execution)
@@ -235,7 +260,11 @@ function Get-TierModelGpoFd {
         }
         
         # Get domain DN for placeholder replacement
-        $domainDN = (Get-ADDomain -Server $DomainController).DistinguishedName
+        try {
+            $domainDN = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DistinguishedName
+        } catch {
+            throw "Failed to resolve domain DN from '$DomainController' - GPO plan cannot be generated: $($_.Exception.Message)"
+        }
         
         # Check if GPOs are configured
         if ($Config.PSObject.Properties['gpos']) {

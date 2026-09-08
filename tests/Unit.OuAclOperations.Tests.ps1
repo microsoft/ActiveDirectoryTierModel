@@ -202,8 +202,8 @@ Describe "OU ACL Operations" -Tag "Unit", "OuAcl", "Phase3" {
         It "Should calculate summary statistics correctly" {
             $result = Get-TierModelOuAcl -Config $script:TestConfig -DomainController $script:TestDC
             
-            $result.Summary.TotalActions | Should -Be $result.Actions.Count
-            $result.Summary.CreateActions | Should -Be ($result.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
+            $result.Summary.TotalActions  | Should -Be @($result.Actions).Count
+            $result.Summary.CreateActions | Should -Be @($result.Actions | Where-Object { $_.Action -eq 'CreateAcl' }).Count
         }
         
         It "Should include risk assessment in summary" {
@@ -978,9 +978,31 @@ Describe "Test-TierModelOuAcl – extended coverage" -Tag "Unit", "OuAcl", "Phas
             $drift | Should -Not -BeNullOrEmpty
         }
 
-        It "Sets Type='Drift' on the ACEProperties finding" {
+        It "Labels the ACEProperties finding with the class the producer actually counted" {
+            # BUG-042. This test previously asserted a literal Type='Drift'. The producer used to
+            # emit that generic label, and downstream code re-derived the real class by
+            # substring-matching English prose in Details -- which rendered two of the four
+            # producer sites under the wrong heading. The producer now emits the class it counts.
+            #
+            # Asserted RELATIONALLY, not against a literal: pinning a fixed string is exactly how
+            # the old buggy label survived here. The rule under test is "every finding's label is
+            # accounted for by the counter the producer incremented for it".
             $result = Test-TierModelOuAcl -Config $script:CfgMismatch -DomainController $script:DC -Silent
-            ($result.Findings | Where-Object { $_.Property -eq 'ACEProperties' })[0].Type | Should -Be 'Drift'
+
+            # Anti-vacuity: this fixture drives exactly one mismatch and zero missing, so the two
+            # reconciliations below are distinguishing -- only one label can satisfy both.
+            $result.Summary.Mismatched | Should -Be 1
+            $result.Summary.Missing    | Should -Be 0
+
+            $ace = @($result.Findings | Where-Object { $_.Property -eq 'ACEProperties' })
+            $ace.Count | Should -Be 1
+            $ace[0].Type | Should -BeIn @('Missing', 'Mismatch')
+            $ace[0].Type | Should -Not -Be 'Drift'
+
+            @($result.Findings | Where-Object { $_.Type -eq 'Mismatch' }).Count |
+                Should -Be $result.Summary.Mismatched
+            @($result.Findings | Where-Object { $_.Type -eq 'Missing' }).Count |
+                Should -Be $result.Summary.Missing
         }
 
         It "Non-silent run prints mismatch output without throwing" {
@@ -1442,7 +1464,10 @@ Describe "Get-TierModelOuAcl – Extended Coverage" -Tag "Unit", "OuAcl" {
             $result = Get-TierModelOuAcl -Config $cfg -DomainController "DC01"
 
             $result              | Should -Not -BeNullOrEmpty
-            $result.Converged    | Should -BeNullOrEmpty   # outer catch result has no Converged
+            # Assert the property is genuinely absent. `$result.Converged` would throw under
+            # Set-StrictMode -Version Latest, which CI has because another test file sets it
+            # at file scope and Pester 5 shares session state across containers.
+            $result.PSObject.Properties.Name | Should -Not -Contain 'Converged'
             $result.Errors[0].Code | Should -Be 'PlanningFailed'
             $result.Actions      | Should -BeNullOrEmpty
         }

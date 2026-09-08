@@ -307,19 +307,63 @@ function Test-TierModelPrerequisites {
         # Test Domain Admin membership (if modules available)
         # Always initialize IsDomainAdmin to false first
         $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
-        
-        # Check domain admin membership regardless of elevation for testing scenarios
+
+        # --- Domain Admin membership: token-groups check -------------------------------
+        # Authoritative membership verdict is taken from the caller's own logon token:
+        # derive the Domain Admins SID from the account domain SID (RID 512) and test the
+        # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
+        # token group list. This is pure .NET - zero ActiveDirectory-module calls - so it is
+        # immune to the SID-deserialization defects that make object comparisons fail silently
+        # when a directory module returns string-typed SIDs.
+        # It also reflects effective nested membership without a -Recursive AD query.
+        # The AD-module block below still runs, but only to classify the ENVIRONMENT and to
+        # select the correct remediation text - it no longer decides membership.
+        $isDomainAdmin = $false
+        $domainAdminCheckFailed = $false
+        try {
+            $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+            $accountDomainSid = $currentUser.User.AccountDomainSid
+
+            if ($null -eq $accountDomainSid) {
+                # Local / well-known principal (e.g. SYSTEM): there is no account domain SID
+                # to build RID 512 from. Do not throw - record it and fail closed.
+                $domainAdminCheckFailed = $true
+                $result.EnvironmentSnapshot.DomainAdminCheckError = "Current logon '$($currentUser.Name)' has no account domain SID (local or well-known security principal); Domain Admins membership cannot be evaluated from the logon token."
+                $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+                $result.Valid = $false
+                $null = $result.Errors.Add("Unable to verify Domain Admin membership: the current logon is not a domain account.")
+                $null = $result.Remediation.Add("Run the deployment from a domain-joined host, signed in as a domain administrator")
+            }
+            else {
+                $domainAdminSid = "$($accountDomainSid.Value)-512"
+                $result.EnvironmentSnapshot.DomainAdminsSid = $domainAdminSid
+                $isDomainAdmin = [bool]($currentUser.Groups.Value -contains $domainAdminSid)
+                $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$isDomainAdmin
+            }
+        }
+        catch {
+            $domainAdminCheckFailed = $true
+            $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
+            $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
+            $result.Valid = $false
+            $null = $result.Errors.Add("Unable to verify Domain Admin membership: $($_.Exception.Message)")
+            $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+        }
+
+        # Classify the AD environment (shim detection / module availability / group presence)
             try {
                 Import-Module ActiveDirectory -ErrorAction SilentlyContinue -Verbose:$false -SkipEditionCheck | Out-Null
                 $adShimDetected = $false
                 if (Get-Module ActiveDirectory) {
-                    # Guard: under PowerShell 7, an RSAT ActiveDirectory module that is not Core-native
-                    # loads through the Windows PowerShell compatibility shim (WinPSCompatSession) and
-                    # returns DESERIALIZED objects - SIDs come back as strings, so .SID.Value / .objectSid.Value
+                    # Guard: on platforms where the RSAT ActiveDirectory module is not Core-native,
+                    # it may load through the Windows PowerShell Compatibility shim (WinPSCompatSession)
+                    # and return DESERIALIZED objects - SIDs come back as strings, so .SID.Value / .objectSid.Value
                     # resolve empty. That silently breaks SID resolution deployment-wide (URA and GPO
-                    # restricted-groups principals resolve to nothing). Detect it by probing whether the
-                    # domain SID comes back as a plain string (deserialized) instead of a SecurityIdentifier,
-                    # and fail fast rather than deploy broken policy.
+                    # restricted-groups principals resolve to nothing). This probe detects that condition
+                    # by checking whether the domain SID comes back as a plain string (deserialized) instead
+                    # of a SecurityIdentifier, and fails fast rather than deploying broken policy.
+                    # NOTE: Not reproduced on Windows Server 2025 / PowerShell 7.5.1, where modules
+                    # load natively. The probe is retained as a defence against older RSAT platforms.
                     try {
                         $adDomainProbe = Get-ADDomain -Server $PreferredDc -ErrorAction Stop
                         if ($adDomainProbe.DomainSID -is [string]) { $adShimDetected = $true }
@@ -327,27 +371,23 @@ function Test-TierModelPrerequisites {
                 }
                 if ($adShimDetected) {
                     $result.Valid = $false
-                    $null = $result.Errors.Add("ActiveDirectory module is loaded through the Windows PowerShell compatibility shim (deserialized objects); SID resolution would break URA and GPO deployment.")
-                    $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later), or run under Windows PowerShell 5.1.")
+                    $null = $result.Errors.Add("ActiveDirectory module returned deserialized objects (DomainSID resolved to [String] instead of [System.Security.Principal.SecurityIdentifier]); this can break SID resolution for URA and GPO deployment.")
+                    $null = $result.Remediation.Add("Run the deployment from a host with a PowerShell 7-native RSAT ActiveDirectory module (Windows 11 / Windows Server 2022 or later).")
                 }
                 elseif (Get-Module ActiveDirectory) {
-                    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+                    # SilentlyContinue is INTENTIONAL here. The result is explicitly
+                    # null-guarded by the if below, which degrades to a warning rather than a hard
+                    # prerequisite failure. Do not change to Stop.
                     $domainAdmins = Get-ADGroup -Identity "Domain Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
-                    
+
                     if ($domainAdmins) {
-                        $isDomainAdmin = Get-ADGroupMember -Identity $domainAdmins -Server $PreferredDc -Recursive -ErrorAction SilentlyContinue | 
-                            Where-Object { $_.SID -eq $currentUser.User }
-                        
-                        $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$isDomainAdmin
-                        
-                        if (-not $isDomainAdmin) {
+                        if (-not $isDomainAdmin -and -not $domainAdminCheckFailed) {
                             $result.Valid = $false
                             $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
                             $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
                         }
                     } else {
-                        # Domain Admins group not found - keep IsDomainAdmin as false
-
+                        # Domain Admins group not found - membership cannot be corroborated
                         $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
                         $result.Valid = $false
                         $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
@@ -362,15 +402,13 @@ function Test-TierModelPrerequisites {
                 }
             }
             catch {
-
+                # Surface the ACTUAL fault. The real cause may be network, permissions or module
+                # load, and must not be relabelled as "Domain Admin membership required".
                 $result.EnvironmentSnapshot.DomainAdminCheckError = $_.Exception.Message
                 $result.EnvironmentSnapshot.IsDomainAdmin = [bool]$false
-                # Don't fail the entire prerequisite check for domain admin verification issues
-                # This allows for testing scenarios and non-domain environments
-                # Add domain admin error for testing scenarios
                 $result.Valid = $false
-                $null = $result.Errors.Add("Domain Admin membership required for deployment operations")
-                $null = $result.Remediation.Add("Add current user to Domain Admins group or run as a domain administrator")
+                $null = $result.Errors.Add("Unable to verify Domain Admin membership: $($_.Exception.Message)")
+                $null = $result.Remediation.Add("Resolve the reported error, then re-run the prerequisite check")
             }
         
         # Test PreferredDc reachability
@@ -394,12 +432,17 @@ function Test-TierModelPrerequisites {
         # Test DNS groups presence & domain type detection
         if (Get-Module ActiveDirectory -ErrorAction SilentlyContinue) {
             try {
+                # SilentlyContinue is INTENTIONAL here. This populates a best-effort
+                # environment snapshot for diagnostics; it is null-guarded below and must never
+                # fail the prerequisite check on its own. Do not change to Stop.
                 $domain = Get-ADDomain -Server $PreferredDc -ErrorAction SilentlyContinue
                 if ($domain) {
                     $result.EnvironmentSnapshot.DomainName = $domain.DNSRoot
                     $result.EnvironmentSnapshot.DomainNetBIOSName = $domain.NetBIOSName
                     
                     # Check if this is a child domain
+                    # SilentlyContinue is INTENTIONAL here. Forest lookup is best-effort for
+                    # the diagnostic snapshot and is null-guarded below. Do not change to Stop.
                     $forest = Get-ADForest -Server $PreferredDc -ErrorAction SilentlyContinue
                     if ($forest) {
                         $isChildDomain = $domain.DNSRoot -ne $forest.RootDomain
@@ -408,6 +451,9 @@ function Test-TierModelPrerequisites {
                         
                         # Check for Enterprise Admins group (may not exist in child domains)
                         try {
+                            # SilentlyContinue is INTENTIONAL here. Enterprise Admins legitimately
+                            # does not exist in a child domain, so absence is a supported configuration, not
+                            # an error. Do not change to Stop.
                             $enterpriseAdmins = Get-ADGroup -Identity "Enterprise Admins" -Server $PreferredDc -ErrorAction SilentlyContinue
                             $result.EnvironmentSnapshot.HasEnterpriseAdmins = [bool]$enterpriseAdmins
                         }
@@ -421,6 +467,9 @@ function Test-TierModelPrerequisites {
                         
                         # Check for DnsAdmins group (can be present in both parent and child domains or not present in either)
                         try {
+                            # SilentlyContinue is INTENTIONAL here. DnsAdmins may legitimately be
+                            # absent in either a parent or a child domain; absence is recorded as a note, not
+                            # an error. Do not change to Stop.
                             $dnsAdmins = Get-ADGroup -Identity "DnsAdmins" -Server $PreferredDc -ErrorAction SilentlyContinue
                             $result.EnvironmentSnapshot.HasDnsAdmins = [bool]$dnsAdmins
                             if ($dnsAdmins) {
@@ -686,6 +735,9 @@ function Test-TierModelPrerequisites {
                     $lapsAttributes = @('msLAPS-PasswordExpirationTime', 'msLAPS-Password', 'msLAPS-EncryptedPassword', 'msLAPS-EncryptedPasswordHistory', 'msLAPS-EncryptedDSRMPassword', 'msLAPS-EncryptedDSRMPasswordHistory')
                     $foundAttributes = @()
                     foreach ($attrName in $lapsAttributes) {
+                        # SilentlyContinue is INTENTIONAL here. This loop counts which Windows
+                        # LAPS attributes are present; a missing attribute is the measurement being taken,
+                        # not a failure. Do not change to Stop.
                         $attrObj = Get-ADObject -Filter "lDAPDisplayName -eq '$attrName'" -SearchBase $schemaDN -Server $PreferredDc -ErrorAction SilentlyContinue
                         if ($attrObj) { $foundAttributes += $attrName }
                     }

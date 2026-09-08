@@ -36,7 +36,7 @@ function New-TierModelUser {
     Write-TierModelLog -Level Info -Message "UserExecutionStart" -Data @{
         TotalActions = $Plan.Actions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     
@@ -77,7 +77,7 @@ function New-TierModelUser {
                         CorrelationId = $CorrelationId
                     } | Out-Null
                     
-                    Write-Host "  ✅ Creating User: $userName ($userSamAccountName)" -ForegroundColor Green
+                    Write-Host "  Creating User: $userName ($userSamAccountName)" -ForegroundColor Cyan
                     
                     if ($PSCmdlet.ShouldProcess("User: $userName", "Create User Account")) {
                         # Create the User using New-ADUser
@@ -104,22 +104,46 @@ function New-TierModelUser {
                         $newUserParams['AccountPassword'] = $tempPassword
                         $newUserParams['ChangePasswordAtLogon'] = $true
                         
-                        New-ADUser @newUserParams | Out-Null
-                        
+                        # -ErrorAction Stop is required: without it a failed create can fall through
+                        # without terminating and the account is counted as executed. Root cause is
+                        # platform-dependent; explicit -ErrorAction Stop is the reliable safeguard.
+                        New-ADUser @newUserParams -ErrorAction Stop | Out-Null
+
+                        Write-Host "  ✅ Created User: $userName ($userSamAccountName)" -ForegroundColor Green
+
                         # Add user to groups if specified
                         if ($userData.PSObject.Properties.Name -contains 'memberOf' -and $userData.memberOf) {
                             foreach ($groupName in $userData.memberOf) {
                                 try {
-                                    Add-ADGroupMember -Identity $groupName -Members $userSamAccountName -Server $DomainController -Confirm:$false | Out-Null
+                                    Add-ADGroupMember -Identity $groupName -Members $userSamAccountName -Server $DomainController -Confirm:$false -ErrorAction Stop | Out-Null
                                     Write-Host "  ✅ Added to group: $groupName" -ForegroundColor Green
                                 } catch {
+                                    # Group membership failure is deliberately non-fatal to the user
+                                    # account itself, but it IS a Tier 0 control gap - record it so
+                                    # Converged reflects reality instead of reporting a clean run.
                                     Write-TierModelLog -Level Warning -Message "Failed to add user to group" -Data @{
                                         UserName = $userName
                                         GroupName = $groupName
                                         Exception = $_.Exception.Message
+                                        FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                                        CategoryInfo = $_.CategoryInfo.ToString()
                                         CorrelationId = $CorrelationId
                                     } | Out-Null
                                     Write-Host "  WARNING: Failed to add user to group '$groupName' - $($_.Exception.Message)" -ForegroundColor Yellow
+                                    $errors += @{
+                                        Timestamp = Get-Date
+                                        Category = 'Execution'
+                                        Code = 'UserGroupMembershipFailed'
+                                        Message = "Failed to add user '$userSamAccountName' to group '$groupName': $($_.Exception.Message)"
+                                        Context = @{
+                                            Name = $userName
+                                            SamAccountName = $userSamAccountName
+                                            GroupName = $groupName
+                                            FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                                            CategoryInfo = $_.CategoryInfo.ToString()
+                                        }
+                                    }
+                                    $converged = $false
                                 }
                             }
                         }
@@ -142,6 +166,8 @@ function New-TierModelUser {
                         Name = $action.Name
                         Path = $action.Path
                         Exception = $_.Exception.Message
+                        FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                        CategoryInfo = $_.CategoryInfo.ToString()
                         CorrelationId = $CorrelationId
                     } | Out-Null
                     

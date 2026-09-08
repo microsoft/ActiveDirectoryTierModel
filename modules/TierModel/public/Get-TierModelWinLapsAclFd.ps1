@@ -92,6 +92,10 @@ function Get-TierModelWinLapsAclFd {
         try {
             $rootDSE = Get-ADRootDSE -Server $DomainController -ErrorAction Stop
             $schemaDN = $rootDSE.schemaNamingContext
+            # SilentlyContinue is INTENTIONAL here. A missing attribute IS the signal
+            # being tested for and raises WINLAPS_SCHEMA_MISSING below. A genuine connectivity
+            # failure is still caught: the Get-ADRootDSE above uses -ErrorAction Stop and the
+            # enclosing catch reports it distinctly. Do not change to Stop.
             $lapsAttr = Get-ADObject -Filter "lDAPDisplayName -eq 'msLAPS-Password'" -SearchBase $schemaDN -Server $DomainController -ErrorAction SilentlyContinue
             if (-not $lapsAttr) {
                 $planErrors += @{ Timestamp = Get-Date; Category = 'Validation'; Code = 'WINLAPS_SCHEMA_MISSING'; Message = 'The current Domain does not contain the Windows LAPS schema extensions, please follow Microsoft Doc guidance on how to extend the schema, then re-attempt the Tier Model Windows LAPS deployment.'; Context = @{} }
@@ -222,6 +226,9 @@ function Get-TierModelWinLapsAclFd {
         try {
             $lapsAttrNames = @('msLAPS-Password', 'msLAPS-EncryptedPassword', 'msLAPS-EncryptedPasswordHistory', 'msLAPS-PasswordExpirationTime', 'msLAPS-EncryptedDSRMPassword', 'msLAPS-EncryptedDSRMPasswordHistory')
             foreach ($attrName in $lapsAttrNames) {
+                # SilentlyContinue is INTENTIONAL here. Not every Windows LAPS attribute
+                # is present in every schema version; a missing one is simply omitted from the
+                # GUID set. Do not change to Stop.
                 $attrObj = Get-ADObject -Filter "lDAPDisplayName -eq '$attrName'" -SearchBase $schemaDN -Server $DomainController -Properties schemaIDGUID -ErrorAction SilentlyContinue
                 if ($attrObj -and $attrObj.schemaIDGUID) {
                     $lapsSchemaGUIDs += [Guid]::new($attrObj.schemaIDGUID)
@@ -251,6 +258,9 @@ function Get-TierModelWinLapsAclFd {
             $isDcOu = if ($delegation.PSObject.Properties['isDomainControllerOu']) { $delegation.isDomainControllerOu } else { $false }
             if (-not $isDcOu -and $ouExists) {
                 try {
+                    # SilentlyContinue is INTENTIONAL here. "No DC objects in this OU" is the
+                    # expected pass condition; an empty result must not be treated as an error.
+                    # Do not change to Stop.
                     $dcObjects = Get-ADComputer -Filter { PrimaryGroupID -eq 516 } -SearchBase $resolvedOuDn -Server $DomainController -ErrorAction SilentlyContinue
                     if ($dcObjects) {
                         $planErrors += @{

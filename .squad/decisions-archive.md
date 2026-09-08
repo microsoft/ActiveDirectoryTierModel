@@ -1748,3 +1748,264 @@ Lab is single-DC; this was not tested. In production:
 
 
 ---
+
+---
+
+# Decision: Auth Silo Test Realignment — Create-Once Model
+
+**Date:** 2026-08-27  
+**Author:** Wolverine (Tester)  
+**Status:** Implemented
+
+---
+
+## Context
+
+Commit 244ab52 on `feature/auth-silos` shipped a major behavioral change to the `-IncludeAuthSilos` deploy pipeline:
+
+- **Create-once model**: existing policies/silos are never modified by deploy. No drift/update actions.
+- **Deferred SDDL**: plan actions carry `ResolvedSddl = $null`; SID resolution and SDDL construction happen at execution time in `New-TierModelAuthPolicy`.
+- **User membership removed**: `memberAccountGroups`, `exemptAccounts`, RID-500 exemption all gone. Silos govern computers only (`memberComputerGroups`).
+- **New cmdlet**: `Get-TierModelAuthSiloMembershipFd` — read-only planner with `-OnlyForSilos` filter.
+
+The existing `Unit.AuthSiloOperations.Tests.ps1` (88 tests) was written against the old model and had **18 failures** against the new code.
+
+---
+
+## Decision: Test-code alignment (not production-code change)
+
+Per Joel's standing directive: tests must match the already-validated, committed production code. Where tests disagreed with working code, the tests were wrong.
+
+**Key alignments:**
+
+1. **Planner `ResolvedSddl`**: changed assertion from `Should -Match 'Member_of_any'` to `Should -BeNullOrEmpty` — SDDL is deferred at plan time in the create-once model.
+2. **UpdateAuthPolicy / UpdateAuthSilo tests**: removed entirely — these actions do not exist in the create-once planner.
+3. **memberAccountGroups / exemptAccounts**: removed from test config object and all related assertions. Production schema no longer has these fields.
+4. **Test-TierModelAuthSilo "unexpected member"**: inverted — extra members beyond config are now ALLOWED (informational), not NonCompliant.
+5. **Test-TierModelAuthPolicy assertions**: fixed issue message patterns (TGT drift: `'TGT'` not `'UserTGTLifetimeMins'`; SDDL drift: `'AllowedToAuthenticate'` not `'SDDL'`).
+
+---
+
+## Coverage Decisions
+
+Three auth-silo files are below 80% with structural barriers:
+
+| File | Coverage | Barrier |
+|------|----------|---------|
+| `Set-TierModelAuthSiloMembership.ps1` | 61.5% | 221-command file; ShouldProcess-UserDeclined branch, race-condition "converged-between-precheck-and-write" path, outer catch require interactive confirmation or live-AD |
+| `Get-TierModelAuthSiloMembershipFd.ps1` | 64.7% | Inner loop reads `msDS-AssignedAuthNPolicySilo` via `Get-ADComputer`; `Get-ADUser` path never called (computer-only model by design) |
+| `New-TierModelAuthSilo.ps1` | 79.8% | Outer catastrophic catch block (requires making `Get-Date` or similar fail); structurally equivalent to `Import-TierModelGpo.ps1` which is also exempted |
+
+**Ruling**: Apply same precedent as `Audit-TierModel.ps1` (77.16%) and `Test-TierModelCanonicalAcl.ps1` (92.86% ByServer-exempt). These files are exempt from the per-file 80% gate for the bounded structural paths. All deployment-critical cmdlets are above 80%.
+
+---
+
+## Update: Coverage Gap-Fill (2026-08-27, second pass)
+
+After the initial rewrite, three files remained below 85%. A targeted second pass brought all auth-silo files to 85%+:
+
+| Script | Before | After |
+|--------|--------|-------|
+| `New-TierModelAuthSilo` | 79.8% | **99.1%** |
+| `Get-TierModelAuthSiloMembershipFd` | 64.7% | **87.8%** |
+| `Set-TierModelAuthSiloMembership` | 61.5% | **87.8%** |
+
+**Confirmed unreachable paths (per-silo outer catch):** PowerShell ScriptProperty `{ throw }` returns `""` rather than propagating, confirmed by direct test. The per-silo outer catch (`AuthSiloMembershipFdSiloFailed`, `AuthSiloMembershipSiloFailed`) requires code inside the silo-level try but outside all inner try-catch blocks to throw. All such code paths (HashSet<string> ops, bool expressions, string formatting) are highly robust and won't throw in practice. This catch exists as a defensive safety net only, not for ordinary error scenarios.
+
+**New-TierModelAuthSilo 99.1%:** Only 1 command permanently unreachable: the `'UserDeclined'` branch of `if ($WhatIfPreference) { 'WhatIf' } else { 'UserDeclined' }` — requires interactive ShouldProcess decline.
+
+**Final suite: 1,783 tests, 0 failures, 90.9% overall coverage.**
+
+---
+
+---
+
+# Decision: Authentication Policy Silo Config Schema and 8-Object Model
+
+**Date:** 2026-08-27
+**Author:** Beast (Core Developer)
+**Branch:** `feature/auth-silos`
+**Status:** DRAFT — pending Joel review
+
+---
+
+## Context
+
+The `-IncludeAuthSilos` feature requires a config file defining the Authentication Policy and Authentication Policy Silo objects to be created in AD. This decision records the schema and the 8-object model chosen for `config/tiermodel-authsilos.json`.
+
+---
+
+## Decision
+
+### File and schema
+
+- **File:** `config/tiermodel-authsilos.json`
+- **Header fields:** `schemaVersion: "1.0.0"` and `comment` (matching the convention in `tiermodel-winlaps.json`)
+- **Top-level arrays:** `authenticationPolicies` (4 objects) and `authenticationSilos` (4 objects)
+- **Top-level `exemptAccounts` block:** documents the three structurally exempt domain-join service accounts explicitly, making the invariant visible to the deploy module and reviewers without duplicating their base-config definitions
+
+### 8-object model: 4 policies + 4 silos, 1:1
+
+Each silo references exactly one Authentication Policy. The mapping is:
+
+| Silo | Policy | TGT lifetime |
+|---|---|---|
+| Tier 0 Admins Authentication Silo | Tier 0 Admins Authentication Policy | 120 min |
+| Tier 1 Admins Authentication Silo | Tier 1 Admins Authentication Policy | 240 min |
+| Tier 2 Admins Authentication Silo | Tier 2 Admins Authentication Policy | 360 min |
+| Tier 2 EUD Authentication Silo | Tier 2 EUD Authentication Policy | null (domain default) |
+
+### SDDL resolved at runtime
+
+The `allowedToAuthenticateFromDeviceGroups` field in each policy object is an array of group samaccountnames (or display names for built-in groups). The deploy module resolves each name to a SID at runtime and constructs the `AllowedToAuthenticateFrom` SDDL using `Member_of_any` (OR logic). SDDL is never authored in the config file.
+
+**Rationale:** Authoring raw SIDs in the config couples the file to a specific domain. Authoring SDDL strings directly increases the risk of introducing AND logic (`Member_of_each`), which is the documented lockout failure mode — it requires a device to simultaneously belong to all listed device groups. `Member_of_any` (OR) is the only semantically correct operator when multiple device groups represent alternate approved device sets.
+
+### Audit-mode default
+
+All eight objects are created with `enforce: false` and `protectedFromAccidentalDeletion: true`. Enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist (see spec 005). The config cannot trigger enforcement; that requires an explicit operator action.
+
+### Domain-join exemption invariant
+
+The three domain-join service accounts (`svc-pawdomainjoin`, `svc-t1srvdomainjoin`, `svc-t2euddomainjoin`) are structurally exempt from all silo membership. They belong to `*DomainJoin` security groups, not `*ServiceAccounts` or `*Admins` groups, so group-scoped silo membership naturally excludes them. The `exemptAccounts` block makes this invariant explicit in the config file. Each account must be recorded in the exemption register with compensating controls.
+
+---
+
+## Rationale for config-only draft (no module code)
+
+The config is authored first so Joel can review and confirm object names, TGT lifetimes, device group assignments, and account group scope before any PowerShell module code is written. Naming conventions and group membership decisions in the config directly determine the module's Grant/Assign logic and cannot be changed cheaply after the module is coded.
+
+---
+
+## Open questions for Joel
+
+1. **Object naming convention** — `"Tier N Admins Authentication Policy"` / `"Tier N Admins Authentication Silo"` — acceptable?
+2. **Tier 0 built-in group names** — `"Domain Controllers"` and `"Read-only Domain Controllers"` — correct built-in group display names for the target domain?
+3. **Tier 2 EUD `userTGTLifetimeMinutes: null`** — domain default TGT lifetime (typically 10 hours) acceptable for EUD local device operators?
+4. **`memberAccountGroups` scope per silo** — should Operators groups (Tier0Operators, Tier0ServerOperators, Tier1Operators, Tier1ServerOperators, Tier2Operators, Tier2DeviceOperators, etc.) also be silo account members, or is the Admins + ServiceAccounts scope correct?
+
+
+---
+
+---
+
+# Decision: Auth Silos Deploy Cmdlet Set and Integration
+
+**Date:** 2026-08-27
+**Author:** Beast (Core Developer)
+**Branch:** feature/auth-silos
+**Status:** IMPLEMENTATION COMPLETE — awaiting lab validation
+
+---
+
+## Context
+
+This decision documents the cmdlet set and integration choices made when implementing the deploy side of `-IncludeAuthSilos` (audit-mode object creation). The Pester test phase follows lab validation per Joel's directive.
+
+---
+
+## Cmdlet Set
+
+### Public cmdlets (modules/TierModel/public/)
+
+| Cmdlet | Responsibility |
+|---|---|
+| `Get-TierModelAuthPolicy` | Load raw `authenticationPolicies` array from `config.authenticationPolicies` (populated from tiermodel-authsilos.json). Returns desired-state objects; no AD queries. |
+| `Get-TierModelAuthPolicyFd` | Fully-resolved planning: resolve device group names → SIDs via `Resolve-TierModelPrincipalSid`, build SDDL via `Build-TierModelAuthSddl`, query AD for existing policy state, emit `CreateAuthPolicy`/`UpdateAuthPolicy` actions. Returns plan object with `Actions/Summary/Errors`. |
+| `Get-TierModelAuthSilo` | Load raw `authenticationSilos` array from config. No AD queries. |
+| `Get-TierModelAuthSiloFd` | Fully-resolved planning: validate referenced policy exists in AD, check silo existence, detect drift on Description/policy links/Enforce/PFAD. Emit `CreateAuthSilo`/`UpdateAuthSilo` actions. |
+| `New-TierModelAuthPolicy` | Idempotent Create or Update. `New-ADAuthenticationPolicy` for create; `Set-ADAuthenticationPolicy` + `Set-ADObject` for update. Always: `Enforce = $false`, `ProtectedFromAccidentalDeletion = $true`. `UserTGTLifetimeMins` omitted when config value is null (domain default). |
+| `New-TierModelAuthSilo` | Idempotent Create or Update. Sets `UserAuthenticationPolicy`, `ComputerAuthenticationPolicy`, `ServiceAuthenticationPolicy` all to the same policy (1:1 design). `Enforce = $false`, `PFAD = $true`. |
+| `Set-TierModelAuthSiloMembership` | Expands `memberAccountGroups`+`memberComputerGroups` recursively; skips exempt accounts (3 configured + RID-500 resolved at runtime); two-step `Grant-ADAuthenticationPolicySiloAccess` then `Set-ADAccountAuthenticationPolicySilo` per account; idempotent via pre-check before each step. |
+| `Test-TierModelAuthSiloPrerequisite` | Dependency gate: collects all unique group names from `allowedToAuthenticateFromDeviceGroups`, `memberComputerGroups`, `memberAccountGroups`; calls `Get-ADGroup` for each; returns `Passed/Failures/Checked`. Does NOT check individual accounts or GPOs. |
+
+### Private helper (modules/TierModel/internal/)
+
+| Function | Role |
+|---|---|
+| `Build-TierModelAuthSddl` | Builds `O:SYG:SYD:(XA;OICI;CR;;;WD;(Member_of_any {SID(s1), ...}))`. OR-logic ONLY; never AND. |
+
+---
+
+## Key Design Decisions
+
+### 1. Plan-based API (consistent with WinLaps/Audit pattern)
+
+`Get-TierModelAuthPolicyFd` and `Get-TierModelAuthSiloFd` return plan objects with `Actions` arrays, consumed by `New-TierModelAuthPolicy` and `New-TierModelAuthSilo`. This mirrors `Get-TierModelWinLapsAclFd` / `New-TierModelWinLapsAcl`.
+
+`Set-TierModelAuthSiloMembership` takes Config directly (no separate plan) because group membership must be re-evaluated at execution time on every run for idempotency.
+
+### 2. SDDL — OR-logic invariant
+
+`Build-TierModelAuthSddl` always emits `Member_of_any` (OR). AND-logic (`Member_of_each`) is the documented lockout failure mode: it requires a device to simultaneously be in every listed group, which is never true for a "set of approved device types" policy. This is non-negotiable and documented in the private helper's comment block.
+
+### 3. 1:1 policy-to-silo, same policy for all three account classes
+
+Each silo sets `-UserAuthenticationPolicy`, `-ComputerAuthenticationPolicy`, and `-ServiceAuthenticationPolicy` to the same policy name. The tier model has a 1:1 silo-to-policy mapping and no separate per-class policies. Setting all three classes to the same policy ensures complete coverage without requiring a more complex multi-policy design.
+
+### 4. Audit mode — never enforce
+
+All `New-ADAuthenticationPolicy` and `New-ADAuthenticationPolicySilo` calls use `Enforce = $false` (via hashtable splatting). Enforcement is a separate lifecycle step gated on a pre-enforcement safety checklist and is explicitly out of scope. Drift detection in the Fd planners checks `Enforce` and emits `UpdateAuthPolicy`/`UpdateAuthSilo` if it has been accidentally set to true (to re-audit-mode the object).
+
+### 5. ProtectedFromAccidentalDeletion = $true on all objects
+
+Policies and silos are created with `ProtectedFromAccidentalDeletion = $true`. If drift is detected on this property, `Set-ADObject -ProtectedFromAccidentalDeletion $true` is called separately (the `Set-ADAuthentication*` cmdlets do not expose this parameter).
+
+### 6. Grant-then-Set membership order
+
+Always in order: `Grant-ADAuthenticationPolicySiloAccess` first, then `Set-ADAccountAuthenticationPolicySilo`. Idempotency via:
+- Grant: check account DN against silo's `Members` list before calling
+- Set: check `msDS-AssignedAuthNPolicySilo` on the account before calling
+
+### 7. RID-500 exemption resolved at runtime
+
+The built-in Administrator account is commonly renamed. The function resolves `<DomainSID>-500` at runtime to get the current `SamAccountName`, then adds it to the exemption HashSet. Failure to resolve (DC unreachable) logs a warning but does not halt (the account won't appear in any managed group anyway).
+
+### 8. Deploy-TierModel.ps1 integration
+
+- Standalone mode: prerequisite gate (fail fast), then plan+display, then (if `-ConfirmApply`) execute policies → silos → membership
+- FullDeployment planning: Phase 12, manually increments `TotalActions/CreateCount/UpdateCount/AlreadyExistCount` (does not use `Add-IncludeAclPhaseToDeploymentPlan` because that helper is tuned for ACL/SACL action types)
+- FullDeployment execution: inside the optional features block after audit; all three results (`authPolicyExecResult`, `authSiloExecResult`, `authMembershipExecResult`) added to `$allResults` for consolidated reporting
+
+### 9. Get-TierModelConfig optional file
+
+`tiermodel-authsilos.json` added to `$optionalFiles` in `Get-TierModelConfig`. Absent file → `authenticationPolicies`, `authenticationSilos`, `authSilosExemptAccounts` are all `$null` on the config object. All auth silo cmdlets handle `$null` gracefully (return empty arrays / empty plans).
+
+---
+
+## Open Items for Lab Validation
+
+1. **Enforce parameter behavior**: Verify `Enforce = $false` in hashtable splatting has identical behavior to `-Enforce:$false` direct named param with `New-ADAuthenticationPolicy`.
+2. **SDDL round-trip**: Verify that `Get-ADAuthenticationPolicy -Properties *` returns `UserAllowedToAuthenticateFrom` in the same SDDL format as was written (whitespace normalization may be needed; current comparison normalizes whitespace).
+3. **TGT lifetime property name**: Verify whether `Get-ADAuthenticationPolicy` returns `UserTGTLifetimeMins` as a direct property or only `msDS-UserTGTLifetime` (100-ns intervals). Both fallbacks are implemented.
+4. **Silo policy property names**: Verify whether `Get-ADAuthenticationPolicySilo` returns `UserAuthenticationPolicy` / `ComputerAuthenticationPolicy` / `ServiceAuthenticationPolicy` as friendly names or DNs — drift detection normalizes DN→name but this needs lab confirmation.
+5. **Empty groups**: Confirm that `Get-ADGroupMember -Recursive` on an empty group returns an empty array (not an error) on Server 2022/2025.
+6. **Grant idempotency**: Verify `Grant-ADAuthenticationPolicySiloAccess` does not throw if the account is already in the silo's Members list (the pre-check guards against this but verify error behavior if the check races).
+
+---
+
+### 2026-08-27T11:24:19+08:00: User directive — code-first, tests-after (no TDD)
+
+**By:** Joel Platek (via Copilot)
+
+**What:** For the auth-silos work and generally on this project: write the code and validate it **in the lab first**; only **after** it is working do we write the test cases (Pester) against the working code. Do NOT write test cases first. Sequence: Deploy code → lab-validate → Deploy tests → then Audit code → lab-validate → Audit tests.
+
+**Wolverine, note:** writing test cases first was a mistake last time. Author tests only against code that has already been lab-validated as working.
+
+**Why:** User request — captured for team memory; Wolverine must be informed before any test authoring.
+
+---
+
+### 2026-08-27T11:55:00+08:00: User directive — module placement + confirm drastic changes
+
+**By:** Joel Platek (via Copilot)
+
+**What:** All TierModel PowerShell module functions/helpers MUST live under `modules/TierModel/public/`. Do NOT place new functions under `modules/TierModel/internal/`. When a structural or placement choice is drastically different from existing convention, CONFIRM the placement with Joel BEFORE proceeding (do not silently deviate).
+
+**Applies to:** Beast and all agents authoring module code; and the coordinator (must flag drastic deviations for confirmation).
+
+**Context:** `Build-TierModelAuthSddl.ps1` was initially placed under `internal/`; it has been moved to `public/` and added to `FunctionsToExport`.
+
+**Why:** User request — captured for team memory.
+
+---

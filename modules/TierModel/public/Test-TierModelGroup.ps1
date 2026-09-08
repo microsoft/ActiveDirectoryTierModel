@@ -51,6 +51,10 @@ function Test-TierModelGroup {
     $totalChecked = 0
     $missingCount = 0
     $mismatchCount = 0
+    # Groups whose state could NOT be determined. A read failure is neither "missing" nor a
+    # "mismatch", so without this counter an unreadable group would render as
+    # "All Groups are compliant". Unverified groups feed $driftCount.
+    $unverifiedCount = 0
     
     try {
         # Resolve domain DN
@@ -131,14 +135,27 @@ function Test-TierModelGroup {
                         } | Out-Null
                         continue
                     } catch {
-                        Write-Host "  ⚠️ Group Existence: Query Failed" -ForegroundColor Yellow
+                        # Not an identity-not-found, so this is a genuine read failure rather than
+                        # absence. The group's state is unknown - it must not be reported as either
+                        # missing or compliant.
+                        Write-Host "    ❌ Group Read: FAILED - $($_.Exception.Message)" -ForegroundColor Red
                         $warnings += "Failed to query group '$groupName': $($_.Exception.Message)"
-                        Write-TierModelLog -Level Warning -Message "Failed to query group" -Data @{
+                        $driftFindings += [PSCustomObject]@{
+                            Type = 'Error'
+                            ResourceType = 'Group'
+                            Identifier = "$groupName/ReadFailure"
+                            ExpectedValue = 'Group readable'
+                            ActualValue = 'Read failed'
+                            Details = "Group '$groupName' ($expectedSamAccountName) could not be read from '$DomainController' - its state could NOT be verified: $($_.Exception.Message)"
+                        }
+                        Write-TierModelLog -Level Error -Message "GroupAuditReadFailed" -Data @{
                             GroupName = $groupName
                             SamAccountName = $expectedSamAccountName
                             Error = $_.Exception.Message
                             CorrelationId = $CorrelationId
                         } | Out-Null
+                        # "could not verify" must never render as "compliant".
+                        $unverifiedCount++
                         continue
                     }
                     
@@ -241,15 +258,20 @@ function Test-TierModelGroup {
                         Exception = $_.Exception.Message
                         CorrelationId = $CorrelationId
                     } | Out-Null
+                    # Same class as the read-failure catch above - a group whose audit threw was
+                    # counted nowhere, so a wholly failed audit still reported "All Groups are
+                    # compliant". It is unverified, not compliant.
+                    $unverifiedCount++
                 }
             }
         }
         
-        $driftCount = $missingCount + $mismatchCount
+        $driftCount = $missingCount + $mismatchCount + $unverifiedCount
         $summary = @{
             TotalChecked = $totalChecked
             MissingCount = $missingCount
             MismatchCount = $mismatchCount
+            UnverifiedCount = $unverifiedCount
             DriftCount = $driftCount
         }
         
@@ -266,6 +288,12 @@ function Test-TierModelGroup {
                 Write-Host "Configuration Mismatches: $mismatchCount ✅" -ForegroundColor Green
             } else {
                 Write-Host "Configuration Mismatches: $mismatchCount ❌" -ForegroundColor Red
+            }
+            # Surfaced explicitly. A group we could not read is not a pass.
+            if ($unverifiedCount -eq 0) {
+                Write-Host "Unverified Groups (read failures): $unverifiedCount ✅" -ForegroundColor Green
+            } else {
+                Write-Host "Unverified Groups (read failures): $unverifiedCount ⚠️  - state could NOT be determined" -ForegroundColor Red
             }
             if ($driftCount -eq 0) {
                 Write-Host "Overall Status: All Groups are compliant ✅" -ForegroundColor Green
@@ -313,7 +341,7 @@ function Test-TierModelGroup {
         
         return [PSCustomObject]@{
             DriftFindings = $driftFindings
-            Summary = @{ TotalChecked = $totalChecked; MissingCount = $missingCount; MismatchCount = $mismatchCount; DriftCount = $missingCount + $mismatchCount }
+            Summary = @{ TotalChecked = $totalChecked; MissingCount = $missingCount; MismatchCount = $mismatchCount; UnverifiedCount = $unverifiedCount; DriftCount = $missingCount + $mismatchCount + $unverifiedCount }
             Warnings = $warnings
             Errors = $errors
             CorrelationId = $CorrelationId

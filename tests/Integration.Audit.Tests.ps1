@@ -749,11 +749,32 @@ Describe 'Audit-TierModel.ps1 - Full Deployment Audit' -Tag 'Integration', 'Audi
             Mock -CommandName Test-TierModelOuAcl { return New-MockAuditResult -EntityType 'OU ACL' -TotalChecked 0 -DriftCount 0 }
             Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' -TotalChecked 0 -DriftCount 0 }
             Mock -CommandName Test-TierModelAdmx { return New-MockAuditResult -EntityType 'ADMX' -TotalChecked 0 -DriftCount 0 }
-            
+
+            # BUG-031: Phase 1b (canonical ACL) is a real audit phase. If it throws, its error is
+            # now folded into $totalErrors and compliance renders 'N/A' by design. This test is
+            # about the compliance ARITHMETIC, so neutralise the phase with clean, compliant
+            # reads rather than letting it fail. Do not substitute -LogPath-style shortcuts here:
+            # the phase must actually run and report zero errors.
+            Mock -CommandName Get-ADDomain { return [PSCustomObject]@{ DistinguishedName = 'DC=test,DC=local' } }
+            Mock -CommandName Test-TierModelOuExists { return [PSCustomObject]@{ Exists = $false } }
+            Mock -CommandName Test-TierModelCanonicalAcl {
+                return [PSCustomObject]@{
+                    IsCanonical             = $true
+                    DistinguishedName       = 'DC=test,DC=local'
+                    FirstOffendingPrincipal = $null
+                }
+            }
+
             $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment 6>&1 | Out-String
-            
-            # (100-10)/100 = 90%
-            $output | Should -Match 'Compliance: 90%'
+
+            # Exact integers, not ">0": a partial-sum bug must not sail through.
+            # 100 OU objects + 1 canonical-ACL object (the domain root; both Tier OUs are
+            # reported absent, so they are skipped and excluded from TotalChecked) = 101.
+            # Drift 10, errors 0 => (101-10)/101 = 90.1%
+            $output | Should -Match 'Total Checked: 101'
+            $output | Should -Match 'Total Drift: 10'
+            $output | Should -Match 'Total Errors: 0'
+            $output | Should -Match 'Compliance: 90\.1%'
         }
         
         It 'Should show per-entity breakdown' {
@@ -921,10 +942,30 @@ Describe 'Audit-TierModel.ps1 - Compliance Reporting' -Tag 'Integration', 'Audit
             Mock -CommandName Test-TierModelOuAcl { return New-MockAuditResult -EntityType 'OU ACL' -TotalChecked 2 -DriftCount 0 }
             Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' -TotalChecked 4 -DriftCount 0 }
             Mock -CommandName Test-TierModelAdmx { return New-MockAuditResult -EntityType 'ADMX' -TotalChecked 8 -DriftCount 0 }
-            
+
+            # BUG-031: a COMPLIANT verdict now requires every phase to have RUN. Phase 1b is
+            # neutralised with clean reads so this test exercises the compliance display it
+            # claims to, not the canonical-ACL failure path.
+            Mock -CommandName Get-ADDomain { return [PSCustomObject]@{ DistinguishedName = 'DC=test,DC=local' } }
+            Mock -CommandName Test-TierModelOuExists { return [PSCustomObject]@{ Exists = $false } }
+            Mock -CommandName Test-TierModelCanonicalAcl {
+                return [PSCustomObject]@{
+                    IsCanonical             = $true
+                    DistinguishedName       = 'DC=test,DC=local'
+                    FirstOffendingPrincipal = $null
+                }
+            }
+
             $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment 6>&1 | Out-String
-            
-            $output | Should -Match 'COMPLIANT'
+
+            # Anchored to the verdict line so 'NON-COMPLIANT' could never satisfy it.
+            $output | Should -Match 'Overall Audit Status: [^\r\n]*COMPLIANT'
+            # 10+5+3+2+4+8 = 32 entity objects + 1 canonical-ACL domain-root check = 33.
+            $output | Should -Match 'Total Checked: 33'
+            $output | Should -Match 'Total Drift: 0'
+            # Total Errors must be 0 for the verdict to be green at all - assert it directly
+            # so a silently-failed phase can never masquerade as compliance again.
+            $output | Should -Match 'Total Errors: 0'
             $output | Should -Match 'Compliance: 100%'
         }
         
@@ -935,11 +976,27 @@ Describe 'Audit-TierModel.ps1 - Compliance Reporting' -Tag 'Integration', 'Audit
             Mock -CommandName Test-TierModelOuAcl { return New-MockAuditResult -EntityType 'OU ACL' -TotalChecked 2 -DriftCount 0 }
             Mock -CommandName Test-TierModelGPOAudit { return New-MockAuditResult -EntityType 'GPO' -TotalChecked 4 -DriftCount 1 }
             Mock -CommandName Test-TierModelAdmx { return New-MockAuditResult -EntityType 'ADMX' -TotalChecked 8 -DriftCount 1 }
-            
+
+            # BUG-031: with Phase 1b throwing, the verdict is 'COMPLIANCE COULD NOT BE FULLY
+            # DETERMINED' and the DRIFT ITEMS line is never printed. Neutralise the phase so the
+            # drift-count display under test is actually reached.
+            Mock -CommandName Get-ADDomain { return [PSCustomObject]@{ DistinguishedName = 'DC=test,DC=local' } }
+            Mock -CommandName Test-TierModelOuExists { return [PSCustomObject]@{ Exists = $false } }
+            Mock -CommandName Test-TierModelCanonicalAcl {
+                return [PSCustomObject]@{
+                    IsCanonical             = $true
+                    DistinguishedName       = 'DC=test,DC=local'
+                    FirstOffendingPrincipal = $null
+                }
+            }
+
             $output = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -FullDeployment 6>&1 | Out-String
-            
+
             $output | Should -Match '10 DRIFT ITEMS'
             $output | Should -Match 'Total Drift: 10'
+            # The canonical-ACL phase contributes 1 compliant check and no drift.
+            $output | Should -Match 'Total Checked: 33'
+            $output | Should -Match 'Total Errors: 0'
         }
         
         It 'Should display success message when no drift in single entity audit' {
@@ -1371,5 +1428,136 @@ Describe 'Audit-TierModel.ps1 - EnableAuditing Combined Coverage' -Tag 'Integrat
                 -OutputFormat Json -OutputFileBase 'audit-rule-report' -LogPath $script:TestOutputDir 6>&1 | Out-Null } |
                 Should -Not -Throw
         }
+    }
+}
+
+# =============================================================================
+# D8 / FR-007 - the never-prompt guarantee for diagnostics-auto-enabled logging
+# =============================================================================
+# Mirrors the identical Describe in Integration.Deploy.Tests.ps1. -EnableVerbose / -EnableDebug
+# auto-enable -Logging; when they do, a missing -OutputFileBase must resolve SILENTLY to the
+# default. When the operator supplied -Logging (or -OutputFormat) themselves, the prompt stays.
+# Both branches end in the same literal 'Audit-TierModel', which makes them look redundant in
+# the source. They are not: a diagnostics re-run must remain copy-pasteable and runnable in a
+# NON-INTERACTIVE host, where any Read-Host is fatal. These tests exist so that collapsing the
+# two branches fails the suite.
+#
+# Read-Host is replaced by a RECORDER that captures every prompt string it is asked and answers
+# empty - stronger than Should -Invoke Read-Host -Times 0, because it proves the prompt was
+# never REACHED and names the offending prompt when the guarantee breaks. The recorder is held
+# by CLOSURE: a $script: assignment made inside a mock body is not visible to the It.
+Describe 'Audit-TierModel - Diagnostics never-prompt guarantee (D8 / FR-007)' -Tag 'Integration', 'Audit' {
+
+    BeforeEach {
+        Mock -CommandName Test-TierModelPrerequisites {
+            return [PSCustomObject]@{ Valid = $true; Errors = @(); Remediation = @() }
+        }
+        $mockConfig = $script:MockConfig
+        Mock -CommandName Get-TierModelConfig { return $mockConfig }.GetNewClosure()
+        # Default DriftCount is 1, which is what makes the tail diagnostics hint reachable.
+        Mock -CommandName Test-TierModelOu { return New-MockAuditResult -EntityType 'OU' }
+    }
+
+    It 'Should NEVER prompt when -EnableVerbose auto-enables Logging without -OutputFileBase' {
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $consoleOutput = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableVerbose `
+            -LogPath $script:TestOutputDir 6>&1 | Out-String
+
+        ($prompts -join ' | ') | Should -BeNullOrEmpty -Because 'a diagnostics re-run must be runnable in a non-interactive host, where any Read-Host is fatal'
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Audit-TierModel-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should still prompt exactly once when the operator passed -Logging explicitly, and accept Enter' {
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $failure = $null
+        $consoleOutput = ''
+        try {
+            $consoleOutput = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging `
+                -LogPath $script:TestOutputDir -ErrorAction Stop 6>&1 | Out-String
+        }
+        catch { $failure = $_ }
+
+        $failure | Should -BeNullOrEmpty -Because 'pressing Enter at the prompt must not error or stop the script'
+        $prompts.Count | Should -BeExactly 1
+        $prompts[0] | Should -BeLike '*[[]Audit-TierModel]*'
+        $consoleOutput | Should -Match 'Logging enabled: .+[\\/]Audit-TierModel-\d{6}-\d{4}\.log'
+    }
+
+    It 'Should prompt once for the OutputFormat report base name and accept Enter' {
+        # Third prompt site (Audit-TierModel.ps1:488-495). It is a separate branch from the
+        # -Logging one and had the same throw-on-empty defect, so it needs its own coverage.
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+        Mock Set-Content { }
+
+        $failure = $null
+        $consoleOutput = ''
+        try {
+            $consoleOutput = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly `
+                -OutputFormat Text -LogPath $script:TestOutputDir -ErrorAction Stop 6>&1 | Out-String
+        }
+        catch { $failure = $_ }
+
+        $failure | Should -BeNullOrEmpty -Because 'pressing Enter at the output-base prompt must not error or stop the script'
+        $prompts.Count | Should -BeExactly 1
+        $prompts[0] | Should -BeLike '*base filename for output*'
+        $prompts[0] | Should -BeLike '*[[]Audit-TierModel]*'
+        $consoleOutput | Should -Match 'Using default base filename for output: Audit-TierModel'
+    }
+
+    It 'Should keep the explicit-Logging and diagnostics-auto-enabled paths distinguishable (anti-collapse)' {
+        # The two invocations differ in EXACTLY one thing: which mechanism turned -Logging on.
+        # Both omit -OutputFileBase and both resolve to the same default, so the only observable
+        # that separates them is whether a prompt happened. Comparing the two counts against each
+        # other is what makes a "these branches are identical, merge them" edit fail here.
+        $explicitPrompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $explicitPrompts.Add([string]$Prompt); return '' }.GetNewClosure()
+        & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging `
+            -LogPath $script:TestOutputDir 6>&1 | Out-Null
+
+        $autoPrompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $autoPrompts.Add([string]$Prompt); return '' }.GetNewClosure()
+        & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableDebug `
+            -LogPath $script:TestOutputDir 6>&1 | Out-Null
+
+        $explicitPrompts.Count | Should -BeExactly 1 -Because 'explicit -Logging keeps its pre-existing prompt'
+        $autoPrompts.Count     | Should -BeExactly 0 -Because 'D8: a diagnostics switch auto-enabling -Logging must never prompt'
+        $autoPrompts.Count     | Should -Not -Be $explicitPrompts.Count -Because 'the two branches are not interchangeable and must not be collapsed'
+    }
+
+    It 'Should replay the RESOLVED OutputFileBase in the diagnostics hint, not a bare -Logging' {
+        # NON-BLOCKING-3 (Audit-TierModel.ps1:462-472). A base name supplied by the PROMPT is
+        # absent from $PSBoundParameters, so a verbatim replay would emit -Logging with no base
+        # name; on the re-run -Logging is already set, LoggingAutoEnabled stays $false, the
+        # silent-default branch is NOT taken, and the pasted command dies on Read-Host in a
+        # non-interactive host. The hint must carry the resolved value instead.
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $consoleOutput = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -Logging `
+            -LogPath $script:TestOutputDir 6>&1 | Out-String
+
+        $consoleOutput | Should -Match 'Re-run with the following for full diagnostics'
+        $consoleOutput | Should -Match "-OutputFileBase 'Audit-TierModel'"
+    }
+
+    It 'Should replay the RESOLVED OutputFileBase in the hint on the auto-enabled path too' {
+        # Same rule from the other direction: here the base name was never prompted for at all,
+        # so the hint is the only place its resolved value can be observed.
+        $prompts = [System.Collections.Generic.List[string]]::new()
+        Mock Read-Host { param($Prompt) $prompts.Add([string]$Prompt); return '' }.GetNewClosure()
+
+        $consoleOutput = & $script:AuditScriptPath -PreferredDc $script:TestPreferredDc -OuOnly -EnableVerbose `
+            -LogPath $script:TestOutputDir 6>&1 | Out-String
+
+        ($prompts -join ' | ') | Should -BeNullOrEmpty
+        $consoleOutput | Should -Match 'Re-run with the following for full diagnostics'
+        $consoleOutput | Should -Match "-OutputFileBase 'Audit-TierModel'"
+        # The hint must not re-offer the switch that is already on.
+        $consoleOutput | Should -Not -Match "diagnostics:\s*\n.*-EnableVerbose -EnableVerbose"
     }
 }

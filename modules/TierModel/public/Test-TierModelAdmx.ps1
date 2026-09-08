@@ -48,7 +48,16 @@ function Test-TierModelAdmx {
     
     try {
         # Get domain information for SYSVOL path resolution
-        $domain = (Get-ADDomain -Server $DomainController).DNSRoot
+        try {
+            $domain = (Get-ADDomain -Server $DomainController -ErrorAction Stop).DNSRoot
+        } catch {
+            Write-TierModelLog -Level Error -Message "Failed to read domain information" -Data @{
+                DomainController = $DomainController
+                Error            = $_.Exception.Message
+                CorrelationId    = $CorrelationId
+            } | Out-Null
+            throw "Failed to read domain information from '$DomainController': $($_.Exception.Message)"
+        }
         Write-TierModelLog -Level Info -Message "Domain information retrieved" -Data @{ Domain = $domain; DomainController = $DomainController } | Out-Null
         
         # Load ADMX and ADML configurations
@@ -217,18 +226,23 @@ function Test-TierModelAdmx {
         
         # Display audit summary (blue header section)
         $driftCount = $totalFailed
+        # The breakdown is counted from the per-file results so that each bucket reports what
+        # it names. Every result that increments $totalFailed sets Status to exactly one of
+        # 'Missing' or 'Mismatch', so the two buckets sum to $driftCount by construction.
+        $missingCount  = @($auditResults | Where-Object { $_.Status -eq 'Missing' }).Count
+        $mismatchCount = @($auditResults | Where-Object { $_.Status -eq 'Mismatch' }).Count
         if (-not $Silent) {
             Write-Host "`n=== ADMX Audit Summary ===" -ForegroundColor Blue
             Write-Host "Total ADMX Files Checked: $totalChecked" -ForegroundColor White
-            if ($driftCount -eq 0) {
-                Write-Host "Missing ADMX Files: 0 ✅" -ForegroundColor Green
+            if ($missingCount -eq 0) {
+                Write-Host "Missing ADMX Files: $missingCount ✅" -ForegroundColor Green
             } else {
-                Write-Host "Missing ADMX Files: 0 ❌" -ForegroundColor Red
+                Write-Host "Missing ADMX Files: $missingCount ❌" -ForegroundColor Red
             }
-            if ($driftCount -eq 0) {
-                Write-Host "Configuration Mismatches: 0 ✅" -ForegroundColor Green
+            if ($mismatchCount -eq 0) {
+                Write-Host "Configuration Mismatches: $mismatchCount ✅" -ForegroundColor Green
             } else {
-                Write-Host "Configuration Mismatches: $driftCount ❌" -ForegroundColor Red
+                Write-Host "Configuration Mismatches: $mismatchCount ❌" -ForegroundColor Red
             }
             Write-Host "" # Blank line for spacing before Overall Status
             if ($driftCount -eq 0) {
@@ -253,6 +267,9 @@ function Test-TierModelAdmx {
                 TotalFiles = $totalChecked
                 Compliant = $totalPassed
                 Drift = $totalFailed
+                # Missing and Mismatched are the breakdown of Drift and always sum to it.
+                Missing = $missingCount
+                Mismatched = $mismatchCount
                 Errors = 0
                 CompliancePercentage = if ($totalChecked -gt 0) { [math]::Round(($totalPassed / $totalChecked) * 100, 2) } else { 100 }
             }
@@ -276,6 +293,8 @@ function Test-TierModelAdmx {
                 TotalFiles = 0
                 Compliant = 0
                 Drift = 0
+                Missing = 0
+                Mismatched = 0
                 Errors = 1
                 CompliancePercentage = 0
             }

@@ -493,7 +493,7 @@ Describe "Test-TierModelGpo - Individual GPO Validation" -Tag "Unit", "GPO", "Va
         
         It "Should validate GPO status configuration" {
             $gpoConfig = [PSCustomObject]@{
-                gpoStatus = "AllEnabled"
+                gpoStatus = "AllSettingsEnabled"
             }
             
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $gpoConfig -DomainController "DC01"
@@ -1532,8 +1532,9 @@ Describe "Import-TierModelGpo - GPO Import Execution" -Tag "Unit", "GPO", "Impor
         }
 
         It "Should accumulate errors from multiple mixed-outcome actions" {
-            # First call succeeds (default Test-Path returns $true), second throws
-            $callCount = 0
+            # Must be $script: — the mock body below increments $script:callCount, and under
+            # Set-StrictMode -Version Latest an uninitialised $script:callCount throws.
+            $script:callCount = 0
             Mock Import-GPO -ModuleName TierModel {
                 $script:callCount++
                 if ($script:callCount -eq 2) { throw "Second GPO failed" }
@@ -1579,8 +1580,11 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        Mock Set-ADObject  -ModuleName TierModel { return $null }
-        Mock Write-Host    -ModuleName TierModel { return $null }
+        # The real Set-ADObject/Write-Host emit nothing. `return $null` would push a literal
+        # $null into the caller's output stream, making $result a 2-element array; that only
+        # looks harmless because non-strict member enumeration skips the $null.
+        Mock Set-ADObject  -ModuleName TierModel { }
+        Mock Write-Host    -ModuleName TierModel { }
 
         # Helper: build a minimal valid plan with CreateGPO actions
         function New-GpoPlan {
@@ -1733,9 +1737,9 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
     # ─────────────────────────────────────────────────────────────
     Context "GPO status configuration" {
 
-        It "Should call Set-ADObject when mode is 'create' and gpoStatus is AllEnabled" {
+        It "Should call Set-ADObject when mode is 'create' and gpoStatus is AllSettingsEnabled" {
             $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "StatusGPO" -Mode "create" -Extra @{ gpoStatus = "AllEnabled" }
+                New-CreateAction -Name "StatusGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsEnabled" }
             )) -DomainController "DC01"
 
             $result.Executed | Should -Be 1
@@ -1764,9 +1768,9 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        It "Should pass flag=3 for BothSettingsDisabled" {
+        It "Should pass flag=3 for AllSettingsDisabled" {
             New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "BothDisabledGPO" -Mode "create" -Extra @{ gpoStatus = "BothSettingsDisabled" }
+                New-CreateAction -Name "BothDisabledGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsDisabled" }
             )) -DomainController "DC01" | Out-Null
 
             Should -Invoke Set-ADObject -ModuleName TierModel -Times 1 -ParameterFilter {
@@ -1774,14 +1778,17 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             }
         }
 
-        It "Should default to flag=0 for unrecognized gpoStatus value" {
-            New-TierModelGpo -Plan (New-GpoPlan -Actions @(
+        It "Should fail loudly for unrecognized gpoStatus value" {
+            $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
                 New-CreateAction -Name "UnknownStatusGPO" -Mode "create" -Extra @{ gpoStatus = "UnknownValue" }
-            )) -DomainController "DC01" | Out-Null
+            )) -DomainController "DC01"
 
-            Should -Invoke Set-ADObject -ModuleName TierModel -Times 1 -ParameterFilter {
-                $Replace.flags -eq 0
-            }
+            # Unrecognised value throws before the inner try — caught by per-GPO outer catch.
+            # GPO counts as failed, not executed; Converged is false; loop continues.
+            $result.Failed   | Should -Be 1
+            $result.Executed | Should -Be 0
+            $result.Converged | Should -Be $false
+            Should -Invoke Set-ADObject -ModuleName TierModel -Times 0
         }
 
         It "Should not call Set-ADObject when mode is not 'create'" {
@@ -1804,10 +1811,10 @@ Describe "New-TierModelGpo - GPO Creation Execution" -Tag "Unit", "GPO", "Create
             Mock Set-ADObject -ModuleName TierModel { throw "AD write failed" }
 
             $result = New-TierModelGpo -Plan (New-GpoPlan -Actions @(
-                New-CreateAction -Name "StatusFailGPO" -Mode "create" -Extra @{ gpoStatus = "AllEnabled" }
+                New-CreateAction -Name "StatusFailGPO" -Mode "create" -Extra @{ gpoStatus = "AllSettingsEnabled" }
             )) -DomainController "DC01"
 
-            # GPO was still created; status failure is non-fatal
+            # GPO was still created; status failure is non-fatal (inner catch, not outer)
             $result.Executed | Should -Be 1
             $result.Failed   | Should -Be 0
         }
@@ -2133,15 +2140,38 @@ Describe "Get-TierModelGpoFd – extended coverage" -Tag "Unit", "GPO", "FullDep
             @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -Be 0
         }
 
-        It "Adds LinkGPO fallback when Get-GPInheritance throws for domain root" {
+        It "Plans no LinkGPO action, and warns, when the link state cannot be read (BUG-037)" {
             Mock Get-GPO -ModuleName TierModel {
                 param([string]$Name, [string]$Server, [switch]$All, $ErrorAction)
                 if ($All) { return @() }
                 return [PSCustomObject]@{ DisplayName = $Name; Id = [Guid]::NewGuid() }
             }
+            # A TERMINATING `throw` is deliberate here and must NOT be changed to Write-Error,
+            # despite the house rule. The read under test is intentionally
+            # -ErrorAction SilentlyContinue (see the BUG-019 note in Get-TierModelGpoFd), so a
+            # NON-terminating error is swallowed and arrives as an empty result — which is the
+            # ordinary "not linked" case, handled by the branch above, and it still plans the
+            # link. Only a genuine terminating failure can reach the catch this test covers.
             Mock Get-GPInheritance -ModuleName TierModel { throw "Access denied" }
+            Mock Write-Warning -ModuleName TierModel {}
+
             $result = Get-TierModelGpoFd -Config $script:CfgDomainRoot -DomainController "DC01" -Silent
-            @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -BeGreaterOrEqual 1
+
+            # BUG-037: an unreadable link state is not evidence that a link is missing. This
+            # previously fabricated a Risk=High LinkGPO action against a Tier 0 container on the
+            # strength of a read that had failed.
+            @($result.Actions | Where-Object { $_.Action -eq 'LinkGPO' }).Count | Should -Be 0
+
+            # The count alone is not enough: it would pass equally against a bare `catch {}`,
+            # which is the very defect this replaced. The warning is what separates "declined to
+            # plan, and said so" from "silently dropped it". The message is matched specifically
+            # so the outer catch's "Error analyzing GPO ..." warning cannot satisfy this test in
+            # its place, and so this test cannot pass for the same reason as the sibling above
+            # (which reads the link state successfully and warns not at all).
+            Should -Invoke Write-Warning -ModuleName TierModel -Times 1 -Exactly -ParameterFilter {
+                $Message -match "Could not determine whether GPO '.+' is linked to" -and
+                $Message -match 'No link action was planned'
+            }
         }
     }
 
@@ -2530,27 +2560,40 @@ Describe "Test-TierModelGpo – extended coverage" -Tag "Unit", "GPO", "Validati
             ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
         }
 
-        It "Passes status check for BothSettingsDisabled (flags=3)" {
+        It "Passes status check for AllSettingsDisabled (flags=3)" {
             Mock Get-ADObject -ModuleName TierModel {
                 return [PSCustomObject]@{ flags = 3 }
             }
-            $config = [PSCustomObject]@{ gpoStatus = "BothSettingsDisabled" }
+            $config = [PSCustomObject]@{ gpoStatus = "AllSettingsDisabled" }
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $config -DomainController "DC01"
 
             $result.Status | Should -Be 'Pass'
             ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
         }
 
-        It "Treats unknown gpoStatus value as flags=0 (default switch case)" {
-            # Passes when actual flags also happen to be 0 (default branch returns 0)
+        It "Fails the GPO Status check when gpoStatus is unrecognised, even if actual flags are 0" {
+            # Regression guard for the silent-default bug: the audit switch used to have
+            # `default { 0 }`, so an unrecognised gpoStatus degraded to "expect AllSettingsEnabled".
+            # When the real GPO happened to be flags=0 the audit reported Pass, so a config typo
+            # produced a false green. There is no runtime JSON-schema validation upstream to catch
+            # the typo first, so this check is the only line of defence. flags=0 is deliberate here:
+            # it is exactly the case that used to pass.
             Mock Get-ADObject -ModuleName TierModel {
                 return [PSCustomObject]@{ flags = 0 }
             }
             $config = [PSCustomObject]@{ gpoStatus = "UnrecognizedValue" }
             $result = Test-TierModelGpo -GPOName "ExistingGPO" -GPOConfig $config -DomainController "DC01"
 
-            $result.Status | Should -Be 'Pass'
-            ($result.Checks | Where-Object { $_.Check -eq 'GPO Status' }).Status | Should -Be 'Pass'
+            $result.Status | Should -Be 'Fail'
+
+            $statusCheck = $result.Checks | Where-Object { $_.Check -eq 'GPO Status' }
+            $statusCheck.Status | Should -Be 'Fail'
+            # The message must name the offending value and list the valid ones
+            $statusCheck.Message | Should -Match "UnrecognizedValue"
+            $statusCheck.Message | Should -Match "AllSettingsDisabled"
+
+            $result.Issues | Should -Match "UnrecognizedValue"
+            $result.Recommendations | Should -Not -BeNullOrEmpty
         }
     }
 

@@ -1,3 +1,83 @@
+function Get-TierModelWriteFailureDetail {
+    <#
+    .SYNOPSIS
+    Private helper (not exported). Builds diagnostics for a directory write that did not
+    produce a verifiable result.
+
+    .DESCRIPTION
+    Null-return verification for AD and GroupPolicy write cmdlets: a failed write can leave the
+    result variable $null without terminating. Root cause on any given platform is not yet
+    established (see NOTE). Callers null-check the result and, when it is $null, use this helper
+    to recover the most recent error record.
+
+    NOTE (2026-09-04): Earlier versions of this comment attributed silent write failures to the
+    Windows PowerShell Compatibility (WinPSCompat) shim — proxy functions calling
+    $PSCmdlet.WriteError() that ignore an inherited Stop preference. This mechanism was NOT
+    reproduced on Windows Server 2025 / PowerShell 7.5.1 (TierLab-DC01): every AD and
+    GroupPolicy cmdlet loaded natively (CommandType=Cmdlet, not Function). The shim may still
+    apply on older RSAT management workstations where GroupPolicy is not Core-native. Root
+    cause for the original GPO silent-fail incident is not yet established.
+
+    FullyQualifiedErrorId and CategoryInfo are captured explicitly because InnerException may
+    be absent when exceptions cross runspace or serialisation boundaries.
+
+    .PARAMETER Operation
+    Name of the cmdlet or operation that was attempted, e.g. 'New-GPO'.
+
+    .PARAMETER Target
+    Name or distinguished name of the object the write targeted.
+
+    .PARAMETER ErrorRecord
+    Optional explicit error record. When omitted the most recent error record is used.
+
+    .OUTPUTS
+    Hashtable with Operation, Target, Message, FullyQualifiedErrorId, CategoryInfo,
+    ExceptionType and Summary keys.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Operation,
+
+        [Parameter(Mandatory)]
+        [string]$Target,
+
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $record = $ErrorRecord
+    if ($null -eq $record -and $global:Error.Count -gt 0) {
+        $record = $global:Error[0] -as [System.Management.Automation.ErrorRecord]
+    }
+
+    $message       = 'no error record was emitted'
+    $fqeid         = 'None'
+    $category      = 'None'
+    $exceptionType = 'None'
+
+    if ($null -ne $record) {
+        if ($null -ne $record.Exception) {
+            $message       = $record.Exception.Message
+            $exceptionType = $record.Exception.GetType().FullName
+        }
+        if ($null -ne $record.FullyQualifiedErrorId) { $fqeid = [string]$record.FullyQualifiedErrorId }
+        if ($null -ne $record.CategoryInfo)          { $category = $record.CategoryInfo.ToString() }
+    }
+
+    $summary = "$Operation returned no result for '$Target' - the write did not succeed. " +
+               "Message: $message; FullyQualifiedErrorId: $fqeid; CategoryInfo: $category"
+
+    return @{
+        Operation             = $Operation
+        Target                = $Target
+        Message               = $message
+        FullyQualifiedErrorId = $fqeid
+        CategoryInfo          = $category
+        ExceptionType         = $exceptionType
+        Summary               = $summary
+    }
+}
+
 function New-TierModelGpo {
     <#
     .SYNOPSIS
@@ -39,7 +119,7 @@ function New-TierModelGpo {
     Write-TierModelLog -Level Info -Message "GPO creation start" -Data @{
         TotalActions = $createActions.Count
         DomainController = $DomainController
-        WhatIf = $PSCmdlet.ShouldProcess
+        WhatIf = [bool]$WhatIfPreference
         CorrelationId = $CorrelationId
     } | Out-Null
     
@@ -69,40 +149,80 @@ function New-TierModelGpo {
                     
                     # Create the GPO - only include Comment parameter if we have a non-empty comment
                     if ([string]::IsNullOrWhiteSpace($gpoData.gpoComment)) {
-                        $newGPO = New-GPO -Name $gpoName -Server $DomainController
+                        $newGPO = New-GPO -Name $gpoName -Server $DomainController -ErrorAction Stop
                     } else {
-                        $newGPO = New-GPO -Name $gpoName -Server $DomainController -Comment $gpoData.gpoComment
+                        $newGPO = New-GPO -Name $gpoName -Server $DomainController -Comment $gpoData.gpoComment -ErrorAction Stop
                     }
-                    
+
+                    # Verify the write before claiming success. See Get-TierModelWriteFailureDetail.
+                    if ($null -eq $newGPO) {
+                        throw (Get-TierModelWriteFailureDetail -Operation 'New-GPO' -Target $gpoName).Summary
+                    }
+
                     # Show Created GPO message immediately after creation
                     Write-Host "  ✅ Created GPO: $gpoName" -ForegroundColor Green
                     
                     # Configure GPO status (User/Computer settings enabled/disabled) for create-only mode GPOs
                     # Only needed for 'create' mode because import operations will set status from imported GPO
                     if ($gpoMode -eq 'create' -and $gpoData.PSObject.Properties.Name -contains 'gpoStatus') {
+                        # Validate gpoStatus BEFORE the inner try so an unrecognised value propagates
+                        # to the outer catch (proper GPO-failure accounting + red ERROR console line)
+                        # rather than the gpoStatus-specific inner catch (warning-only, GPO counted
+                        # as executed). This is the fail-loud-per-GPO convention used throughout.
+                        $validGpoStatusValues = @(
+                            'AllSettingsEnabled',
+                            'UserSettingsDisabled',
+                            'ComputerSettingsDisabled',
+                            'AllSettingsDisabled'
+                        )
+                        if ([string]$gpoData.gpoStatus -notin $validGpoStatusValues) {
+                            $validList = $validGpoStatusValues -join ', '
+                            throw "GPO '$gpoName' has unrecognized gpoStatus '$($gpoData.gpoStatus)'. Valid values: $validList"
+                        }
+
                         try {
-                            $domain = Get-ADDomain -Server $DomainController
+                            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                             $domainDN = $domain.DistinguishedName
                             
-                            # Map gpoStatus values to AD flags
+                            # Map gpoStatus names to AD 'flags' attribute values.
+                            #
+                            # ⚠ CRITICAL: these are AD 'flags' attribute values, NOT .NET GpoStatus
+                            # enum ordinals. The ordinals are inverted for AllSettingsEnabled (ordinal 3)
+                            # and AllSettingsDisabled (ordinal 0) — do NOT "fix" that inversion.
+                            # Empirically verified on TierLab-DC01 by Joel Platek, 2026-09-04:
+                            #   AllSettingsEnabled       → flags 0
+                            #   UserSettingsDisabled     → flags 1
+                            #   ComputerSettingsDisabled → flags 2
+                            #   AllSettingsDisabled      → flags 3
+                            #
+                            # Must stay in exact agreement with the audit lookup in
+                            # Test-TierModelGPO.ps1. If these tables drift a status written here
+                            # audits as a different value — unresolvable drift because re-running
+                            # deploy keeps writing the wrong flags value.
+                            #
+                            # Exactly 4 real .NET GpoStatus members.
                             $flagValue = switch ($gpoData.gpoStatus) {
-                                'AllEnabled'       { 0 }
-                                'UserSettingsDisabled'    { 1 }
+                                'AllSettingsEnabled'       { 0 }
+                                'UserSettingsDisabled'     { 1 }
                                 'ComputerSettingsDisabled' { 2 }
-                                'BothSettingsDisabled'     { 3 }
-                                default { 0 } # Default to all enabled if unrecognized
+                                'AllSettingsDisabled'      { 3 }
                             }
                             
-                            Write-Host "    ✅ Setting GPO status to: $($gpoData.gpoStatus)" -ForegroundColor Green
-                            
                             # Set the flags attribute on the GPO AD object
-                            Set-ADObject -Identity "CN={$($newGPO.Id)},CN=Policies,CN=System,$domainDN" -Replace @{ flags = $flagValue } -Server $DomainController
+                            $statusResult = Set-ADObject -Identity "CN={$($newGPO.Id)},CN=Policies,CN=System,$domainDN" -Replace @{ flags = $flagValue } -Server $DomainController -PassThru -ErrorAction Stop
+                            if ($null -eq $statusResult) {
+                                throw (Get-TierModelWriteFailureDetail -Operation 'Set-ADObject (gpoStatus)' -Target $gpoName).Summary
+                            }
+
+                            Write-Host "    ✅ Set GPO status to: $($gpoData.gpoStatus)" -ForegroundColor Green
                         } catch {
                             Write-Host "    Warning: Failed to set GPO status '$($gpoData.gpoStatus)' - $($_.Exception.Message)" -ForegroundColor Yellow
                             Write-TierModelLog -Level Warning -Message "Failed to set GPO status" -Data @{
                                 GPOName = $gpoName
                                 GPOStatus = $gpoData.gpoStatus
                                 Exception = $_.Exception.Message
+                                FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                                CategoryInfo = $_.CategoryInfo.ToString()
                             }
                         }
                     }
@@ -113,7 +233,7 @@ function New-TierModelGpo {
                             try {
                                 
                                 # Get domain info for building ADSI path
-                                $domain = Get-ADDomain -Server $DomainController
+                                $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
                                 $domainDN = $domain.DistinguishedName
                                 $domainNetbios = $domain.NetBIOSName
                                 
@@ -167,6 +287,8 @@ function New-TierModelGpo {
                 Write-TierModelLog -Level Error -Message "Failed to create GPO" -Data @{
                     GPOName = $action.Data.name
                     Exception = $_.Exception.Message
+                    FullyQualifiedErrorId = [string]$_.FullyQualifiedErrorId
+                    CategoryInfo = $_.CategoryInfo.ToString()
                     CorrelationId = $CorrelationId
                 } | Out-Null
                 

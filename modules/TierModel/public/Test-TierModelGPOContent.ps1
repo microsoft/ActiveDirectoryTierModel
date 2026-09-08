@@ -88,7 +88,7 @@ function Test-TierModelGPOContent {
             $testResult.MockFilePath = $mockFilePath
             
             # Get actual GPO GptTmpl.inf path
-            $domain = Get-ADDomain -Server $DomainController
+            $domain = Get-ADDomain -Server $DomainController -ErrorAction Stop
             $domainName = $domain.DNSRoot
             $sysvol = "\\$DomainController\SYSVOL"
             $actualGptTmplPath = "$sysvol\$domainName\Policies\{$($gpo.Id)}\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf"

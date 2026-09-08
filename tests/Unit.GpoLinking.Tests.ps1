@@ -183,7 +183,7 @@ Describe "Get-TierModelGPOLink - GPO Link Planning" -Tag "Unit", "GPOLink", "Pla
                         Data = [PSCustomObject]@{
                             name = "ExistingGPO"
                             linkOrder = 1
-                            enforced = 'No'  # Different from current (Yes/True)
+                            enforced = 'No'  # Describe-level mock has Enforced=$true → genuine mismatch
                         }
                     }
                 )
@@ -1285,7 +1285,7 @@ Describe "Get-TierModelGpoLinkFd – Extended Coverage" -Tag "Unit", "GPOLink", 
 
 Describe "Get-TierModelGPOLink – Extended Coverage" -Tag "Unit", "GPOLink", "Planning" {
 
-    Context "Line 56 - enforced property absent, defaults to 'No'" {
+    Context "Line 56 - enforced property absent, treated as not-specified (`$null`)" {
         BeforeAll {
             Mock Write-TierModelLog -ModuleName TierModel {}
             Mock Write-Host         -ModuleName TierModel {}
@@ -1293,13 +1293,19 @@ Describe "Get-TierModelGPOLink – Extended Coverage" -Tag "Unit", "GPOLink", "P
                 param($Name, $Server, $ErrorAction)
                 return [PSCustomObject]@{ DisplayName = $Name; Id = [System.Guid]::NewGuid() }
             }
-            # No existing links → requiresAction=$true, $linkActions built with Enforced='No'
+            # No existing links → requiresAction=$true because the link is missing, NOT because of enforcement
             Mock Get-GPInheritance -ModuleName TierModel {
                 return [PSCustomObject]@{ GpoLinks = @() }
             }
         }
 
-        It "Should set RequiredState.Enforced to 'No' when gpoData has no enforced property (line 56)" {
+        It "Should set RequiredState.Enforced to `$null when gpoData has no enforced property (line 56)" {
+            # config\tiermodel-gpos.json declares no 'enforced' keys at all. The old else-branch
+            # assigned the STRING 'No', which is truthy in PowerShell — so `if ($requiredEnforced)`
+            # evaluated to $true and `'No' -ne $false` was also $true. That produced a permanent
+            # phantom "Enforcement mismatch" against the real boolean from Get-GPInheritance and
+            # drove Set-GPLink -Enforced 'Yes' against already-linked production GPOs (Rule 4).
+            # Absent config must mean "not specified" ($null), never a decision.
             $inputPlan = [PSCustomObject]@{
                 Actions = @(
                     [PSCustomObject]@{
@@ -1318,7 +1324,10 @@ Describe "Get-TierModelGPOLink – Extended Coverage" -Tag "Unit", "GPOLink", "P
 
             $result                                   | Should -Not -BeNullOrEmpty
             $result.Actions.Count                     | Should -Be 1
-            $result.Actions[0].RequiredState.Enforced | Should -Be 'No'
+            $result.Actions[0].RequiredState.Enforced | Should -BeNullOrEmpty
+            $result.Actions[0].RequiredState.Enforced | Should -Not -Be 'No'
+            # The only reason for action must be the missing link — never enforcement
+            $result.Actions[0].Reason                 | Should -Not -Match "Enforcement mismatch"
         }
     }
 
@@ -1396,12 +1405,13 @@ Describe "Get-TierModelGPOLink – Extended Coverage" -Tag "Unit", "GPOLink", "P
 
             $result = Get-TierModelGPOLink -Plan $inputPlan -DomainController "DC01"
 
-            # Line 170 executes (Write-Host "No action needed" fires), but the function has
-            # a StrictMode bug: $linkActions = @() | Sort-Object {} returns $null, and the
-            # subsequent $linkActions.Count throws, causing the outer catch to fire.
+            # A fully converged link is the SUCCESS case: no actions, no errors, Converged=$true.
+            # This previously asserted Converged=$false with a GPOLinkPlanningFailed error, because
+            # `$linkActions = @() | Sort-Object {}` collapsed to $null and `$linkActions.Count` then
+            # threw under StrictMode — so the happy path was reported as a planning failure.
             $result.Actions          | Should -BeNullOrEmpty
-            $result.Converged        | Should -Be $false
-            $result.Errors[0].Code   | Should -Be 'GPOLinkPlanningFailed'
+            $result.Converged        | Should -Be $true
+            $result.Errors           | Should -BeNullOrEmpty
             Should -Invoke Write-Host -ModuleName TierModel -ParameterFilter {
                 $Object -like '*No action needed*'
             } -Times 1
@@ -1444,13 +1454,13 @@ Describe "Get-TierModelGPOLink – Extended Coverage" -Tag "Unit", "GPOLink", "P
 
             $result = Get-TierModelGPOLink -Plan $inputPlan -DomainController "DC01"
 
-            # The per-action catch (lines 173-192) executes — Write-TierModelLog, Write-Host,
-            # and $errors += @{Code='GPOLinkAnalysisFailed'} all run.
-            # Afterward, $linkActions = @() | Sort-Object {} returns $null and
-            # $null.Count causes the outer catch to fire, overwriting the return value.
+            # The per-action catch (lines 173-192) executes and records GPOLinkAnalysisFailed.
+            # That code is now what actually surfaces: previously the empty-array collapse
+            # (`@() | Sort-Object` → $null, then $null.Count) threw and the outer catch overwrote
+            # the return value with GPOLinkPlanningFailed, hiding which action really failed.
             $result                  | Should -Not -BeNullOrEmpty
             $result.Converged        | Should -Be $false
-            $result.Errors[0].Code   | Should -Be 'GPOLinkPlanningFailed'
+            $result.Errors[0].Code   | Should -Be 'GPOLinkAnalysisFailed'
         }
     }
 

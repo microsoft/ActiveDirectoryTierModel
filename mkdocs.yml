@@ -27,3 +27,4 @@ nav:
   - Language Support: language-support.md
   - Canonical ACLs: canonical-acl.md
   - Sentinel Monitoring: sentinel-monitoring.md
+  - Event ID Schema: event-id-schema.md
