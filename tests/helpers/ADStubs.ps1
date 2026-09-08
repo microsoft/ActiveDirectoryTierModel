@@ -160,7 +160,7 @@ if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
         [PSCustomObject]@{ DisplayName = $Name; GpoId = [guid]::NewGuid(); Target = $Target; Order = if ($Order) { $Order } else { 1 }; Enabled = $true; Enforced = $false; GpoDomainName = $Domain }
     }
     function Set-GPInheritance { [CmdletBinding()] param($Target, $IsBlocked, $Server, $Domain) }
-    function Import-GPO { [CmdletBinding()] param($BackupGpoName, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded) }
+    function Import-GPO { [CmdletBinding()] param($BackupGpoName, $BackupId, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded, $MigrationTable, [switch]$AsJob) }
     function New-GPO {
         [CmdletBinding()]
         param($Name, $Server, $Domain, $Comment)
@@ -188,7 +188,7 @@ if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
             [PSCustomObject]@{ DisplayName = $Name; GpoId = [guid]::NewGuid(); Target = $Target; Order = if ($Order) { $Order } else { 1 }; Enabled = $true; Enforced = $false; GpoDomainName = $Domain }
         }
         function Set-GPInheritance { [CmdletBinding()] param($Target, $IsBlocked, $Server, $Domain) }
-        function Import-GPO { [CmdletBinding()] param($BackupGpoName, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded) }
+        function Import-GPO { [CmdletBinding()] param($BackupGpoName, $BackupId, $Path, $TargetName, $TargetGuid, $Server, $Domain, $CreateIfNeeded, $MigrationTable, [switch]$AsJob) }
         function New-GPO {
             [CmdletBinding()]
             param($Name, $Server, $Domain, $Comment)
@@ -207,7 +207,7 @@ if (-not (Get-Command Get-GPO -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
 
     # Security cmdlet stubs
-    function Get-Acl { [CmdletBinding()] param($Path) }
+    function Get-Acl { [CmdletBinding()] param($Path, $LiteralPath, $InputObject, [switch]$Audit, [switch]$AllCentralAccessPolicies, $Filter, $Include, $Exclude) }
     function Set-Acl { [CmdletBinding()] param($Path, $AclObject) }
 }
 
