@@ -35,6 +35,7 @@ Welcome to the Active Directory Tier Model documentation.
 ## Monitoring
 
 - **[Sentinel Monitoring](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
+- **[Event ID Schema](https://microsoft.github.io/ActiveDirectoryTierModel/event-id-schema/)** - Windows Event Log schema for SIEM integration and operational monitoring
 
 ## Reference
 

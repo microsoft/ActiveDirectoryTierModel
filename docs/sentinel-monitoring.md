@@ -196,6 +196,10 @@ In **Microsoft Sentinel → Content Hub**, search for **"Microsoft Active Direct
 - **Repository:** [github.com/microsoft/ActiveDirectoryTierModel](https://github.com/microsoft/ActiveDirectoryTierModel/)
 - **Documentation:** [microsoft.github.io/ActiveDirectoryTierModel](https://microsoft.github.io/ActiveDirectoryTierModel/)
 
+### Event IDs & SIEM schema
+
+For detailed information on the Windows Event Log schema that powers this monitoring, including Event ID definitions and KQL query patterns, see the **[Event ID Schema](https://microsoft.github.io/ActiveDirectoryTierModel/event-id-schema/)** documentation.
+
 ### Contributing
 
 To propose a change or report an issue with the monitoring solution, raise a GitHub **issue** in **both** repositories:

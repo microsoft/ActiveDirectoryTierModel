@@ -36,6 +36,7 @@ To get started with TierModel, please refer to our comprehensive documentation:
 - **[Test Coverage](https://microsoft.github.io/ActiveDirectoryTierModel/test-coverage/)** - Comprehensive test coverage analysis and roadmap
 - **[Language Support](https://microsoft.github.io/ActiveDirectoryTierModel/language-support/)** - Supported languages (English only today) and the localization roadmap
 - **[Sentinel Monitoring](https://microsoft.github.io/ActiveDirectoryTierModel/sentinel-monitoring/)** - Out-of-the-box Microsoft Sentinel monitoring for a deployed Tier Model (Content Hub solution)
+- **[Event ID Schema](https://microsoft.github.io/ActiveDirectoryTierModel/event-id-schema/)** - Windows Event Log schema for SIEM integration and operational monitoring
 
 ### 🔧 Technical Specifications
 - **[Feature Specification](specs/001-tier-model-module/spec.md)** - Complete requirements and user stories
