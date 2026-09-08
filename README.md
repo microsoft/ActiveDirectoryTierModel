@@ -50,8 +50,8 @@ To get started with TierModel, please refer to our comprehensive documentation:
 |------------|-----------|------------|--------|----------|
 | **Unit Tests** | **25 files** (Pester) | **1,658 tests** | ✅ All pass | **~90.9%** |
 | **Integration Tests** | **7 files** (Pester) | **330 tests** | ✅ All pass | **90.9%** |
-| **Manual Integration Tests** | **1 file** (Excel workbook) | **378 tests** | ✅ 100% Pass | **N/A** |
-| **Total** | **33 files** | **2,366 tests** | ✅ **100% passing** | **~90.9%** |
+| **Manual Integration Tests** | **1 file** (Excel workbook) | **384 tests** | ✅ 100% Pass | **N/A** |
+| **Total** | **33 files** | **2,372 tests** | ✅ **100% passing** | **~90.9%** |
 
 ### Test Coverage Highlights
 - ✅ **72/72** production files have comprehensive test coverage
