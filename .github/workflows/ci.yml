@@ -29,7 +29,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Install PowerShell Modules
       shell: pwsh
@@ -83,7 +83,7 @@ jobs:
         }
         
     - name: Upload ScriptAnalyzer Results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
         name: scriptanalyzer-results
@@ -98,7 +98,7 @@ jobs:
         
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Install Dependencies
       shell: pwsh
@@ -176,7 +176,7 @@ jobs:
         }
         
     - name: Upload Test Results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
         name: test-results
@@ -193,7 +193,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Validate Module Structure
       shell: pwsh
@@ -261,7 +261,7 @@ jobs:
         Get-ChildItem $packagePath | Format-Table Name, Length -AutoSize
         
     - name: Upload Module Package
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: TierModel-Module
         path: TierModel-Package/
@@ -275,7 +275,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Install Security Tools
       shell: pwsh
@@ -309,7 +309,7 @@ jobs:
         }
         
     - name: Upload Security Results
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
         name: security-analysis
@@ -329,10 +329,10 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Setup Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
       with:
         python-version: '3.x'
         
@@ -343,13 +343,13 @@ jobs:
       run: mkdocs build --strict
       
     - name: Upload Pages Artifact
-      uses: actions/upload-pages-artifact@v5
+      uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
       with:
         path: site/
         
     - name: Deploy to GitHub Pages
       id: deployment
-      uses: actions/deploy-pages@v5
+      uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # Job 8: Create GitHub Release
   release:
@@ -360,7 +360,7 @@ jobs:
     
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v6
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       
     - name: Create Release ZIP
       shell: pwsh
@@ -398,7 +398,7 @@ jobs:
         Write-Host "version=$version" >> $env:GITHUB_OUTPUT
         
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         name: ${{ github.ref_name }}
         generate_release_notes: true
