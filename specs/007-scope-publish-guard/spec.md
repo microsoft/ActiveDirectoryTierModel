@@ -3,7 +3,7 @@
 **Feature Branch**: *(none — not scheduled)*
 **Created**: 2026-09-05
 **Status**: DESIGN ONLY — **DEFERRED TO v2.2.0 by Joel, 2026-09-05**
-**Original author**: Rogue (Core Developer)
+**Original author**: GitHub Copilot agent (core development)
 **Input**: Relocated from `docs/design-scope-publish-guard.md` (deleted — `docs/` publishes to GitHub Pages
 and design scope belongs under `specs/`). Content preserved and reformatted to house spec style; no
 argument was softened or dropped in the move.

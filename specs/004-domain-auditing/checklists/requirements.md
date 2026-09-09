@@ -29,14 +29,14 @@
 - [x] Schema integration specified (central `tiermodel.schema.json`, no per-feature file)
 - [x] Deployment integration points specified (standalone, FullDeployment, phase order)
 - [x] Version bump specified (1.2.3 → 1.3.0)
-- [x] Docs-to-update list specified for Storm
+- [x] Docs-to-update list specified for the docs phase
 
 ## Architecture & Constitution Alignment
 
 - [x] Constitution compliance map completed in plan.md (all 9 principles addressed)
 - [x] Modular decomposition: 4 cmdlets, single-responsibility each
 - [x] Idempotency contract: no write when single managed ACE satisfies union target
-- [x] UNION converge specified (locked ruling from decisions.md)
+- [x] UNION converge specified (locked ruling captured in spec.md)
 - [x] No-clobber scope explicitly defined (FR-005)
 - [x] JSON schema versioning specified (schemaVersion: "1.0.0")
 - [x] Preferred DC binding specified (FR-009)

@@ -9,13 +9,13 @@
 
 ## ⚠️ Testing Scope Constraints (Joel's Direction — 2026-05-30)
 
-**Squad WILL test:**
+**Automated tests WILL cover:**
 - `-IncludeMsa`/`-IncludeGmsa`/`-IncludeDmsa` fails when OUs and Groups are NOT present
 - `-IncludeMsa`/`-IncludeGmsa`/`-IncludeDmsa` CANNOT combine with `-OuOnly` or any `*-Only` parameters
 - All 3 `-Include*` parameters run together with `-FullDeployment` without issues
 - Track deployment/audit counts to verify they increase with MSA/gMSA/dMSA additions
 
-**Squad will NOT test (Joel tests manually):**
+**Automated tests will NOT cover (Joel tests manually):**
 - Pre-requisite failures (KDS not present, Server 2025 requirements, AD domain/forest functional levels for dMSA)
 - Actual creation of MSA/gMSA/dMSA objects by tier 0/1/2 user accounts
 

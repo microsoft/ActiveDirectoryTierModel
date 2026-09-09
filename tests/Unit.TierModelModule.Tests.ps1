@@ -17,7 +17,7 @@ Tags: Unit, TierModelModule
 Coverage target: TierModel.psm1
 
 Scope notes:
-  * BUG-023 fix (Rogue, 2026-09-04): -Config now loads the schema itself; schema
+  * BUG-023 fix (2026-09-04): -Config now loads the schema itself; schema
     validation runs for BOTH FromPath and FromConfig. Fixtures passed to -Config must
     satisfy all schema-required top-level properties (version, organizationUnits, groups,
     users, gpos) to produce Valid=$true. Presence is checked unconditionally; scope only

@@ -3,7 +3,7 @@
 **Feature Branch**: `feature/domain-auditing`
 **Created**: 2026-08-14
 **Status**: Draft
-**Input**: Locked design from `.squad/decisions.md` and `.squad/decisions/inbox/coordinator-audit-union-ruling.md`. This spec documents a finalized design — no new design decisions are introduced here.
+**Input**: Locked design settled during design work handled by GitHub Copilot agents before this spec was written. This spec documents a finalized design — no new design decisions are introduced here.
 
 > **SACL vs DACL distinction**: This feature writes a **Security Audit Control List (SACL)** entry (an audit rule) on the domain root object. This is distinct from a DACL delegation and grants no access rights to any principal. "Delegation" language MUST NOT be used to describe this feature.
 
@@ -246,7 +246,7 @@ The audit warning prompt (FR-012) fires **before** the standard deployment confi
 
 ## Idempotency, UNION Converge, and No-Clobber Acceptance Criteria
 
-These criteria are the basis for Wolverine's Pester test cases.
+These criteria are the basis for the Pester test cases.
 
 ### Idempotency
 - **AC-IDEM-01**: Given canonical ACE already present (1 managed ACE, all 9 rights), `Get-TierModelAuditRule` returns `Converged = True`, `TotalActions = 0`.
@@ -302,7 +302,7 @@ The following are explicitly excluded from this feature:
 
 ## Docs to Update
 
-The following documentation files require updates. **Storm authors these; Cyclops flags them here.**
+The following documentation files require updates. **They are authored in the docs phase (Phase 7); this spec only flags them.**
 
 | File | Required Change |
 |---|---|

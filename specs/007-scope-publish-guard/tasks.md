@@ -19,13 +19,13 @@ seventh instance — its value is entirely prospective, which is why deferring c
 
 - [ ] T001 Resolve **OQ-002** — on cross-check failure, `throw` or log loudly plus a console banner?
       A throwing guard can kill a healthy run (spec §5); a logging guard weakens the guarantee. Joel chooses.
-  - **Files**: decision record in `.squad/decisions/inbox/`
+  - **Files**: record the resolution under OQ-002 in the "Open Questions for Joel" section of `specs/007-scope-publish-guard/spec.md`
   - **Satisfies**: spec §5, OQ-002
 
 - [ ] T002 Resolve **OQ-003** — bring branch 5 (`-OuAclOnly`) into the normaliser with an extended `Type`
       derivation, or keep a `-PreNormalised` escape hatch? Every escape hatch is a place instance seven can
       hide. This piece can ship independently of the guard.
-  - **Files**: decision record in `.squad/decisions/inbox/`
+  - **Files**: record the resolution under OQ-003 in the "Open Questions for Joel" section of `specs/007-scope-publish-guard/spec.md`
   - **Satisfies**: spec §4, OQ-003
 
 ---

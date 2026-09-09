@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Reworded documentation and comment attribution that named individual AI agent
+  personas, describing the role or the work instead. One such name appeared in a
+  comment in shipped module code. Two sample lab OU names in the
+  `specs/006-verbose-debug-logging` transcript were renamed for the same reason;
+  nothing references them. No documented behavior, requirement, or test claim
+  changed.
+
+### Removed
+- Removed the `.squad/` folder from version control. It held one contributor's local
+  AI-assistant working files and was never part of the project. Contributors are free
+  to use whichever agent or squad-based development tooling they prefer. The `.squad/`
+  union-merge rules were dropped from `.gitattributes`, and the `specs/**` documents
+  that pointed into `.squad/` now reference the specs themselves instead.
+
 ## [2.1.0] - 2026-09-08
 
 ### Added

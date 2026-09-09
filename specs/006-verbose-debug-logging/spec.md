@@ -269,8 +269,8 @@ Round 4 first proves the capture in both directions, then measures:
 The two records that were captured, verbatim:
 
 ```text
-VERBOSE: Performing the operation "Set" on target "OU=CyclopsR4Ok,DC=tierlab,DC=internal".
-VERBOSE: Performing the operation "Remove" on target "OU=CyclopsR4Protected,DC=tierlab,DC=internal".
+VERBOSE: Performing the operation "Set" on target "OU=LabR4Ok,DC=tierlab,DC=internal".
+VERBOSE: Performing the operation "Remove" on target "OU=LabR4Protected,DC=tierlab,DC=internal".
 ```
 
 #### The mechanism, stated plainly because it is counter-intuitive
@@ -320,7 +320,7 @@ VERBOSE: [New-TierModelGpo] Creating GPO 'Tier 0 - Restricted Logon'
 <error text, no platform record>
 ```
 
-#### Recommendation (Cyclops's, presented as a recommendation and **not** as settled)
+#### Recommendation (presented as a recommendation and **not** as settled)
 
 Scope WI-18 to **AD write call sites only** (`New-AD*`, `Set-AD*`, `Remove-AD*`, `Add-`/`Remove-ADGroupMember`)
 and expect **nothing** from `GroupPolicy`. Read call sites gain nothing measurable and would only add noise.
@@ -335,7 +335,7 @@ and expect **nothing** from `GroupPolicy`. Read call sites gain nothing measurab
    `ModuleType = Script`, `New-GPO` is a proxy `Function`, a `WinPSCompatSession` is present — are
    independently checkable and are not in doubt. The numeric `0` is reported, not re-proven.
 3. **No raw measurement log is retained in the repository.** `.research/lab-validation/results/` is empty;
-   the numbers above come from Cyclops's run report and `LAB-RUN-PROGRESS.md`. Re-running round 4 costs
+   the numbers above come from the lab run report and `LAB-RUN-PROGRESS.md`. Re-running round 4 costs
    minutes and should be done before the work is scheduled.
 4. **Round 4's own `$ladderOk` self-check declares the round VOID when `L3 = 0`**, which is what was measured.
    The conclusions above survive that only because AD1/AD3 are an independent positive control the script's
@@ -415,8 +415,8 @@ not reworded.
 - Specs, `.research/`, `CHANGELOG.md`, `.squad/` records, PR bodies and commit messages. These are history
   by purpose; the ruling is about *code*.
 
-**Execution status at the time of writing:** Rogue is applying D13 to product code on this branch —
-**155 mentions across 36 files**. That sweep is Rogue's; no other agent edits product code for it. Tracked as
+**Execution status at the time of writing:** D13 is being applied to product code on this branch —
+**155 mentions across 36 files**. That sweep has a single owner; no other agent edits product code for it. Tracked as
 task **T024** in `tasks.md`.
 
 ---
@@ -454,7 +454,7 @@ chose **"PR only — do not migrate them into `CHANGELOG.md` at all."**
 | The bug register `.research/known-bugs.md` | **UNTOUCHED and still authoritative.** D15 moves bug detail out of the *changelog*, not out of the project. |
 | Per-bug detail for v2.1.0 | Goes in the **pull request body**. |
 
-**Who writes the `[2.1.0]` feature section:** it remains **Joel's or the Scribe's**, exactly as `tasks.md`
+**Who writes the `[2.1.0]` feature section:** it remains **Joel's or a documentation agent's**, exactly as `tasks.md`
 T021 already stated — but it is now a materially smaller job than the migration it replaces. See the
 re-scoped T021.
 
@@ -465,7 +465,7 @@ re-scoped T021.
 Joel ruled that the drift-count arithmetic residual affecting the GPO and WinLapsDecryptor entity types is
 **documented, not fixed**. It carries no BUG number by decision.
 
-**It is recorded in full by Beast in `.research/known-bugs.md`, under *"By design — do not re-file"*, as
+**It is recorded in full in `.research/known-bugs.md`, under *"By design — do not re-file"*, as
 *"GPO / WinLapsDecryptor drift arithmetic does not sum"*. That entry is the authority; it is deliberately not
 duplicated here.** It is cross-referenced from this spec only because a reader of 006 arriving at the
 audit reporting changes will otherwise re-discover the drift-count arithmetic residual and try to "correct" it.
@@ -539,7 +539,7 @@ Joel's release rule, verbatim:
 - `README.md` / `docs/test-coverage.md` — test count refresh once the new tests land.
 - `CHANGELOG.md` — a `[2.1.0]` entry describing the **feature only** (`-EnableVerbose` / `-EnableDebug`).
   **The 22-bug migration is cancelled — see D15.** Bug detail goes in the pull request. Still
-  **owned by Joel/Scribe, not by this feature's implementer.**
+  **owned by Joel or a documentation agent, not by this feature's implementer.**
 
 **Must not say**: anything asserting a cause for the customer incident, and anything promising the switches
 will reveal why a GPO failed (see M-3 and M-5).
