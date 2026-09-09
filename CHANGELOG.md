@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and proposes SHA updates as maintainers publish new versions, after a 7-day
   cooldown. This keeps the pinned references maintainable.
 
+### Documentation
+- Corrected the automated coverage figures in `README.md` and `docs/test-coverage.md`
+  to the values CI actually measured: **87.63%** across the CI-scoped 82-file module
+  population (14,651 of 16,719 commands), replacing a stale 87.36% / 14,606. Test
+  counts and the manual UAT figures are unchanged.
+
 ## [2.1.0] - 2026-09-08
 
 ### Added
