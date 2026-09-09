@@ -36,7 +36,7 @@
 - [x] Constitution compliance map completed in plan.md (all 9 principles addressed)
 - [x] Modular decomposition: 4 cmdlets, single-responsibility each
 - [x] Idempotency contract: no write when single managed ACE satisfies union target
-- [x] UNION converge specified (locked ruling from decisions.md)
+- [x] UNION converge specified (locked ruling captured in spec.md)
 - [x] No-clobber scope explicitly defined (FR-005)
 - [x] JSON schema versioning specified (schemaVersion: "1.0.0")
 - [x] Preferred DC binding specified (FR-009)

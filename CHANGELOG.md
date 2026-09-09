@@ -10,7 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - Removed the `.squad/` folder from version control. It held one contributor's local
   AI-assistant working files and was never part of the project. Contributors are free
-  to use whichever agent or squad-based development tooling they prefer.
+  to use whichever agent or squad-based development tooling they prefer. The `.squad/`
+  union-merge rules were dropped from `.gitattributes`, and the `specs/**` documents
+  that pointed into `.squad/` now reference the specs themselves instead.
 
 ## [2.1.0] - 2026-09-08
 

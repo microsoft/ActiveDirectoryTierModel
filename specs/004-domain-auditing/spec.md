@@ -3,7 +3,7 @@
 **Feature Branch**: `feature/domain-auditing`
 **Created**: 2026-08-14
 **Status**: Draft
-**Input**: Locked design from `.squad/decisions.md` and `.squad/decisions/inbox/coordinator-audit-union-ruling.md`. This spec documents a finalized design — no new design decisions are introduced here.
+**Input**: Locked design settled during design work handled by GitHub Copilot agents before this spec was written. This spec documents a finalized design — no new design decisions are introduced here.
 
 > **SACL vs DACL distinction**: This feature writes a **Security Audit Control List (SACL)** entry (an audit rule) on the domain root object. This is distinct from a DACL delegation and grants no access rights to any principal. "Delegation" language MUST NOT be used to describe this feature.
 

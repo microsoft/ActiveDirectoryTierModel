@@ -21,11 +21,11 @@ Do not begin Phase 3 or later without Joel's explicit go/no-go after the walkthr
 
 - [ ] T001 **Ops-guide walkthrough session with Joel**: step through the auth-silo mechanics, the current script limitations, the proposed silo/policy object model, and open questions OQ-001 through OQ-010.
   - **Input**: `specs/005-auth-silos/spec.md`, `.research/auth-silos/` research pack (esp. A1, A8, B, E1)
-  - **Output**: Resolved decisions for OQ-001 through OQ-010 (or the subset Joel prioritizes); decision records to be written in T002
+  - **Output**: Resolved decisions for OQ-001 through OQ-010 (or the subset Joel prioritizes); resolutions to be recorded in T002
   - **Notes**: Review the pre-enforcement gates G1–G12 (spec User Story 3) and confirm the intended enforcement flip UX. Confirm Tier device group ownership and pre-population process.
 
-- [ ] T002 **Record walkthrough decisions as ADRs**: for each open question resolved in T001, write a decision record in `.squad/decisions/inbox/`.
-  - **Files**: `.squad/decisions/inbox/` — one file per material decision
+- [ ] T002 **Record walkthrough decisions**: for each open question resolved in T001, record the resolution in the "Open Questions / Deferred" section of `specs/005-auth-silos/spec.md`, marking the question resolved and stating the decision and its rationale.
+  - **Files**: `specs/005-auth-silos/spec.md` — one resolution entry per material decision
   - **Satisfies**: Audit trail required before design phase begins
 
 ---
@@ -54,10 +54,10 @@ Review T001 walkthrough outcomes with Joel and confirm scope before proceeding t
   - **Files**: `specs/005-auth-silos/plan.md`; later `config/tiermodel-authsilos.json` and `config/tiermodel.schema.json`
 
 - [ ] T006 **Design SDDL generation strategy**: runtime SID resolution vs. config-authored SDDL; validation approach for OR vs. AND boolean logic correctness; test harness for positive/negative device checks.
-  - **Files**: Decision record in `.squad/decisions/inbox/`; update `specs/005-auth-silos/plan.md`
+  - **Files**: Record the decision in the "Open Questions / Deferred" section of `specs/005-auth-silos/spec.md`; update `specs/005-auth-silos/plan.md`
 
 - [ ] T007 **Design exemption data structure**: representation format, grant authorization model, expiry enforcement, scope-widening protection, and how the deployment code handles expired or over-scope exemptions.
-  - **Files**: Decision record; update `specs/005-auth-silos/spec.md` (OQ-003 resolution)
+  - **Files**: Record the decision under OQ-003 in the "Open Questions / Deferred" section of `specs/005-auth-silos/spec.md`
 
 ---
 

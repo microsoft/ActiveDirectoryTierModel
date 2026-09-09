@@ -201,7 +201,7 @@ unticked, even where a conversation suggested otherwise.
     - `README.md:50-53` table rows: Unit (24 → 25 files, 1,573 → 1,650 tests), Integration (7 files unchanged, 318 → 330 tests), Manual (1 file, 378 tests unchanged), Total (32 → 33 files, 2,269 → 2,358 tests). Added "(Pester)" and "(Excel workbook)" labels to clarify automated vs manual distinction.
     - `docs/test-coverage.md:12` updated: date "2026-09-02" → "2026-09-07", count "1,891 total tests" → "1,980 automated tests"
     - `docs/test-coverage.md` Membership section: aggregate "1,783 → 1,891" → "1,783 → 1,980" with note "+89 other new tests in v2.1.0"
-  - **About the 2026-09-06 assessment**: The original task analysis ("only verdict and date are stale; numbers are correct") was superseded by suite growth. By 2026-09-07 execution, the counts themselves had grown (1,650+330 vs 1,573+318) and file totals were incorrect (33 vs 32). The file-count error is worth understanding: the old "32 files" figure counted the Excel workbook (`tests\Manual.Integration.Tests.xlsx`, 60.7 KB) as a file, which coincidentally matched the count of `.ps1` containers (24+7). When Unit tests grew to 25 files, the total `.ps1` count became 32, and the coincidence broke — now correctly reported as 33 total (32 automated + 1 manual workbook). This breakdown was independently identified by Wolverine and is recorded in `.squad\decisions\inbox\wolverine-ci-parity.md:116-120`.
+  - **About the 2026-09-06 assessment**: The original task analysis ("only verdict and date are stale; numbers are correct") was superseded by suite growth. By 2026-09-07 execution, the counts themselves had grown (1,650+330 vs 1,573+318) and file totals were incorrect (33 vs 32). The file-count error is worth understanding: the old "32 files" figure counted the Excel workbook (`tests\Manual.Integration.Tests.xlsx`, 60.7 KB) as a file, which coincidentally matched the count of `.ps1` containers (24+7). When Unit tests grew to 25 files, the total `.ps1` count became 32, and the coincidence broke — now correctly reported as 33 total (32 automated + 1 manual workbook). This breakdown was independently identified during a GitHub Copilot agent review.
   - **Verification**: All arithmetic asserts pass: 25+7=32, 1,650+330=1,980, 32+1=33, 1,980+378=2,358. Headline and table rows are now consistent.
   - **Sanity check 2026-09-08 (Wolverine)**: current `README.md:47,58` and `docs\test-coverage.md:12`
     have moved to **1,988** automated tests, but `docs\test-coverage.md:14` still carries a historical
@@ -225,7 +225,7 @@ unticked, even where a conversation suggested otherwise.
   - **Files**: `CHANGELOG.md`
   - **Owner**: **Joel or the Scribe.** Not this feature's implementer, and explicitly **not Storm** — Storm
     is locked out of `CHANGELOG.md` on this branch. Storm's failed v2.0.0 backfill
-    (`.squad/agents/storm/history.md`, 2026-09-03) is the reason the lock exists, and re-scoping the task
+    (2026-09-03) is the reason the lock exists, and re-scoping the task
     does not lift it.
   - **Verification 2026-09-08 (Wolverine)**: **COMPLETED after Cyclops rewrite.** `CHANGELOG.md:10-27`
     is a short 2.1.0 section. In that section, independent measurements found `BUG-\d+` = **0** and

@@ -20,9 +20,10 @@
 
 ### Research References
 
-- **Locked design**: `.squad/decisions.md` (Decision: SACL Audit — Read API, Merge Behaviour, Converge Recipe)
-- **UNION ruling**: `.squad/decisions/inbox/coordinator-audit-union-ruling.md`
-- **Prior spike results**: See decisions.md Decision 1 through Decision 7
+- **Locked design**: SACL audit read API, merge behaviour and converge recipe were settled during design work
+  handled by GitHub Copilot agents before this spec was written. `spec.md` is the authoritative record.
+- **UNION ruling**: captured in `spec.md` — FR-004 and the AC-UNION-* acceptance criteria.
+- **Prior spike results**: see the spike script above and the design decisions carried into `spec.md`.
 
 ---
 

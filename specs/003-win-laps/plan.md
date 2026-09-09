@@ -24,7 +24,6 @@
 - **Dependencies & Preflight**: `.research/windowslaps/research/dependencies-and-preflight.md`
 - **Red-Team Findings**: `.research/windowslaps/research/red-team-findings.md`
 - **ADR-0001**: `.research/windowslaps/decisions/0001-windows-laps-only.md`
-- **Architecture Decision**: `.squad/decisions/inbox/cyclops-winlaps-architecture.md`
 
 ---
 
