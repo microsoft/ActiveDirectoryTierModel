@@ -1010,8 +1010,8 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
             # It used to read `$delegating.Count | Should -Be 4` and `$allColoured.Count |
             # Should -Be 6`. The 6 was a census; the 4 was NOT decreed - it was a snapshot of how
             # far the conversion had got when the test was written, which is precisely the
-            # derived-number trap of working rule 22. It duly went red the moment Rogue finished
-            # the conversion, i.e. it broke on the system being made MORE correct. A test that
+            # derived-number trap of working rule 22. It duly went red the moment the conversion
+            # finished, i.e. it broke on the system being made MORE correct. A test that
             # must be rewritten every time the system legitimately improves is charging rent.
             #
             # The decreed rule is the equality: every render site that colours a finding must get
@@ -1045,8 +1045,8 @@ Describe 'Audit-TierModel consolidated counters' -Tag 'Unit', 'Audit', 'Reportin
 
         It 'Prints every real producer type that reaches the GPO and ADMX render sites in red or yellow, never grey' {
             # SUPERSEDES 'Colours [Error] red at the two render sites that do NOT use the
-            # classifier'. That name described a migration state, and when Rogue converted the
-            # last two sites the assertion `$switchMaps.Count | Should -Be 2` went red because
+            # classifier'. That name described a migration state, and when the last two sites
+            # were converted the assertion `$switchMaps.Count | Should -Be 2` went red because
             # there were no inline maps left to find.
             #
             # The trap avoided here: simply retuning that literal from 2 to 0 would have made the

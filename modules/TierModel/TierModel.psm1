@@ -34,7 +34,7 @@ function Initialize-TierModelLogging {
     three assertions in that test (measured 2026-09-03: 'Number of declared
     functions matches number of public function files' expected 84 got 83, plus
     'All public function files are declared in manifest' and 'Declared functions
-    list matches actual functions list exactly'). That test belongs to Wolverine
+    list matches actual functions list exactly'). That test is owned elsewhere
     and is not editable here. Defining the function inline keeps it dot-sourced
     into module scope, unexported, and invisible to that test's three hard-coded
     inline-function regexes. Do not move this into public\ without first changing

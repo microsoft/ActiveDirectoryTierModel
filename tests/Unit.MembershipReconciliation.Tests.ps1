@@ -19,7 +19,7 @@
     NOT UNIT-TESTABLE (inline in main try-block, integration-covered by Joel lab UAT):
       - Exclusion parameter-pairing validation (-ExclusionAttribute without -ExclusionValue)
       - -NoExclusions safety gate (mutually exclusive with -ExclusionAttribute)
-    RECOMMENDATION: Beast should extract these two gates into a Test-ExclusionParams
+    RECOMMENDATION: extract these two gates into a Test-ExclusionParams
     function to make them independently unit-testable.
 
 .NOTES

@@ -11,7 +11,7 @@
 
 **Sequence:** Write Pester tests BEFORE production implementation. Lab validation follows implementation.
 
-**Squad WILL test:**
+**Automated tests WILL cover:**
 - `-EnableAuditing` blocked with any `-*Only` parameter
 - `-EnableAuditing` runs standalone and with `-FullDeployment`
 - Idempotency: second run returns `Applied = 0`, `Converged = True`
@@ -21,7 +21,7 @@
 - `GetAuditRules()` enumeration correctness (foreach vs @())
 - Privilege missing → `AUDITACL_PRIVILEGE_MISSING` error
 
-**Squad will NOT test (Joel manual):**
+**Automated tests will NOT cover (Joel manual):**
 - Live SACL write against production domain
 - GPO presence/configuration
 
@@ -130,7 +130,7 @@ Review test output with Joel before writing production implementation. Confirm l
 
 ---
 
-## Phase 7: Docs (Storm)
+## Phase 7: Docs
 
-- [ ] T016 Storm updates documentation per spec.md "Docs to Update" section: `docs/sentinel-monitoring.md`, `README.md`, `CHANGELOG.md`, `docs/faq.md`.
+- [ ] T016 Update documentation per spec.md "Docs to Update" section: `docs/sentinel-monitoring.md`, `README.md`, `CHANGELOG.md`, `docs/faq.md`.
   - **Satisfies**: Docs to Update list in spec.md

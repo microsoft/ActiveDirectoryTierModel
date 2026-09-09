@@ -29,7 +29,7 @@
 - [x] Schema integration specified (central `tiermodel.schema.json`, no per-feature file)
 - [x] Deployment integration points specified (standalone, FullDeployment, phase order)
 - [x] Version bump specified (1.2.3 → 1.3.0)
-- [x] Docs-to-update list specified for Storm
+- [x] Docs-to-update list specified for the docs phase
 
 ## Architecture & Constitution Alignment
 

@@ -85,7 +85,7 @@
 ## Hygiene
 
 - [x] No persona names — no codenamed personas or research-author names from the source material
-- [x] No agent names, squad references, or squad vocabulary
+- [x] No agent names or AI-tooling vocabulary
 - [x] No research content copied verbatim — all synthesized from research pack
 - [x] Source-material scripts noted as frozen evidence only; not a reference implementation (CON-007)
 - [x] All research-internal identifiers (AS-C-nn, A4-Wnn, etc.) are NOT exposed in the spec — content is synthesized without referencing internal IDs

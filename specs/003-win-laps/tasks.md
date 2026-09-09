@@ -9,7 +9,7 @@
 
 ## ⚠️ Testing Scope Constraints (Joel's Direction — 2026-07-13)
 
-**Squad WILL test:**
+**Automated tests WILL cover:**
 - `-IncludeWinLaps` fails when OUs and Groups are NOT present
 - `-IncludeWinLaps` CANNOT combine with `-OuOnly` or any `*-Only` parameters
 - `-IncludeWinLaps` runs together with `-FullDeployment` without issues
@@ -19,7 +19,7 @@
 - Idempotency: second run produces 0 changes, `Converged = True`
 - `-WhatIf` / planning mode produces zero AD writes
 
-**Squad will NOT test (Joel tests manually):**
+**Automated tests will NOT cover (Joel tests manually):**
 - Pre-requisite failures (schema not present, LAPS module missing, DFL < 2016)
 - Actual Set-LapsAD*Permission calls against live AD DACLs
 - DC/DSRM scope rejection scenarios (DC objects in target OUs)
@@ -41,7 +41,7 @@
 
 > Foundation configuration file and JSON schema that all subsequent tasks depend on.
 
-- [x] T001 [P] Create `config/tiermodel-winlaps.json` with `schemaVersion: "1.0.0"` and a `winLapsDelegations` array. Each entry has fields: `ouDn` (OU distinguished name using `{{DOMAIN_DN}}` placeholder), `computerSelfPermission` (boolean — enables computer SELF-store), `readGroup` (principal allowed to read/retrieve the LAPS password), `resetGroup` (principal allowed to force reset/expire), and optional `isDomainControllerOu` (boolean, default `false` — when `true`, the DC-object hard-stop is bypassed for that entry, enabling explicit opt-in for the Domain Controllers OU). `readGroup` and `resetGroup` are separate fields by design (reset/expire is a distinct right from read/decrypt); operators MAY set them to the same value. Beast confirmed 7 LAPS-linked computer OUs: Domain Controllers; Tier 0/1 Member Servers; Tier 0/1/2 PAW Devices; Tier 2 End-User Devices. Only the Domain Controllers entry sets `isDomainControllerOu: true`. Values marked `[NEEDS INPUT: Joel]` — Joel is sourcing the OU list now.
+- [x] T001 [P] Create `config/tiermodel-winlaps.json` with `schemaVersion: "1.0.0"` and a `winLapsDelegations` array. Each entry has fields: `ouDn` (OU distinguished name using `{{DOMAIN_DN}}` placeholder), `computerSelfPermission` (boolean — enables computer SELF-store), `readGroup` (principal allowed to read/retrieve the LAPS password), `resetGroup` (principal allowed to force reset/expire), and optional `isDomainControllerOu` (boolean, default `false` — when `true`, the DC-object hard-stop is bypassed for that entry, enabling explicit opt-in for the Domain Controllers OU). `readGroup` and `resetGroup` are separate fields by design (reset/expire is a distinct right from read/decrypt); operators MAY set them to the same value. There are 7 LAPS-linked computer OUs: Domain Controllers; Tier 0/1 Member Servers; Tier 0/1/2 PAW Devices; Tier 2 End-User Devices. Only the Domain Controllers entry sets `isDomainControllerOu: true`. Values marked `[NEEDS INPUT: Joel]` — Joel is sourcing the OU list now.
   - ✅ Completed 2026-07-14: 7 delegation entries with Joel-approved values, all groups verified against config.
   - **Files**: `config/tiermodel-winlaps.json`
   - **Satisfies**: FR-013, Constitution IX
@@ -235,10 +235,10 @@ Verification procedure:
   - **Files**: `tests/Unit.WinLapsAclOperations.Tests.ps1`
   - **Satisfies**: FR-010, SC-005
 
-- [x] T021 [Storm] Update documentation in `docs/` and `README.md` — document `-IncludeWinLaps` switch for Deploy and Audit scripts, new cmdlets (`Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`), Windows LAPS schema prerequisite, deployment examples (standalone and full deployment), audit examples, deployment-scope boundary, and the Windows-LAPS-only invariant. Update `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, and `README.md` with consistent "Optional Feature" messaging matching the MSA/gMSA/dMSA documentation pattern.
+- [x] T021 [Docs] Update documentation in `docs/` and `README.md` — document `-IncludeWinLaps` switch for Deploy and Audit scripts, new cmdlets (`Get-TierModelWinLapsAcl`, `New-TierModelWinLapsAcl`, `Test-TierModelWinLapsAcl`, `Get-TierModelWinLapsAclFd`), Windows LAPS schema prerequisite, deployment examples (standalone and full deployment), audit examples, deployment-scope boundary, and the Windows-LAPS-only invariant. Update `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, and `README.md` with consistent "Optional Feature" messaging matching the MSA/gMSA/dMSA documentation pattern.
   - ✅ Completed 2026-07-16: README + 8 docs files updated (also cmdlet-architecture, drift-detection-details, faq, quick-deployment-guide, test-tag-matrix), plus `Test-TierModelWinLapsDecryptor` documented. Windows-LAPS-only + opt-in audit messaging aligned to MSA/gMSA/dMSA pattern.
   - **Files**: `docs/detailed-deployment-guide.md`, `docs/deployment-methodology.md`, `docs/cmdlet-architecture.md`, `docs/test-coverage.md`, `README.md`
-  - **Owner**: Storm (DevRel & Documentation)
+  - **Owner**: DevRel & Documentation
 
 ---
 

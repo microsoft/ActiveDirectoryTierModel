@@ -201,7 +201,7 @@ Verification: `$lapsActionCount > $baseActionCount` (delta = 3 × number of winL
 
 > **Design note (isDomainControllerOu):** Optional boolean, default `false`. Only the Domain Controllers OU entry sets it `true`. This refines locked decision OQ-RT-01: default DC-object hard-stop protection is retained for ALL entries; explicit per-entry opt-in is required to target an OU containing Domain Controllers. DC targeting is deliberate and visible in config.
 
-> **Deployment note (7 OUs, 2 GPO templates):** Beast confirmed exactly 7 LAPS-linked computer OUs: Domain Controllers; Tier 0 Member Servers; Tier 1 Member Servers; Tier 0 PAW Devices; Tier 1 PAW Devices; Tier 2 PAW Devices; Tier 2 End-User Devices. Two GPO templates are used (DC template for DCs + PAWs; Common template for member servers + EUDs). Read/reset groups MAY differ across those groupings — Joel decides actual values.
+> **Deployment note (7 OUs, 2 GPO templates):** There are exactly 7 LAPS-linked computer OUs: Domain Controllers; Tier 0 Member Servers; Tier 1 Member Servers; Tier 0 PAW Devices; Tier 1 PAW Devices; Tier 2 PAW Devices; Tier 2 End-User Devices. Two GPO templates are used (DC template for DCs + PAWs; Common template for member servers + EUDs). Read/reset groups MAY differ across those groupings — Joel decides actual values.
 
 ### Test Files
 
