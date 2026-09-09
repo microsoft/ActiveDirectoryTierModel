@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   union-merge rules were dropped from `.gitattributes`, and the `specs/**` documents
   that pointed into `.squad/` now reference the specs themselves instead.
 
+### Security
+- Pinned every GitHub Action used by the CI workflow to a full-length commit SHA,
+  with the human-readable version retained in a trailing comment. Mutable tags such
+  as `@v4` can be repointed at malicious code if a maintainer account or release
+  process is compromised; a commit SHA cannot. No workflow behavior changed — only
+  action resolution became immutable. Contributed by Dan Fiedler.
+- Added `.github/dependabot.yml` so Dependabot tracks the `github-actions` ecosystem
+  and proposes SHA updates as maintainers publish new versions, after a 7-day
+  cooldown. This keeps the pinned references maintainable.
+
 ## [2.1.0] - 2026-09-08
 
 ### Added
