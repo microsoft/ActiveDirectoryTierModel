@@ -663,6 +663,44 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
     return
 }
 
+# --- Pester prerequisite ----------------------------------------------------------------------
+# Ensure Pester 5.x+ is available, installing it for the current user from PSGallery if missing.
+# Windows ships an in-box Pester 3.4.0 that does not satisfy this check, so the minimum version
+# is enforced explicitly. -SkipPublisherCheck is required to install side-by-side with that in-box
+# copy (it is signed with a different certificate). Installation is a tooling prerequisite, not part
+# of the AD change being previewed, so it runs in planning mode too and ignores -WhatIf.
+# A failure is reported as a warning and never aborts the deployment.
+$pesterMinimumVersion = [version]'5.0.0'
+$installedPester = Get-Module -ListAvailable -Name Pester |
+    Where-Object { $_.Version -ge $pesterMinimumVersion } |
+    Sort-Object -Property Version -Descending |
+    Select-Object -First 1
+
+if ($installedPester) {
+    Write-Host "Pester $($installedPester.Version) is available." -ForegroundColor DarkGray
+}
+else {
+    Write-Host "Pester $pesterMinimumVersion or later not found. Installing from PSGallery (CurrentUser scope)..." -ForegroundColor Yellow
+    try {
+        Install-Module -Name Pester -MinimumVersion $pesterMinimumVersion -Repository PSGallery -Scope CurrentUser `
+            -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop -WhatIf:$false -Confirm:$false
+        $installedPester = Get-Module -ListAvailable -Name Pester |
+            Where-Object { $_.Version -ge $pesterMinimumVersion } |
+            Sort-Object -Property Version -Descending |
+            Select-Object -First 1
+        if ($installedPester) {
+            Write-Host "Pester $($installedPester.Version) installed successfully." -ForegroundColor Green
+        }
+        else {
+            Write-Warning "Pester installation reported success but no Pester $pesterMinimumVersion+ module was found."
+        }
+    }
+    catch {
+        Write-Warning "Could not install Pester: $($_.Exception.Message)"
+        Write-Warning "Install it manually with: Install-Module -Name Pester -Scope CurrentUser -Force -SkipPublisherCheck"
+    }
+}
+
 # Import TierModel module with all public functions
 $script:TierModelModule = Import-Module (Join-Path $PSScriptRoot 'Modules\TierModel\TierModel.psd1') -Force -Verbose:$false -PassThru
 
